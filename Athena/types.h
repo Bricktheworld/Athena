@@ -53,6 +53,19 @@ inline int dbgln(const char* fmt, ...)
 
 #define pass_by_register __vectorcall
 
+#define check_return [[nodiscard]]
+
+#define COM_RELEASE(com) \
+	do \
+	{ \
+		if (com == nullptr) {} \
+		else \
+		{ \
+			com->Release(); \
+			com = nullptr; \
+		} \
+	} while (0)
+
 #ifdef _DEBUG
 #define DEBUG
 #endif
@@ -70,9 +83,24 @@ inline int dbgln(const char* fmt, ...)
 			DEBUG_BREAK();  \
 		} \
 	} while(0)
+
+#include <comdef.h>
+#define HASSERT(hres) \
+	do \
+	{ \
+		if (SUCCEEDED(hres)) { } \
+		else \
+		{ \
+			_com_error err(hres); \
+			const wchar_t* err_msg = err.ErrorMessage(); \
+			dbgln("HRESULT failed (%s, %d): %ls", __FILE__, __LINE__, err_msg); \
+			DEBUG_BREAK();  \
+		} \
+	} while(0)
 #else
 #define DEBUG_BREAK() do { } while(0)
 #define ASSERT(expr) do { } while(0)
+#define HASSERT(hres) do { } while(0)
 #endif
 
 

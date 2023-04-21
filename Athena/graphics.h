@@ -1,10 +1,17 @@
 #pragma once
 #include "types.h"
 #include "math/math.h"
-#include <d3d11_1.h>
+#include <d3d12.h>
+#include <dxgi1_6.h>
+#include <wrl.h>
 
 typedef Vec4 Rgba;
 typedef Vec3 Rgb;
+
+template <typename T>
+using ComPtr = Microsoft::WRL::ComPtr<T>;
+
+static constexpr u8 FRAMES_IN_FLIGHT = 3;
 
 struct CBuffer
 {
@@ -15,32 +22,43 @@ struct CBuffer
 
 struct GraphicsDevice
 {
-	ID3D11Device* dev = nullptr;
-	ID3D11DeviceContext* ctx = nullptr;
-	IDXGISwapChain* swap_chain = nullptr;
-
-	ID3D11Texture2D* depth_stencil_buffer = nullptr;
-
-	ID3D11RenderTargetView* render_target_view = nullptr;
-	ID3D11DepthStencilView* depth_stencil_view = nullptr;
-
-	D3D11_VIEWPORT viewport = { 0 };
-	ID3D11DepthStencilState* depth_stencil_state = nullptr;
-	ID3D11RasterizerState* raster_state = nullptr;
-
-	D3D_FEATURE_LEVEL feature_level;
-
-	ID3D11Buffer* vertex_buffer = nullptr;
-	ID3D11Buffer* index_buffer = nullptr;
-
-	ID3D11VertexShader* vertex_shader = nullptr;
-	ID3D11PixelShader* pixel_shader = nullptr;
-
-	ID3D11Buffer* cbuffer = nullptr;
-
-	ID3D11InputLayout* input_layout = nullptr;
-
 	Mat4 proj;
+
+	ComPtr<ID3D12Device2> dev = nullptr;
+	ComPtr<ID3D12CommandQueue> cmd_queue = nullptr;
+	ComPtr<IDXGISwapChain4> swap_chain = nullptr;
+	ComPtr<ID3D12GraphicsCommandList> cmd_list = nullptr;
+	ComPtr<ID3D12CommandAllocator> cmd_allocators[FRAMES_IN_FLIGHT] = {0};
+
+	ComPtr<ID3D12DescriptorHeap> rtv_descriptor_heap = nullptr;
+	u32 rtv_descriptor_size = 0;
+
+	ComPtr<ID3D12Resource> back_buffers[FRAMES_IN_FLIGHT] = {0};
+	u32 back_buffer_index = 0;
+
+	ComPtr<ID3D12Fence> fence = nullptr;
+	u64 fence_value = 0;
+	u64 frame_fence_values[FRAMES_IN_FLIGHT] = {0};
+	HANDLE fence_event;
+
+	bool vsync = true;
+	bool tearing_supported = false;
+	bool fullscreen = false;
+
+	ComPtr<ID3D12Resource> depth_buffer = nullptr;
+	ComPtr<ID3D12DescriptorHeap> dsv_heap  = nullptr;
+
+	ComPtr<ID3D12Resource> vertex_buffer;
+	D3D12_VERTEX_BUFFER_VIEW vertex_buffer_view = {0};
+
+	ComPtr<ID3D12Resource> index_buffer;
+	D3D12_VERTEX_BUFFER_VIEW index_buffer_view = {0};
+
+	ComPtr<ID3D12RootSignature> root_signature = nullptr;
+	ComPtr<ID3D12PipelineState> pipeline_state = nullptr;
+
+	D3D12_VIEWPORT viewport = {0};
+	D3D12_RECT scissor_rect = {0};
 };
 
 struct Vertex
@@ -70,6 +88,7 @@ const u16 INDICES[36] =
 	1, 5, 6, 1, 6, 2,
 	4, 0, 3, 4, 3, 7
 };
+
 
 
 GraphicsDevice init_graphics_device(HWND window);

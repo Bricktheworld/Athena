@@ -116,6 +116,7 @@
     </Link>
     <FxCompile>
       <ObjectFileOutput>$(OutDir)%(Filename)_d.cso</ObjectFileOutput>
+      <ShaderModel>5.1</ShaderModel>
     </FxCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -147,6 +148,7 @@
     <ClCompile Include="vendor\imgui\imgui_demo.cpp" />
     <ClCompile Include="vendor\imgui\imgui_draw.cpp" />
     <ClCompile Include="vendor\imgui\imgui_impl_dx11.cpp" />
+    <ClCompile Include="vendor\imgui\imgui_impl_dx12.cpp" />
     <ClCompile Include="vendor\imgui\imgui_impl_win32.cpp" />
     <ClCompile Include="vendor\imgui\imgui_tables.cpp" />
     <ClCompile Include="vendor\imgui\imgui_widgets.cpp" />
@@ -157,8 +159,11 @@
     <ClInclude Include="memory\memory.h" />
     <ClInclude Include="tests.h" />
     <ClInclude Include="types.h" />
+    <ClInclude Include="vendor\d3dx12.h" />
+    <ClInclude Include="vendor\imgui\imconfig.h" />
     <ClInclude Include="vendor\imgui\imgui.h" />
     <ClInclude Include="vendor\imgui\imgui_impl_dx11.h" />
+    <ClInclude Include="vendor\imgui\imgui_impl_dx12.h" />
     <ClInclude Include="vendor\imgui\imgui_impl_win32.h" />
     <ClInclude Include="vendor\imgui\imgui_internal.h" />
     <ClInclude Include="vendor\imgui\imstb_rectpack.h" />

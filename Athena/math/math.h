@@ -626,3 +626,25 @@ inline Mat4 pass_by_register look_at_lh(Vec3 eye, Vec3 dir, Vec3 up)
 	                     Vec4(-dot_f32(x, eye), -dot_f32(y, eye), -dot_f32(z, eye), 1.0f));
 }
 
+struct alignas(16) Quat
+{
+	Quat() : avx(_mm_set_ps(1.0f, 0.0f, 0.0f, 0.0f)) {}
+	Quat(f32x4 q) : avx(q) {}
+	operator f32x4() const
+	{
+		return avx;
+	}
+
+	union
+	{
+		struct
+		{
+			f32 x;
+			f32 y;
+			f32 z;
+			f32 w;
+		};
+		f32x4 avx;
+	};
+};
+

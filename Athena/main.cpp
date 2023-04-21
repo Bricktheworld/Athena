@@ -3,7 +3,7 @@
 #include "tests.h"
 #include "vendor/imgui/imgui.h"
 #include "vendor/imgui/imgui_impl_win32.h"
-#include "vendor/imgui/imgui_impl_dx11.h"
+#include "vendor/imgui/imgui_impl_dx12.h"
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -50,6 +50,8 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, 
 {
 	run_all_tests();
 
+	SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+
 	WNDCLASSEXW wc = {};
 	wc.cbSize = sizeof(wc);
 	wc.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
@@ -78,6 +80,8 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, 
 	ShowWindow(window, show_code);
 	UpdateWindow(window);
 
+	GraphicsDevice graphics_device = init_graphics_device(window);
+
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
 	ImGuiIO* io = &ImGui::GetIO();
@@ -85,10 +89,23 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, 
 
 	ImGui::StyleColorsDark();
 
-	GraphicsDevice graphics_device = init_graphics_device(window);
+	D3D12_DESCRIPTOR_HEAP_DESC desc = {};
+	desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+	desc.NumDescriptors = 1;
+	desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+	ComPtr<ID3D12DescriptorHeap> imgui_desc_heap = nullptr;
+	HASSERT(graphics_device.dev->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&imgui_desc_heap)));
+
+	ComPtr<ID3D12Device> imgui_dev = nullptr;
+	HASSERT(graphics_device.dev.As(&imgui_dev));
 
 	ImGui_ImplWin32_Init(window);
-	ImGui_ImplDX11_Init(graphics_device.dev, graphics_device.ctx);
+	ImGui_ImplDX12_Init(imgui_dev.Get(),
+	                    FRAMES_IN_FLIGHT,
+	                    DXGI_FORMAT_R8G8B8A8_UNORM,
+	                    imgui_desc_heap.Get(),
+	                    imgui_desc_heap->GetCPUDescriptorHandleForHeapStart(),
+	                    imgui_desc_heap->GetGPUDescriptorHandleForHeapStart());
 
 	bool show_demo_window = true;
 	bool show_another_window = false;
@@ -114,10 +131,10 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, 
 
 //		gd_clear_render_target_view(&graphics_device, Rgba(0.0, 1.0, 0.0, 1.0));
 		gd_update(&graphics_device);
-
+#if 0
 		{
 			// Start the Dear ImGui frame
-			ImGui_ImplDX11_NewFrame();
+			ImGui_ImplDX12_NewFrame();
 			ImGui_ImplWin32_NewFrame();
 			ImGui::NewFrame();
 
@@ -159,12 +176,17 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, 
 
 			// Rendering
 			ImGui::Render();
-			ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+			graphics_device.cmd_list->OMSetRenderTargets(1, &graphics_device.back_buffers[graphics_device.back_buffer_index], FALSE, nullptr);
+			ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), graphics_device.cmd_list.Get());
 		}
+#endif
 
 		gd_present(&graphics_device);
+
 	}
 
+	ImGui_ImplDX12_Shutdown();
+	ImGui_ImplWin32_Shutdown();
 	destroy_graphics_device(&graphics_device);
 
 	return 0;
