@@ -12,9 +12,7 @@ struct VSOutput
 
 struct Transform
 {
-	float4x4 projection;
-	float4x4 view;
-	float4x4 model;
+	float4x4 mvp;
 };
 
 ConstantBuffer<Transform> c_transform : register(b0, space0);
@@ -23,8 +21,8 @@ VSOutput main(VSInput IN)
 {
 	VSOutput OUT;
 
-	float4x4 mvp = mul(c_transform.projection, mul(c_transform.view, c_transform.model));
-	OUT.position = mul(mvp, IN.position);
+//	float4x4 mvp = mul(c_transform.projection, mul(c_transform.view, c_transform.model));
+	OUT.position = mul(c_transform.mvp, IN.position);
 	OUT.color = IN.color;
 
 	return OUT;

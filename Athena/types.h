@@ -55,6 +55,14 @@ inline int dbgln(const char* fmt, ...)
 
 #define check_return [[nodiscard]]
 
+// Credit for this beautiful macro: https://stackoverflow.com/a/42060129
+struct __DeferDummy__ {};
+template <class F> struct __Deferrer__ { F f; ~__Deferrer__() { f(); } };
+template <class F> __Deferrer__<F> operator*(__DeferDummy__, F f) { return {f}; }
+#define __DEFER_(LINE) zz_defer##LINE
+#define __DEFER(LINE) __DEFER_(LINE)
+#define defer auto __DEFER(__LINE__) = __DeferDummy__{} *[&]()
+
 #define COM_RELEASE(com) \
 	do \
 	{ \

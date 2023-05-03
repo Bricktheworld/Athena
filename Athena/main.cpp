@@ -50,6 +50,15 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, 
 {
 	run_all_tests();
 
+	init_application_memory();
+	defer { destroy_application_memory(); };
+
+	MemoryArena arena = alloc_memory_arena(KiB(10));
+
+	defer {
+		free_memory_arena(&arena);
+	};
+
 	SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
 	WNDCLASSEXW wc = {};
@@ -93,17 +102,17 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, 
 	desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
 	desc.NumDescriptors = 1;
 	desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-	ComPtr<ID3D12DescriptorHeap> imgui_desc_heap = nullptr;
+	ID3D12DescriptorHeap* imgui_desc_heap = nullptr;
 	HASSERT(graphics_device.dev->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&imgui_desc_heap)));
 
-	ComPtr<ID3D12Device> imgui_dev = nullptr;
-	HASSERT(graphics_device.dev.As(&imgui_dev));
+	ID3D12Device* imgui_dev = nullptr;
+	HASSERT(graphics_device.dev->QueryInterface(IID_PPV_ARGS(&imgui_dev)));
 
 	ImGui_ImplWin32_Init(window);
-	ImGui_ImplDX12_Init(imgui_dev.Get(),
+	ImGui_ImplDX12_Init(imgui_dev,
 	                    FRAMES_IN_FLIGHT,
 	                    DXGI_FORMAT_R8G8B8A8_UNORM,
-	                    imgui_desc_heap.Get(),
+	                    imgui_desc_heap,
 	                    imgui_desc_heap->GetCPUDescriptorHandleForHeapStart(),
 	                    imgui_desc_heap->GetGPUDescriptorHandleForHeapStart());
 
@@ -176,8 +185,8 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, 
 
 			// Rendering
 			ImGui::Render();
-			graphics_device.cmd_list->OMSetRenderTargets(1, &graphics_device.back_buffers[graphics_device.back_buffer_index], FALSE, nullptr);
-			ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), graphics_device.cmd_list.Get());
+//			graphics_device.cmd_list->OMSetRenderTargets(1, &graphics_device.back_buffers[graphics_device.back_buffer_index], FALSE, nullptr);
+			ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), graphics_device.cmd_list);
 		}
 #endif
 
@@ -187,7 +196,10 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, 
 
 	ImGui_ImplDX12_Shutdown();
 	ImGui_ImplWin32_Shutdown();
+	COM_RELEASE(imgui_desc_heap);
+	COM_RELEASE(imgui_dev);
 	destroy_graphics_device(&graphics_device);
+
 
 	return 0;
 }

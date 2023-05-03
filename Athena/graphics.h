@@ -8,10 +8,9 @@
 typedef Vec4 Rgba;
 typedef Vec3 Rgb;
 
-template <typename T>
-using ComPtr = Microsoft::WRL::ComPtr<T>;
-
 static constexpr u8 FRAMES_IN_FLIGHT = 3;
+static constexpr u8 MAX_COMMAND_LIST_THREADS = 8;
+static constexpr u8 COMMAND_ALLOCATORS = FRAMES_IN_FLIGHT * MAX_COMMAND_LIST_THREADS;
 
 struct CBuffer
 {
@@ -20,23 +19,39 @@ struct CBuffer
 	Mat4 model;
 };
 
+typedef u64 FenceValue;
+
+struct CmdAllocatorPool
+{
+	ID3D12CommandAllocator** free_allocators = nullptr;
+	u32 free_allocator_count = 0;
+	ID3D12CommandAllocator** submitted_allocators = nullptr;
+	u32 submitted_allocator_count = 0;
+};
+
+struct Fence
+{
+	ID3D12Fence* fence = nullptr;
+	u64 value = 0;
+};
+
 struct GraphicsDevice
 {
 	Mat4 proj;
 
-	ComPtr<ID3D12Device2> dev = nullptr;
-	ComPtr<ID3D12CommandQueue> cmd_queue = nullptr;
-	ComPtr<IDXGISwapChain4> swap_chain = nullptr;
-	ComPtr<ID3D12GraphicsCommandList> cmd_list = nullptr;
-	ComPtr<ID3D12CommandAllocator> cmd_allocators[FRAMES_IN_FLIGHT] = {0};
+	ID3D12Device2* dev = nullptr;
+	ID3D12CommandQueue* cmd_queue = nullptr;
+	IDXGISwapChain4* swap_chain = nullptr;
+	ID3D12GraphicsCommandList* cmd_list = nullptr;
+	ID3D12CommandAllocator* cmd_allocators[FRAMES_IN_FLIGHT] = {0};
 
-	ComPtr<ID3D12DescriptorHeap> rtv_descriptor_heap = nullptr;
+	ID3D12DescriptorHeap* rtv_descriptor_heap = nullptr;
 	u32 rtv_descriptor_size = 0;
 
-	ComPtr<ID3D12Resource> back_buffers[FRAMES_IN_FLIGHT] = {0};
+	ID3D12Resource* back_buffers[FRAMES_IN_FLIGHT] = {0};
 	u32 back_buffer_index = 0;
 
-	ComPtr<ID3D12Fence> fence = nullptr;
+	ID3D12Fence* fence = nullptr;
 	u64 fence_value = 0;
 	u64 frame_fence_values[FRAMES_IN_FLIGHT] = {0};
 	HANDLE fence_event;
@@ -45,21 +60,43 @@ struct GraphicsDevice
 	bool tearing_supported = false;
 	bool fullscreen = false;
 
-	ComPtr<ID3D12Resource> depth_buffer = nullptr;
-	ComPtr<ID3D12DescriptorHeap> dsv_heap  = nullptr;
+	ID3D12Resource* depth_buffer = nullptr;
+	ID3D12DescriptorHeap* dsv_heap  = nullptr;
 
-	ComPtr<ID3D12Resource> vertex_buffer;
+	ID3D12Resource* vertex_buffer = nullptr;
 	D3D12_VERTEX_BUFFER_VIEW vertex_buffer_view = {0};
 
-	ComPtr<ID3D12Resource> index_buffer;
-	D3D12_VERTEX_BUFFER_VIEW index_buffer_view = {0};
+	ID3D12Resource* index_buffer = nullptr;
+	D3D12_INDEX_BUFFER_VIEW index_buffer_view = {0};
 
-	ComPtr<ID3D12RootSignature> root_signature = nullptr;
-	ComPtr<ID3D12PipelineState> pipeline_state = nullptr;
+	ID3D12RootSignature* root_signature = nullptr;
+	ID3D12PipelineState* pipeline_state = nullptr;
 
 	D3D12_VIEWPORT viewport = {0};
 	D3D12_RECT scissor_rect = {0};
 };
+
+
+// Should only be accessed by one thread.
+struct UploadContext
+{
+	ID3D12Device2* dev = nullptr;
+	CmdAllocatorPool cmd_allocator_pool = {0};
+};
+
+UploadContext init_upload_context(MEMORY_ARENA_PARAM, GraphicsDevice* d, u32 max_allocators);
+void destroy_upload_context(UploadContext* upload_context);
+
+struct UploadBuffer
+{
+	ID3D12Resource* resource = nullptr;
+	D3D12_GPU_VIRTUAL_ADDRESS gpu_addr = 0;
+	size_t size = 0;
+	void* mapped = nullptr;
+};
+
+UploadBuffer alloc_upload_buffer(GraphicsDevice* dev, size_t size);
+void free_upload_buffer(UploadBuffer* upload_buffer);
 
 struct Vertex
 {
@@ -88,7 +125,6 @@ const u16 INDICES[36] =
 	1, 5, 6, 1, 6, 2,
 	4, 0, 3, 4, 3, 7
 };
-
 
 
 GraphicsDevice init_graphics_device(HWND window);

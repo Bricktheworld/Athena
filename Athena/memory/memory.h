@@ -1,6 +1,8 @@
 #pragma once
 #include "../types.h"
 
+#define ALIGN_POW2(v, alignment) (((v) + ((alignment) - 1)) & ~(((v) - (v)) + (alignment) - 1))
+
 inline uintptr_t align_address(uintptr_t address, size_t alignment)
 {
 	size_t mask = alignment - 1;
@@ -28,25 +30,6 @@ inline void zero_memory(void* memory, size_t size)
 	}
 }
 
-enum struct AllocatorType : u8
-{
-	UNKNOWN = 0x0,
-	FRAME = 0x1,
-};
-
-// Frame could either mean a literal stack frame or
-struct FrameAllocator
-{
-	~FrameAllocator();
-
-	uintptr_t base = 0;
-	uintptr_t top = 0;
-};
-
-struct Allocator
-{
-};
-
 //inline void* aligned_alloc(const AllocatorRef& ref, size_t size, size_t alignment)
 //{
 //	void* res = ref.alloc_cb(ref.allocator, size, alignment);
@@ -70,6 +53,32 @@ struct Allocator
 //	}
 //}
 
-void init_memory_arena();
-void destroy_memory_arena();
 
+void init_application_memory();
+void destroy_application_memory();
+
+struct MemoryArena
+{
+	uintptr_t start = 0x0;
+	uintptr_t pos = 0x0;
+	size_t size = 0;
+};
+
+MemoryArena alloc_memory_arena(size_t size);
+void free_memory_arena(MemoryArena* arena);
+
+inline void reset_memory_arena(MemoryArena* arena)
+{
+	arena->pos = arena->start;
+}
+
+#define MEMORY_ARENA_PARAM MemoryArena* memory_arena
+#define MEMORY_ARENA_FWD memory_arena
+
+void* push_memory_arena_aligned(MEMORY_ARENA_PARAM, size_t size, size_t alignment = 1);
+
+template<typename T>
+T* push_memory_arena(MEMORY_ARENA_PARAM, size_t count = 1)
+{
+	return reinterpret_cast<T*>(push_memory_arena_aligned(MEMORY_ARENA_FWD, sizeof(T) * count, alignof(T)));
+}
