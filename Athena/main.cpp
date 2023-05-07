@@ -72,7 +72,7 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, 
 	init_application_memory();
 	defer { destroy_application_memory(); };
 
-	// run_all_tests();
+	 run_all_tests();
 
 	MemoryArena arena = alloc_memory_arena(KiB(10));
 	defer { free_memory_arena(&arena); };
