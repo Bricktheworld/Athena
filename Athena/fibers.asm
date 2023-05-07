@@ -34,7 +34,7 @@ save_to_fiber proc
     mov    rsp, qword ptr [rdx - 8h]
 
     ; Restore the registers we saved on the stack
-	; in restore_fiber
+    ; in restore_fiber
     mov    rbx, qword ptr [rsp + 8*0]
     mov    rbp, qword ptr [rsp + 8*1]
     mov    r12, qword ptr [rsp + 8*2]
@@ -158,14 +158,14 @@ launch_fiber proc
     ; Change rsp to our new stack for the fiber.
     mov    rsp, qword ptr [rcx + 8*1]
     ; We need 8 bytes for the return address,
-	; 8 bytes for the old rsp, and 32 more bytes
-	; for the mandatory shadow space.
+    ; 8 bytes for the old rsp, and 32 more bytes
+    ; for the mandatory shadow space.
     sub    rsp, 30h
-	; Put the old rsp at the highest address
-	mov    [rsp + 28h], r9
-	; Put the unwind_fiber address at the low
-	; address so that return will use this.
-	mov    [rsp], r10
+    ; Put the old rsp at the highest address
+    mov    [rsp + 28h], r9
+    ; Put the unwind_fiber address at the low
+    ; address so that return will use this.
+    mov    [rsp], r10
 
     mov    rbx, qword ptr [rcx + 8*2]
     mov    rbp, qword ptr [rcx + 8*3]
@@ -190,7 +190,7 @@ launch_fiber proc
     mov    rcx, qword ptr [rcx + 8*10]
 
     ; Push the fiber start address, ret will
-	; pop this off and jump to it.
+    ; pop this off and jump to it.
     push   r8
     ret
 
@@ -199,7 +199,7 @@ unwind_fiber:
     mov    rsp, [rsp + 20h]
 
     ; Restore the registers we saved on the stack
-	; in restore_fiber
+    ; in restore_fiber
     mov    rbx, qword ptr [rsp + 8*0]
     mov    rbp, qword ptr [rsp + 8*1]
     mov    r12, qword ptr [rsp + 8*2]
