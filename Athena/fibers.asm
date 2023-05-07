@@ -1,0 +1,239 @@
+.code
+
+save_to_fiber proc
+    ; Save all of our registers into the fiber input ptr.
+    mov    r8, qword ptr [rsp]
+    mov    qword ptr [rcx + 8*0], r8
+
+    lea    r9, [rsp]
+    mov    qword ptr [rcx + 8*1], r9
+
+    mov    qword ptr [rcx + 8*2], rbx
+    mov    qword ptr [rcx + 8*3], rbp
+    mov    qword ptr [rcx + 8*4], r12
+    mov    qword ptr [rcx + 8*5], r13
+    mov    qword ptr [rcx + 8*6], r14
+    mov    qword ptr [rcx + 8*7], r15
+    mov    qword ptr [rcx + 8*8], rdi
+    mov    qword ptr [rcx + 8*9], rsi
+
+    mov    byte ptr [rcx + 58h], 1h
+
+    movups xmmword ptr [rcx + 060h], xmm6
+    movups xmmword ptr [rcx + 070h], xmm7
+    movups xmmword ptr [rcx + 080h], xmm8
+    movups xmmword ptr [rcx + 090h], xmm9
+    movups xmmword ptr [rcx + 0A0h], xmm10
+    movups xmmword ptr [rcx + 0B0h], xmm11
+    movups xmmword ptr [rcx + 0C0h], xmm12
+    movups xmmword ptr [rcx + 0D0h], xmm13
+    movups xmmword ptr [rcx + 0E0h], xmm14
+    movups xmmword ptr [rcx + 0F0h], xmm15
+
+    ; Restore our old rsp
+    mov    rsp, qword ptr [rdx - 8h]
+
+    ; Restore the registers we saved on the stack
+	; in restore_fiber
+    mov    rbx, qword ptr [rsp + 8*0]
+    mov    rbp, qword ptr [rsp + 8*1]
+    mov    r12, qword ptr [rsp + 8*2]
+    mov    r13, qword ptr [rsp + 8*3]
+    mov    r14, qword ptr [rsp + 8*4]
+    mov    r15, qword ptr [rsp + 8*5]
+    mov    rdi, qword ptr [rsp + 8*6]
+    mov    rsi, qword ptr [rsp + 8*7]
+
+    movups xmm6, xmmword ptr [rsp + 040h]
+    movups xmm7, xmmword ptr [rsp + 050h]
+    movups xmm8, xmmword ptr [rsp + 060h]
+    movups xmm9, xmmword ptr [rsp + 070h]
+    movups xmm10, xmmword ptr [rsp + 080h]
+    movups xmm11, xmmword ptr [rsp + 090h]
+    movups xmm12, xmmword ptr [rsp + 0A0h]
+    movups xmm13, xmmword ptr [rsp + 0B0h]
+    movups xmm14, xmmword ptr [rsp + 0C0h]
+    movups xmm15, xmmword ptr [rsp + 0D0h]
+
+    ; Pop everything off the stack since we don't
+    ; need them anymore.
+    add    rsp, 224
+
+    ; At this point, this is the old stack
+    ; so the return address _should_ be correct
+    ; and ret will return us to the original call
+    ; point of restore_fiber
+    ret
+
+save_to_fiber endp
+
+resume_fiber proc
+    ; Save current registers
+    sub    rsp, 224
+
+    mov    qword ptr [rsp + 8*0], rbx
+    mov    qword ptr [rsp + 8*1], rbp
+    mov    qword ptr [rsp + 8*2], r12
+    mov    qword ptr [rsp + 8*3], r13
+    mov    qword ptr [rsp + 8*4], r14
+    mov    qword ptr [rsp + 8*5], r15
+    mov    qword ptr [rsp + 8*6], rdi
+    mov    qword ptr [rsp + 8*7], rsi
+
+    movups xmmword ptr [rsp + 040h], xmm6
+    movups xmmword ptr [rsp + 050h], xmm7
+    movups xmmword ptr [rsp + 060h], xmm8
+    movups xmmword ptr [rsp + 070h], xmm9
+    movups xmmword ptr [rsp + 080h], xmm10
+    movups xmmword ptr [rsp + 090h], xmm11
+    movups xmmword ptr [rsp + 0A0h], xmm12
+    movups xmmword ptr [rsp + 0B0h], xmm13
+    movups xmmword ptr [rsp + 0C0h], xmm14
+    movups xmmword ptr [rsp + 0D0h], xmm15
+
+    ; Write our new rsp into the fiber's stack so that
+    ; when it unwinds it can resume at the correct location
+    mov    qword ptr [rdx - 8h], rsp
+
+    ; Change rsp to our new stack for the fiber.
+    mov    rsp, qword ptr [rcx + 8]
+    mov    byte ptr [rcx + 58h], 0h
+
+    ; Restore the fiber registers
+    mov    rbx, qword ptr [rcx + 8*2]
+    mov    rbp, qword ptr [rcx + 8*3]
+    mov    r12, qword ptr [rcx + 8*4]
+    mov    r13, qword ptr [rcx + 8*5]
+    mov    r14, qword ptr [rcx + 8*6]
+    mov    r15, qword ptr [rcx + 8*7]
+    mov    rdi, qword ptr [rcx + 8*8]
+    mov    rsi, qword ptr [rcx + 8*9]
+
+    movups xmm6,  xmmword ptr [rcx + 60h+16*0]
+    movups xmm7,  xmmword ptr [rcx + 60h+16*1]
+    movups xmm8,  xmmword ptr [rcx + 60h+16*2]
+    movups xmm9,  xmmword ptr [rcx + 60h+16*3]
+    movups xmm10, xmmword ptr [rcx + 60h+16*4]
+    movups xmm11, xmmword ptr [rcx + 60h+16*5]
+    movups xmm12, xmmword ptr [rcx + 60h+16*6]
+    movups xmm13, xmmword ptr [rcx + 60h+16*7]
+    movups xmm14, xmmword ptr [rcx + 60h+16*8]
+    movups xmm15, xmmword ptr [rcx + 60h+16*9]
+
+    ret
+resume_fiber endp
+
+launch_fiber proc
+    ; Save current registers
+    sub    rsp, 224
+
+    mov    qword ptr [rsp + 8*0], rbx
+    mov    qword ptr [rsp + 8*1], rbp
+    mov    qword ptr [rsp + 8*2], r12
+    mov    qword ptr [rsp + 8*3], r13
+    mov    qword ptr [rsp + 8*4], r14
+    mov    qword ptr [rsp + 8*5], r15
+    mov    qword ptr [rsp + 8*6], rdi
+    mov    qword ptr [rsp + 8*7], rsi
+
+    movups xmmword ptr [rsp + 040h], xmm6
+    movups xmmword ptr [rsp + 050h], xmm7
+    movups xmmword ptr [rsp + 060h], xmm8
+    movups xmmword ptr [rsp + 070h], xmm9
+    movups xmmword ptr [rsp + 080h], xmm10
+    movups xmmword ptr [rsp + 090h], xmm11
+    movups xmmword ptr [rsp + 0A0h], xmm12
+    movups xmmword ptr [rsp + 0B0h], xmm13
+    movups xmmword ptr [rsp + 0C0h], xmm14
+    movups xmmword ptr [rsp + 0D0h], xmm15
+
+    mov    byte ptr [rcx + 58h], 0h
+
+    ; Get relevant info from fiber and put
+    ; in registers.
+    mov    r8, qword ptr [rcx + 8*0]
+    mov    r9, rsp
+    mov    r10, OFFSET unwind_fiber
+
+    ; Change rsp to our new stack for the fiber.
+    mov    rsp, qword ptr [rcx + 8*1]
+    ; We need 8 bytes for the return address,
+	; 8 bytes for the old rsp, and 32 more bytes
+	; for the mandatory shadow space.
+    sub    rsp, 30h
+	; Put the old rsp at the highest address
+	mov    [rsp + 28h], r9
+	; Put the unwind_fiber address at the low
+	; address so that return will use this.
+	mov    [rsp], r10
+
+    mov    rbx, qword ptr [rcx + 8*2]
+    mov    rbp, qword ptr [rcx + 8*3]
+    mov    r12, qword ptr [rcx + 8*4]
+    mov    r13, qword ptr [rcx + 8*5]
+    mov    r14, qword ptr [rcx + 8*6]
+    mov    r15, qword ptr [rcx + 8*7]
+    mov    rdi, qword ptr [rcx + 8*8]
+    mov    rsi, qword ptr [rcx + 8*9]
+
+    movups xmm6,  xmmword ptr [rcx + 60h+16*0]
+    movups xmm7,  xmmword ptr [rcx + 60h+16*1]
+    movups xmm8,  xmmword ptr [rcx + 60h+16*2]
+    movups xmm9,  xmmword ptr [rcx + 60h+16*3]
+    movups xmm10, xmmword ptr [rcx + 60h+16*4]
+    movups xmm11, xmmword ptr [rcx + 60h+16*5]
+    movups xmm12, xmmword ptr [rcx + 60h+16*6]
+    movups xmm13, xmmword ptr [rcx + 60h+16*7]
+    movups xmm14, xmmword ptr [rcx + 60h+16*8]
+    movups xmm15, xmmword ptr [rcx + 60h+16*9]
+
+    mov    rcx, qword ptr [rcx + 8*10]
+
+    ; Push the fiber start address, ret will
+	; pop this off and jump to it.
+    push   r8
+    ret
+
+unwind_fiber:
+    ; Restore our old rsp
+    mov    rsp, [rsp + 20h]
+
+    ; Restore the registers we saved on the stack
+	; in restore_fiber
+    mov    rbx, qword ptr [rsp + 8*0]
+    mov    rbp, qword ptr [rsp + 8*1]
+    mov    r12, qword ptr [rsp + 8*2]
+    mov    r13, qword ptr [rsp + 8*3]
+    mov    r14, qword ptr [rsp + 8*4]
+    mov    r15, qword ptr [rsp + 8*5]
+    mov    rdi, qword ptr [rsp + 8*6]
+    mov    rsi, qword ptr [rsp + 8*7]
+
+    movups xmm6, xmmword ptr [rsp + 040h]
+    movups xmm7, xmmword ptr [rsp + 050h]
+    movups xmm8, xmmword ptr [rsp + 060h]
+    movups xmm9, xmmword ptr [rsp + 070h]
+    movups xmm10, xmmword ptr [rsp + 080h]
+    movups xmm11, xmmword ptr [rsp + 090h]
+    movups xmm12, xmmword ptr [rsp + 0A0h]
+    movups xmm13, xmmword ptr [rsp + 0B0h]
+    movups xmm14, xmmword ptr [rsp + 0C0h]
+    movups xmm15, xmmword ptr [rsp + 0D0h]
+
+    ; Pop everything off the stack since we don't
+    ; need them anymore.
+    add    rsp, 224
+
+    ; At this point, this is the old stack
+    ; so the return address _should_ be correct
+    ; and ret will return us to the original call
+    ; point of restore_fiber
+    ret
+
+launch_fiber endp
+
+get_return_addr proc
+    mov    rax, qword ptr [rsp]
+    ret
+get_return_addr endp
+end

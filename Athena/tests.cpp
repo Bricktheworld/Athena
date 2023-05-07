@@ -1,8 +1,12 @@
 #include "types.h"
 #include "math/math.h"
+#include "ring_buffer.h"
+#include "pool_allocator.h"
+#include "job_system.h"
 
 // Thank u chatgpt for writing these tests for me <3
-void test_vector_operators()
+void
+test_vector_operators()
 {
 	{
 		// Test addition operator
@@ -156,7 +160,131 @@ void test_vector_operators()
 	}
 }
 
-void run_all_tests()
+//static Result<void, int> test_error_or_void(bool fail)
+//{
+//	if (fail)
+//	{
+//		return 0;
+//	}
+//	else
+//	{
+//		return Ok();
+//	}
+//}
+//
+//static void test_error_or()
+//{
+//	auto res = test_error_or_void(true);
+//	ASSERT(!res && res.);
+//}
+
+
+static void
+test_ring_buffer()
+{
+	const int LEN = 3;
+	// We put _one_ more in the ring buffer because of the length-1 nature of the ring buffer.
+	MemoryArena arena = alloc_memory_arena(sizeof(int) * (LEN + 1));
+	defer { free_memory_arena(&arena); };
+
+	RingBuffer buffer = init_ring_buffer(&arena, alignof(int));
+
+	for (int i = 0; i < LEN; i++)
+	{
+		ring_buffer_push(&buffer, &i, sizeof(int));
+	}
+
+	int data = 0;
+	ASSERT(!try_ring_buffer_push(&buffer, &data, sizeof(int)));
+//	ASSERT(ring_buffer_is_full(buffer));
+
+	for (int i = 0; i < LEN; i++)
+	{
+		int data = -1;
+		ring_buffer_pop(&buffer, sizeof(int), &data);
+		ASSERT(data == i);
+	}
+	ASSERT(ring_buffer_is_empty(buffer));
+
+	ASSERT(!try_ring_buffer_pop(&buffer, sizeof(int), nullptr));
+
+	for (int i = 0; i < LEN - 1; i++)
+	{
+		ring_buffer_push(&buffer, &i, sizeof(int));
+	}
+
+//	ASSERT(!ring_buffer_is_full(buffer));
+	ASSERT(!ring_buffer_is_empty(buffer));
+
+	ring_buffer_pop(&buffer, sizeof(int), &data);
+	ASSERT(data == 0);
+}
+
+static void
+test_pool_allocator()
+{
+	static constexpr int POOL_SIZE = 100;
+	MemoryArena arena = alloc_memory_arena((sizeof(int) + sizeof(int*)) * POOL_SIZE);
+	defer { free_memory_arena(&arena); };
+	auto pa = init_pool_allocator<int>(&arena, POOL_SIZE);
+
+	int* val = pool_alloc(&pa);
+	*val = 1024;
+	pool_free(&pa, val);
+
+	int* allocated[POOL_SIZE];
+	for (int i = 0; i < POOL_SIZE; i++)
+	{
+		allocated[i] = pool_alloc(&pa);
+		*allocated[i] = i;
+	}
+
+	ASSERT(pa.free_count == 0);
+
+	for (int i = ARRAY_LENGTH(allocated) - 1; i >= 0; i--)
+	{
+		pool_free(&pa, allocated[i]);
+		for (int j = 0; j < i; j++)
+		{
+			ASSERT(*allocated[j] == j);
+		}
+	}
+
+	ASSERT(pa.free_count == POOL_SIZE);
+}
+
+static void
+test_job_entry(uintptr_t param)
+{
+	 int* data = reinterpret_cast<int*>(param);
+	 (*data)++;
+	 // TODO(Brandon): This... crashes for some god-forsaken reason.
+	 // I'm not sure if it's because I'm saving a register incorrectly or what,
+	 // but it just straight up crashes and I have no idea why or how to fix it.
+	 // Something inside of OutputDebugStringA causes an access violation.
+	 // 
+	 // dbgln("Called test job");
+}
+
+static void
+test_fiber()
+{
+	MemoryArena memory_arena = alloc_memory_arena(KiB(64) + 16);
+	defer { free_memory_arena(&memory_arena); };
+	void* stack = push_memory_arena_aligned(&memory_arena, KiB(64), 16);
+
+	int data = 0;
+	Fiber fiber = init_fiber(stack, KiB(64), &test_job_entry, (uintptr_t)&data);
+	launch_fiber(&fiber);
+
+	ASSERT(data == 1);
+}
+
+void
+run_all_tests()
 {
 	test_vector_operators();
+	test_ring_buffer();
+	test_pool_allocator();
+	test_fiber();
 }

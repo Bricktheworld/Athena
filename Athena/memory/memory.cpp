@@ -165,7 +165,7 @@ void
 init_application_memory()
 {
 	ASSERT(g_memory_start == NULL);
-	g_memory_start = VirtualAlloc(0, HEAP_SIZE, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+	g_memory_start = VirtualAlloc((void*)0x10000000, HEAP_SIZE, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
 	g_game_stack = init_double_ended(g_memory_start, MiB(100));
 }
 

@@ -387,27 +387,6 @@ destroy_cmd_allocator_pool(CmdAllocatorPool* cmd_allocator_pool)
 	zero_memory(cmd_allocator_pool, sizeof(CmdAllocatorPool));
 }
 
-//static Fence init_fence(ID3D12Device2* d3d12dev)
-//{
-//	ID3D12Fence* fence = nullptr;
-//	HASSERT(d3d12dev->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)));
-//	ASSERT(fence != nullptr);
-//
-//	Fence ret = {0};
-//	ret.fence = fence;
-//}
-//
-//static void destroy_fence(Fence* fence)
-//{
-//	COM_RELEASE(fence->fence);
-//	zero_memory(fence, sizeof(Fence));
-//}
-//
-//static void wait_fence()
-//{
-//
-//}
-
 GraphicsDevice
 init_graphics_device(HWND window)
 {
@@ -592,18 +571,6 @@ init_graphics_device(HWND window)
 		res.dev->CreateDepthStencilView(res.depth_buffer, &view_desc, res.dsv_heap->GetCPUDescriptorHandleForHeapStart());
 	}
 
-//	defer {
-//		free_upload_buffer(&upload_buffer);
-//	};
-
-//	ComPtr<ID3D12Resource> intermediate_vertex_buffer;
-//	update_buffer_resource(res.dev,
-//	                       res.cmd_list.Get(),
-//	                       &res.vertex_buffer,
-//	                       &intermediate_vertex_buffer,
-//	                       sizeof(VERTICES),
-//	                       VERTICES);
-
 	return res;
 }
 
@@ -696,8 +663,6 @@ gd_update(GraphicsDevice* d)
 		d->cmd_list->RSSetScissorRects(1, &d->scissor_rect);
 		d->cmd_list->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
 
-//		CBuffer cbuffer;
-//		cbuffer.projection = d->proj;
 		Mat4 view = look_at_lh(Vec3(0.0, 0.0, -10.0), Vec3(0.0, 0.0, 1.0), Vec3(0.0, 1.0, 0.0));
 		Mat4 model = {};
 		Mat4 mvp = d->proj * view * model;

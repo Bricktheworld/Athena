@@ -22,7 +22,7 @@ typedef unsigned char byte;
 inline s32 v_dbgln(const char* fmt, va_list args)
 {
 	static constexpr u32 MAX_CHARS = 1024;
-	static char buf[MAX_CHARS];
+	char buf[MAX_CHARS];
 
 	s32 written = vsnprintf(buf, MAX_CHARS - 2, fmt, args);
 	buf[written] = '\n';

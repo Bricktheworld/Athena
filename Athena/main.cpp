@@ -1,9 +1,14 @@
 #include "math/math.h"
 #include "graphics.h"
+#include "job_system.h"
 #include "tests.h"
 #include "vendor/imgui/imgui.h"
 #include "vendor/imgui/imgui_impl_win32.h"
 #include "vendor/imgui/imgui_impl_dx12.h"
+
+extern "C" { __declspec(dllexport) extern const UINT D3D12SDKVersion = 610;}
+
+extern "C" { __declspec(dllexport) extern const char* D3D12SDKPath = u8".\\D3D12\\"; }
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -46,18 +51,42 @@ LRESULT CALLBACK window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM lparam
 static constexpr const wchar_t* CLASS_NAME = L"AthenaWindowClass";
 static constexpr const wchar_t* WINDOW_NAME = L"Athena";
 
+static void
+test_job(uintptr_t param)
+{
+	int* data = reinterpret_cast<int*>(param);
+	while (*data != 3)
+	{
+		(*data)++;
+		yield;
+	}
+}
+
+static void
+frame_entry(uintptr_t param)
+{
+}
+
 int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, int show_code)
 {
-	run_all_tests();
-
 	init_application_memory();
 	defer { destroy_application_memory(); };
 
-	MemoryArena arena = alloc_memory_arena(KiB(10));
+	// run_all_tests();
 
-	defer {
-		free_memory_arena(&arena);
-	};
+	MemoryArena arena = alloc_memory_arena(KiB(10));
+	defer { free_memory_arena(&arena); };
+
+	JobSystem* job_system = init_job_system(1024);
+	defer { destroy_job_system(job_system); };
+	spawn_job_system_workers(job_system);
+
+	int some_data = 0;
+
+	Job job = {0};
+	job.entry = &test_job;
+	job.param = (uintptr_t)&some_data;
+	kick_job(job_system, JOB_PRIORITY_HIGH, job);
 
 	SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
