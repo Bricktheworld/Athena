@@ -158,14 +158,14 @@ launch_fiber proc
     ; Change rsp to our new stack for the fiber.
     mov    rsp, qword ptr [rcx + 8*1]
     ; We need 8 bytes for the return address,
-    ; 8 bytes for the old rsp, and 32 more bytes
-    ; for the mandatory shadow space.
+	; 8 bytes for the old rsp, and 32 more bytes
+	; for the mandatory shadow space.
     sub    rsp, 30h
-    ; Put the old rsp at the highest address
-    mov    [rsp + 28h], r9
-    ; Put the unwind_fiber address at the low
-    ; address so that return will use this.
-    mov    [rsp], r10
+	; Put the old rsp at the highest address
+	mov    [rsp + 28h], r9
+	; Put the unwind_fiber address at the low
+	; address so that return will use this.
+	mov    [rsp], r10
 
     mov    rbx, qword ptr [rcx + 8*2]
     mov    rbp, qword ptr [rcx + 8*3]
