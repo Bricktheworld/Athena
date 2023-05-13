@@ -257,15 +257,9 @@ test_pool_allocator()
 __declspec(noinline) static void
 test_job_entry(uintptr_t param)
 {
-//	 int* data = reinterpret_cast<int*>(param);
-//	 (*data)++;
-	 // TODO(Brandon): This... crashes for some god-forsaken reason.
-	 // I'm not sure if it's because I'm saving a register incorrectly or what,
-	 // but it just straight up crashes and I have no idea why or how to fix it.
-	 // Something inside of OutputDebugStringA causes an access violation.
-	 // 
-	 // dbgln("Called test job");
-	 OutputDebugStringA("Test\n");
+	 int* data = reinterpret_cast<int*>(param);
+	 (*data)++;
+	 dbgln("Test");
 }
 
 static void
@@ -276,7 +270,6 @@ test_fiber()
 	void* stack = push_memory_arena_aligned(&memory_arena, KiB(64), 16);
 
 	int data = 0;
-	test_job_entry((uintptr_t)&data);
 	Fiber fiber = init_fiber(stack, KiB(64), &test_job_entry, (uintptr_t)&data);
 	launch_fiber(&fiber);
 

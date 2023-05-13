@@ -57,7 +57,7 @@ save_to_fiber proc
 
     ; Pop everything off the stack since we don't
     ; need them anymore.
-    add    rsp, 224
+    add    rsp, 0E0h
 
     ; At this point, this is the old stack
     ; so the return address _should_ be correct
@@ -69,7 +69,7 @@ save_to_fiber endp
 
 resume_fiber proc
     ; Save current registers
-    sub    rsp, 224
+    sub    rsp, 0E0h
 
     mov    qword ptr [rsp + 8*0], rbx
     mov    qword ptr [rsp + 8*1], rbp
@@ -125,7 +125,7 @@ resume_fiber endp
 
 launch_fiber proc
     ; Save current registers
-    sub    rsp, 224
+    sub    rsp, 0E0h
 
     mov    qword ptr [rsp + 8*0], rbx
     mov    qword ptr [rsp + 8*1], rbp
@@ -160,9 +160,9 @@ launch_fiber proc
     ; We need 8 bytes for the return address,
     ; 8 bytes for the old rsp, and 32 more bytes
     ; for the mandatory shadow space.
-    sub    rsp, 30h
+    sub    rsp, 38h
     ; Put the old rsp at the highest address
-    mov    [rsp + 28h], r9
+    mov    [rsp + 30h], r9
     ; Put the unwind_fiber address at the low
     ; address so that return will use this.
     mov    [rsp], r10
@@ -196,7 +196,7 @@ launch_fiber proc
 
 unwind_fiber:
     ; Restore our old rsp
-    mov    rsp, [rsp + 20h]
+    mov    rsp, [rsp + 28h]
 
     ; Restore the registers we saved on the stack
     ; in restore_fiber
