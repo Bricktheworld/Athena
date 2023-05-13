@@ -3,6 +3,7 @@
 #include "ring_buffer.h"
 #include "pool_allocator.h"
 #include "job_system.h"
+#include "hash_table.h"
 
 // Thank u chatgpt for writing these tests for me <3
 void
@@ -226,7 +227,7 @@ test_pool_allocator()
 	static constexpr int POOL_SIZE = 100;
 	MemoryArena arena = alloc_memory_arena((sizeof(int) + sizeof(int*)) * POOL_SIZE);
 	defer { free_memory_arena(&arena); };
-	auto pa = init_pool_allocator<int>(&arena, POOL_SIZE);
+	auto pa = init_pool<int>(&arena, POOL_SIZE);
 
 	int* val = pool_alloc(&pa);
 	*val = 1024;
@@ -253,17 +254,18 @@ test_pool_allocator()
 	ASSERT(pa.free_count == POOL_SIZE);
 }
 
-static void
+__declspec(noinline) static void
 test_job_entry(uintptr_t param)
 {
-	 int* data = reinterpret_cast<int*>(param);
-	 (*data)++;
+//	 int* data = reinterpret_cast<int*>(param);
+//	 (*data)++;
 	 // TODO(Brandon): This... crashes for some god-forsaken reason.
 	 // I'm not sure if it's because I'm saving a register incorrectly or what,
 	 // but it just straight up crashes and I have no idea why or how to fix it.
 	 // Something inside of OutputDebugStringA causes an access violation.
 	 // 
 	 // dbgln("Called test job");
+	 OutputDebugStringA("Test\n");
 }
 
 static void
@@ -274,10 +276,13 @@ test_fiber()
 	void* stack = push_memory_arena_aligned(&memory_arena, KiB(64), 16);
 
 	int data = 0;
+	test_job_entry((uintptr_t)&data);
 	Fiber fiber = init_fiber(stack, KiB(64), &test_job_entry, (uintptr_t)&data);
 	launch_fiber(&fiber);
 
 	ASSERT(data == 1);
+
+	hash_u32(nullptr);
 }
 
 void

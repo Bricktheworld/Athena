@@ -182,12 +182,14 @@ alloc_memory_arena(size_t size)
 	ret.start = double_ended_push(&g_game_stack, DOUBLE_ENDED_LOWER, size);
 	ret.pos = ret.start;
 	ret.size = size;
+	ret.suballocated = false;
 	return ret;
 }
 
 void
 free_memory_arena(MemoryArena* arena)
 {
+	ASSERT(!arena->suballocated);
 	double_ended_pop(&g_game_stack, DOUBLE_ENDED_LOWER, arena->start);
 }
 
@@ -205,6 +207,19 @@ push_memory_arena_aligned(MEMORY_ARENA_PARAM, size_t size, size_t alignment)
 
 	void* ret = reinterpret_cast<void*>(memory_start);
 	zero_memory(ret, size);
+
+	return ret;
+}
+
+MemoryArena
+sub_alloc_memory_arena(MEMORY_ARENA_PARAM, size_t size)
+{
+	MemoryArena ret = {0};
+
+	ret.start = reinterpret_cast<uintptr_t>(push_memory_arena_aligned(MEMORY_ARENA_FWD, size));
+	ret.pos = ret.start;
+	ret.size = size;
+	ret.suballocated = true;
 
 	return ret;
 }

@@ -52,19 +52,29 @@ static constexpr const wchar_t* CLASS_NAME = L"AthenaWindowClass";
 static constexpr const wchar_t* WINDOW_NAME = L"Athena";
 
 static void
-test_job(uintptr_t param)
+increment_job(uintptr_t param)
 {
-	int* data = reinterpret_cast<int*>(param);
-	while (*data != 3)
-	{
-		(*data)++;
-		yield;
-	}
+	volatile u32* data = reinterpret_cast<volatile u32*>(param);
+	InterlockedIncrement(data);
 }
 
 static void
 frame_entry(uintptr_t param)
 {
+	volatile u32 data = 0;
+	Job jobs[5];
+	for (u32 i = 0; i < 5; i++)
+	{
+		jobs[i].entry = &increment_job;
+		jobs[i].param = (uintptr_t)&data;
+	}
+
+	JobCounterID counter = kick_jobs(JOB_PRIORITY_HIGH, jobs, 5);
+	yield_to_counter(counter);
+
+	ASSERT(data == 5);
+
+	data++;
 }
 
 int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, int show_code)
@@ -72,21 +82,21 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, 
 	init_application_memory();
 	defer { destroy_application_memory(); };
 
-	 run_all_tests();
+	run_all_tests();
+	return 0;
 
-	MemoryArena arena = alloc_memory_arena(KiB(10));
+	MemoryArena arena = alloc_memory_arena(MiB(32));
 	defer { free_memory_arena(&arena); };
 
-	JobSystem* job_system = init_job_system(1024);
-	defer { destroy_job_system(job_system); };
+	JobSystem* job_system = init_job_system(&arena, 512);
 	spawn_job_system_workers(job_system);
 
 	int some_data = 0;
 
 	Job job = {0};
-	job.entry = &test_job;
+	job.entry = &frame_entry;
 	job.param = (uintptr_t)&some_data;
-	kick_job(job_system, JOB_PRIORITY_HIGH, job);
+	JobCounterID id = kick_job(JOB_PRIORITY_HIGH, job, job_system);
 
 	SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 

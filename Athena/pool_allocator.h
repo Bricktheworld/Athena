@@ -4,7 +4,7 @@
 
 
 template <typename T>
-struct PoolAllocator
+struct Pool
 {
 	T* pool = nullptr;
 	size_t size = 0;
@@ -17,8 +17,8 @@ struct PoolAllocator
 // If size is 0 then the pool allocator will encompass the entire
 // memory arena.
 template <typename T>
-PoolAllocator<T>
-init_pool_allocator(MEMORY_ARENA_PARAM, size_t size = 0)
+Pool<T>
+init_pool(MEMORY_ARENA_PARAM, size_t size = 0)
 {
 	if (size == 0)
 	{
@@ -31,7 +31,7 @@ init_pool_allocator(MEMORY_ARENA_PARAM, size_t size = 0)
 		size = memory_arena->size / 2;
 	}
 
-	PoolAllocator<T> ret = {0};
+	Pool<T> ret = {0};
 	ret.pool = push_memory_arena<T>(MEMORY_ARENA_FWD, size);
 	ret.free = push_memory_arena<T*>(MEMORY_ARENA_FWD, size);
 
@@ -48,12 +48,12 @@ init_pool_allocator(MEMORY_ARENA_PARAM, size_t size = 0)
 }
 
 template <typename T>
-T* pool_alloc(PoolAllocator<T>* allocator)
+T* pool_alloc(Pool<T>* pool)
 {
-	ASSERT(allocator->free_count >= 1);
+	ASSERT(pool->free_count >= 1);
 
-	allocator->free_count--;
-	T* ret = allocator->free[allocator->free_count];
+	pool->free_count--;
+	T* ret = pool->free[pool->free_count];
 
 	zero_memory(ret, sizeof(T));
 
@@ -61,11 +61,11 @@ T* pool_alloc(PoolAllocator<T>* allocator)
 }
 
 template <typename T>
-void pool_free(PoolAllocator<T>* allocator, T* memory)
+void pool_free(Pool<T>* pool, T* memory)
 {
-	ASSERT(allocator->pool <= memory && allocator->pool + allocator->size > memory);
+	ASSERT(pool->pool <= memory && pool->pool + pool->size > memory);
 
-	allocator->free[allocator->free_count] = memory;
-	allocator->free_count++;
+	pool->free[pool->free_count] = memory;
+	pool->free_count++;
 	zero_memory(memory, sizeof(T));
 }

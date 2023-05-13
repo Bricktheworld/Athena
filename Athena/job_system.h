@@ -2,6 +2,7 @@
 #include "ring_buffer.h"
 #include "threading.h"
 #include "pool_allocator.h"
+#include "array.h"
 #include <immintrin.h>
 
 struct Fiber
@@ -44,23 +45,59 @@ Fiber init_fiber(void* stack, size_t stack_size, void* proc, uintptr_t param);
 extern "C" void launch_fiber(Fiber* fiber);
 extern "C" void resume_fiber(Fiber* fiber, void* stack_high);
 extern "C" void save_to_fiber(Fiber* out, void* stack_high);
-void job_system_yield_fiber();
-#define yield job_system_yield_fiber()
+//#define yield job_system_yield_fiber()
 
 typedef void (*JobEntry)(uintptr_t);
 
-struct JobCounter
+#define STACK_SIZE KiB(16)
+// Literally just a hunk of memory lol.
+struct JobStack
 {
-	volatile u64 value = 0;
+	byte memory[STACK_SIZE];
 };
+
+typedef u64 JobCounterID;
+
+void yield_to_counter(JobCounterID counter);
+
+struct JobDebugInfo 
+{
+	const char* file = nullptr;
+	int line = 0;
+};
+#define JOB_DEBUG_INFO_STRUCT JobDebugInfo{__FILE__, __LINE__}
 
 struct Job
 {
 	JobEntry entry = nullptr;
 	uintptr_t param = 0;
 
-	JobCounter* counter = nullptr;
-	void* stack = nullptr;
+	JobCounterID completion_signal = 0;
+
+	JobDebugInfo debug_info = {0};
+};
+
+struct WorkingJob
+{
+	Job job;
+	Fiber fiber;
+
+	JobStack* stack = nullptr;
+
+	WorkingJob* next = nullptr;
+};
+
+struct WorkingJobQueue
+{
+	WorkingJob* head = nullptr;
+	WorkingJob* tail = nullptr;
+};
+
+struct JobCounter
+{
+	volatile u64 value = 0;
+	JobCounterID id = 0;
+	WorkingJobQueue waiting_jobs = {0};
 };
 
 struct JobQueue
@@ -69,29 +106,20 @@ struct JobQueue
 	SpinLock lock;
 };
 
-struct SleepingJob
-{
-	Job job;
-	Fiber fiber;
-};
-
-#define STACK_SIZE KiB(64)
-// Literally just a hunk of memory lol.
-struct JobStack
-{
-	byte memory[STACK_SIZE];
-};
-
 struct JobSystem
 {
 	JobQueue high_priority;
 	JobQueue medium_priority;
 	JobQueue low_priority;
 
-	PoolAllocator<SleepingJob> sleeping_jobs;
-	PoolAllocator<JobCounter> job_counters;
-	PoolAllocator<JobStack> job_stacks;
-	MemoryArena memory_arena;
+	SpinLocked<Pool<JobStack>> job_stack_allocator;
+
+	SpinLocked<Pool<WorkingJob>> working_job_allocator;
+	SpinLocked<Array<JobCounter>> job_counters;
+
+	SpinLocked<WorkingJobQueue> working_jobs_queue;
+
+	volatile JobCounterID current_job_counter_id = 1;
 
 	SpinLock lock;
 };
@@ -105,26 +133,24 @@ enum JobPriority : u8
 	JOB_PRIORITY_COUNT,
 };
 
-JobSystem* init_job_system(size_t job_queue_size);
-void destroy_job_system(JobSystem* job_system);
+JobSystem* init_job_system(MEMORY_ARENA_PARAM, size_t job_queue_size);
 
 void spawn_job_system_workers(JobSystem* job_system);
 
-void kick_jobs(JobSystem* job_system,
-               JobPriority priority,
-               Job* jobs,
-               size_t count,
-               JobCounter** out_counter = nullptr);
+JobCounterID _kick_jobs(JobPriority priority,
+                       Job* jobs,
+                       size_t count,
+                       JobDebugInfo debug_info,
+                       JobSystem* job_system = nullptr);
 
-inline void
-kick_job(JobSystem* job_system, JobPriority priority, Job job)
-{
-	kick_jobs(job_system, priority, &job, 1);
-}
+//inline JobCounterID
+//_kick_job(JobPriority priority, Job job, JobSystem* job_system = nullptr)
+//{
+//	return kick_jobs(priority, &job, 1, job_system);
+//}
 
-void yield_for_counter(JobSystem* job_system, JobCounter* counter);
-
-void wait_for_next_job(JobSystem* job_system, Job* out);
+#define kick_jobs(priority, jobs, count, ...) _kick_jobs(priority, jobs, count, JOB_DEBUG_INFO_STRUCT, __VA_ARGS__)
+#define kick_job(priority, job, ...) kick_jobs(priority, &job, 1, __VA_ARGS__)
 
 
 #if 0

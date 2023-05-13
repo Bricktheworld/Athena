@@ -19,7 +19,8 @@ typedef double f64;
 typedef unsigned char byte;
 
 
-inline s32 v_dbgln(const char* fmt, va_list args)
+inline s32
+v_dbgln(const char* fmt, va_list args)
 {
 	static constexpr u32 MAX_CHARS = 1024;
 	char buf[MAX_CHARS];
@@ -33,7 +34,8 @@ inline s32 v_dbgln(const char* fmt, va_list args)
 	return written;
 }
 
-inline int dbgln(const char* fmt, ...)
+inline int
+dbgln(const char* fmt, ...)
 {
 	va_list args;
 	va_start(args, fmt);
@@ -45,6 +47,15 @@ inline int dbgln(const char* fmt, ...)
 	return res;
 }
 
+template <typename T>
+inline void
+swap(T* a, T* b)
+{
+	T tmp = a;
+	a = b;
+	b = tmp;
+}
+
 #define KiB(val) (val * 1024LL)
 #define MiB(val) (KiB(val) * 1024LL)
 #define GiB(val) (MiB(val) * 1024LL)
@@ -54,6 +65,8 @@ inline int dbgln(const char* fmt, ...)
 #define pass_by_register __vectorcall
 
 #define check_return [[nodiscard]]
+
+#define constant static constexpr
 
 // Credit for this beautiful macro: https://stackoverflow.com/a/42060129
 struct __DeferDummy__ {};
@@ -110,5 +123,7 @@ template <class F> __Deferrer__<F> operator*(__DeferDummy__, F f) { return {f}; 
 #define ASSERT(expr) do { } while(0)
 #define HASSERT(hres) do { } while(0)
 #endif
+
+#define UNREACHABLE ASSERT(false)
 
 

@@ -43,86 +43,304 @@ dequeue_job(JobQueue* job_queue, Job* out)
 	return try_ring_buffer_pop(&job_queue->queue, sizeof(Job), out);
 }
 
-JobSystem*
-init_job_system(size_t job_queue_size)
+static void
+enqueue_working_job(WorkingJobQueue* queue, WorkingJob* job)
 {
-	size_t arena_size = sizeof(JobSystem) +
-	                    job_queue_size * 3 * sizeof(Job) +
-	                    job_queue_size * (sizeof(SleepingJob) + sizeof(SleepingJob*)) +
-	                    job_queue_size * (sizeof(JobStack) + sizeof(JobStack*)) +
-	                    50 * (sizeof(JobCounter) + sizeof(JobCounter*)) + 8;
+	ASSERT(job->next == nullptr);
 
-	MemoryArena memory_arena = alloc_memory_arena(arena_size);
+	if (queue->head == nullptr) 
+	{
+		queue->head = queue->tail = job;
+		return;
+	}
 
-	JobSystem* ret = push_memory_arena<JobSystem>(&memory_arena);
+	ASSERT(queue->tail != nullptr);
+
+	queue->tail = queue->tail->next = job;
+}
+
+static void
+enqueue_working_jobs(WorkingJobQueue* queue, WorkingJobQueue* jobs) 
+{
+	if (queue->head == nullptr) 
+	{
+		*queue = *jobs;
+		return;
+	}
+
+	ASSERT(queue->tail != nullptr);
+
+	queue->tail->next = jobs->head;
+	queue->tail = jobs->tail;
+}
+
+static bool
+dequeue_working_job(WorkingJobQueue* queue, WorkingJob** out)
+{
+	ASSERT(out != nullptr);
+
+	if (queue->head == nullptr)
+		return false;
+
+	*out = queue->head;
+	queue->head = queue->head->next;
+
+	if (queue->head == nullptr)
+	{
+		queue->tail = nullptr;
+	}
+
+	(*out)->next = nullptr;
+
+	return true;
+}
+
+enum JobType
+{
+	JOB_TYPE_NEVER_LAUNCHED,
+	JOB_TYPE_WORKING,
+};
+
+static JobType
+wait_for_next_job(JobSystem* job_system, Job* job_out, WorkingJob** working_job_out)
+{
+	for (;;)
+	{
+		if (ACQUIRE(&job_system->working_jobs_queue, auto* q) {
+			return dequeue_working_job(q, working_job_out); 
+		})
+			return JOB_TYPE_WORKING;
+
+		if (dequeue_job(&job_system->high_priority, job_out))
+			return JOB_TYPE_NEVER_LAUNCHED;
+
+		if (dequeue_job(&job_system->medium_priority, job_out))
+			return JOB_TYPE_NEVER_LAUNCHED;
+
+		if (dequeue_job(&job_system->low_priority, job_out))
+			return JOB_TYPE_NEVER_LAUNCHED;
+	}
+}
+
+JobSystem*
+init_job_system(MEMORY_ARENA_PARAM, size_t job_queue_size)
+{
+	JobSystem* ret = push_memory_arena<JobSystem>(MEMORY_ARENA_FWD);
 	zero_memory(ret, sizeof(JobSystem));
 
-	ret->memory_arena = memory_arena;
+	ret->high_priority = init_job_queue(MEMORY_ARENA_FWD, job_queue_size);
+	ret->medium_priority = init_job_queue(MEMORY_ARENA_FWD, job_queue_size);
+	ret->low_priority = init_job_queue(MEMORY_ARENA_FWD, job_queue_size);
 
-	ret->high_priority = init_job_queue(&memory_arena, job_queue_size);
-	ret->medium_priority = init_job_queue(&memory_arena, job_queue_size);
-	ret->low_priority = init_job_queue(&memory_arena, job_queue_size);
+	ret->job_stack_allocator = init_pool<JobStack>(MEMORY_ARENA_FWD, job_queue_size / 2);
 
-	ret->sleeping_jobs = init_pool_allocator<SleepingJob>(&memory_arena, job_queue_size);
-	ret->job_stacks = init_pool_allocator<JobStack>(&memory_arena, job_queue_size);
-	ret->job_counters = init_pool_allocator<JobCounter>(&memory_arena, 50);
+	ret->working_job_allocator = init_pool<WorkingJob>(MEMORY_ARENA_FWD, job_queue_size / 2);
+	ret->job_counters = init_array<JobCounter>(MEMORY_ARENA_FWD, 100);
 
 	return ret;
 }
 
+thread_local JobSystem* tls_job_system = nullptr;
 thread_local Fiber* tls_fiber = nullptr;
 thread_local void* tls_fiber_rsp = nullptr;
 
+enum YieldParamType : u8
+{
+	YIELD_PARAM_JOB_COUNTER,
+};
+
+struct YieldParam
+{
+	YieldParamType type = YIELD_PARAM_JOB_COUNTER;
+	union
+	{
+		JobCounterID job_counter;
+	};
+};
+
+thread_local YieldParam tls_yield_param;
+
 void
-job_system_yield_fiber()
+yield_to_counter(JobCounterID counter)
 {
 	ASSERT(tls_fiber != nullptr);
+	tls_yield_param.job_counter = counter;
+	tls_yield_param.type = YIELD_PARAM_JOB_COUNTER;
 	save_to_fiber(tls_fiber, tls_fiber_rsp);
+}
+
+static void
+signal_job_counter(JobSystem* job_system, JobCounterID signal)
+{
+	Option<WorkingJobQueue> woken_jobs = ACQUIRE(&job_system->job_counters, Array<JobCounter>* counters) -> Option<WorkingJobQueue>
+	{
+		size_t index = unwrap(array_find(counters, it->id == signal));
+		JobCounter* counter = array_at(counters, index);
+		ASSERT(counter->value > 0);
+		auto value = InterlockedDecrement(&counter->value);
+		if (value == 0)
+		{
+			WorkingJobQueue waiting = counter->waiting_jobs;
+			// array_remove(counters, index);
+			return waiting;
+		}
+
+		return None;
+	};
+
+	if (!woken_jobs)
+		return;
+
+	ACQUIRE(&job_system->working_jobs_queue, auto* working_jobs_queue)
+	{
+		enqueue_working_jobs(working_jobs_queue, &unwrap(woken_jobs));
+	};
+}
+
+static void
+working_job_wait_for_counter(JobSystem* job_system,
+                             JobCounterID signal,
+                             WorkingJob* working_job)
+{
+	bool res = ACQUIRE(&job_system->job_counters, auto* job_counters)
+	{
+		auto maybe_counter = array_find_value(job_counters, it->id == signal);
+		if (!maybe_counter)
+			return false;
+
+		JobCounter* counter = unwrap(maybe_counter);
+		enqueue_working_job(&counter->waiting_jobs, working_job);
+		return true;
+	};
+
+	if (res)
+		return;
+
+	ACQUIRE(&job_system->working_jobs_queue, auto* working_jobs_queue)
+	{
+		enqueue_working_job(working_jobs_queue, working_job);
+	};
+}
+
+static void
+finish_job(JobSystem* job_system, JobStack* job_stack, JobCounterID completion_signal)
+{
+	ACQUIRE(&job_system->job_stack_allocator, auto* allocator) {
+		pool_free(allocator, job_stack);
+	};
+
+	signal_job_counter(job_system, completion_signal);
+}
+
+static void
+yield_working_job(JobSystem* job_system, WorkingJob* working_job)
+{
+	switch (tls_yield_param.type)
+	{
+		case YIELD_PARAM_JOB_COUNTER: 
+		{
+			working_job_wait_for_counter(job_system, tls_yield_param.job_counter, working_job);
+			break;
+		}
+		default:
+			UNREACHABLE;
+	}
+}
+
+static void
+handle_job(JobSystem* job_system, Job job)
+{
+	JobStack* stack = ACQUIRE(&job_system->job_stack_allocator, auto* allocator)
+	{
+		return pool_alloc(allocator);
+	};
+
+	Fiber fiber = init_fiber(stack->memory, STACK_SIZE, job.entry, job.param);
+	tls_fiber = &fiber;
+	tls_fiber_rsp = fiber.rsp;
+
+	launch_fiber(&fiber);
+
+	// The job actually finished, means we can recycle everything.
+	if (!fiber.yielded)
+	{
+		finish_job(job_system, stack, job.completion_signal);
+		return;
+	}
+
+	WorkingJob* working_job = ACQUIRE(&job_system->working_job_allocator, auto* allocator)
+	{
+		return pool_alloc(allocator);
+	};
+
+	working_job->job = job;
+	working_job->fiber = fiber;
+	working_job->stack = stack;
+	working_job->next = nullptr;
+	yield_working_job(job_system, working_job);
+}
+
+static void
+handle_working_job(JobSystem* job_system, WorkingJob* working_job)
+{
+	dbgln("Welp, I haven't implemented it yet :shrug:");
+
+	resume_fiber(&working_job->fiber, tls_fiber_rsp);
+
+	// The job actually finished, means we can recycle everything.
+	if (!working_job->fiber.yielded)
+	{
+		finish_job(job_system, working_job->stack, working_job->job.completion_signal);
+		ACQUIRE(&job_system->working_job_allocator, auto* allocator)
+		{
+			pool_free(allocator, working_job);
+		};
+		return;
+	}
+
+	working_job->next = nullptr;
+	yield_working_job(job_system, working_job);
 }
 
 static DWORD
 job_worker(LPVOID param) 
 {
-	JobSystem* job_system = reinterpret_cast<JobSystem*>(param);
+	JobSystem* job_system = tls_job_system = reinterpret_cast<JobSystem*>(param);
 	for (;;)
 	{
 		Job job = {0};
-		wait_for_next_job(job_system, &job);
-
-		JobStack* stack = nullptr;
+		WorkingJob* working_job = nullptr;
+		JobType type = wait_for_next_job(job_system, &job, &working_job);
+		switch(type)
 		{
-			spin_acquire(&job_system->lock);
-			defer { spin_release(&job_system->lock); };
-
-			stack = pool_alloc(&job_system->job_stacks);
-		}
-
-		Fiber fiber = init_fiber(stack->memory, STACK_SIZE, job.entry, job.param);
-		tls_fiber = &fiber;
-		tls_fiber_rsp = fiber.rsp;
-
-		launch_fiber(&fiber);
-
-		while (fiber.yielded)
-		{
-			dbgln("Fiber yielded.");
-			resume_fiber(&fiber, tls_fiber_rsp);
-		}
-
-		{
-			dbgln("Job complete");
-
+			case JOB_TYPE_NEVER_LAUNCHED:
 			{
-				spin_acquire(&job_system->lock);
-				defer { spin_release(&job_system->lock); };
-//				if (job.counter != nullptr)
-//				{
-//					InterlockedDecrement(&job.counter->value);
-//				}
-	
-				pool_free(&job_system->job_stacks, stack);
-			}
+				handle_job(job_system, job);
+			} break;
+			case JOB_TYPE_WORKING:
+			{
+				handle_working_job(job_system, working_job);
+			} break;
+			default:
+				UNREACHABLE;
 		}
+		handle_job(job_system, job);
+
+//		working_job_wait_for_counter(job_system, 
+
+//		working_job->
+
+//		working_job_wait_for_counter(
+
+//			{
+//				spin_acquire(&job_system->lock);
+//				defer { spin_release(&job_system->lock); };
+////				if (job.counter != nullptr)
+////				{
+////					InterlockedDecrement(&job.counter->value);
+////				}
+//	
+//			}
 	}
 }
 
@@ -134,12 +352,6 @@ spawn_job_system_workers(JobSystem* job_system)
 	{
 		create_thread(KiB(16), &job_worker, job_system, i);
 	}
-}
-
-void
-destroy_job_system(JobSystem* job_system)
-{
-	free_memory_arena(&job_system->memory_arena);
 }
 
 static JobQueue*
@@ -157,51 +369,39 @@ get_queue(JobSystem* job_system, JobPriority priority)
 	return ret;
 }
 
-void
-kick_jobs(JobSystem* job_system,
-          JobPriority priority,
+JobCounterID
+_kick_jobs(JobPriority priority,
           Job* jobs,
           size_t count,
-          JobCounter** out_counter)
+          JobDebugInfo debug_info,
+          JobSystem* job_system)
 {
-	if (out_counter != nullptr)
+	if (job_system == nullptr)
 	{
-		spin_acquire(&job_system->lock);
-		JobCounter* counter = pool_alloc(&job_system->job_counters);
-		spin_release(&job_system->lock);
+		job_system = tls_job_system;
+	}
 
-		counter->value = count;
+	ASSERT(job_system != nullptr);
 
-		*out_counter = counter;
+	JobCounter* counter = ACQUIRE(&job_system->job_counters, auto* job_counters)
+	{
+		return array_add(job_counters);
+	};
 
-		for (size_t i = 0; i < count; i++)
-		{
-			jobs[i].counter = counter;
-		}
+	counter->id = InterlockedIncrement(&job_system->current_job_counter_id);
+	counter->value = count;
+	counter->waiting_jobs = { 0 };
+
+	JobCounterID ret = counter->id;
+	for (size_t i = 0; i < count; i++)
+	{
+		jobs[i].completion_signal = ret;
+		jobs[i].debug_info = debug_info;
 	}
 
 	JobQueue* queue = get_queue(job_system, priority);
 
 	enqueue_jobs(queue, jobs, count);
-}
 
-void
-wait_for_next_job(JobSystem* job_system, Job* out)
-{
-	for (;;)
-	{
-		if (dequeue_job(&job_system->high_priority, out))
-			break;
-
-		if (dequeue_job(&job_system->medium_priority, out))
-			break;
-
-		if (dequeue_job(&job_system->low_priority, out))
-			break;
-	}
-}
-
-void
-yield_for_counter(JobSystem* job_system, JobCounter* counter)
-{
+	return ret;
 }

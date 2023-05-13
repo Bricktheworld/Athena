@@ -62,6 +62,7 @@ struct MemoryArena
 	uintptr_t start = 0x0;
 	uintptr_t pos = 0x0;
 	size_t size = 0;
+	bool suballocated = false;
 };
 
 MemoryArena alloc_memory_arena(size_t size);
@@ -82,3 +83,5 @@ T* push_memory_arena(MEMORY_ARENA_PARAM, size_t count = 1)
 {
 	return reinterpret_cast<T*>(push_memory_arena_aligned(MEMORY_ARENA_FWD, sizeof(T) * count, alignof(T)));
 }
+
+MemoryArena sub_alloc_memory_arena(MEMORY_ARENA_PARAM, size_t size);

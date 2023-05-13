@@ -32,7 +32,7 @@ init_adapter(IDXGIFactory4* factory)
 	IDXGIAdapter1* current = nullptr;
 	for (u32 i = 0; factory->EnumAdapters1(i, &current) != DXGI_ERROR_NOT_FOUND; i++)
 	{
-		DXGI_ADAPTER_DESC1 dxgi_adapter_desc;
+		DXGI_ADAPTER_DESC1 dxgi_adapter_desc = {0};
 		HASSERT(current->GetDesc1(&dxgi_adapter_desc));
 
 		if ((dxgi_adapter_desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) != 0 || 
@@ -321,7 +321,7 @@ alloc_upload_buffer(GraphicsDevice* d, size_t size)
 	resource_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
 	resource_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
 
-	ID3D12Resource* resource;
+	ID3D12Resource* resource = nullptr;
 	HASSERT(d->dev->CreateCommittedResource(&heap_props,
 	                                        D3D12_HEAP_FLAG_NONE,
 	                                        &resource_desc,
