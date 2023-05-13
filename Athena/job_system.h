@@ -62,7 +62,7 @@ typedef void (*JobEntry)(uintptr_t);
 // Literally just a hunk of memory lol.
 struct JobStack
 {
-	byte memory[STACK_SIZE];
+	alignas(16) byte memory[STACK_SIZE];
 };
 
 typedef u64 JobCounterID;

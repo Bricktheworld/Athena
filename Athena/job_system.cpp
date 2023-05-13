@@ -7,8 +7,11 @@ init_fiber(void* stack, size_t stack_size, void* proc, uintptr_t param)
 	ASSERT(stack != nullptr);
 	Fiber ret = {0};
 
+	uintptr_t stack_high       = (uintptr_t)stack + stack_size;
+	ASSERT((stack_high & 0xF) == 0x0);
+
 	ret.rip                = proc;
-	ret.rsp                = reinterpret_cast<void*>((uintptr_t)stack + stack_size);
+	ret.rsp                = (void*)stack_high;
 	ret.stack_high         = ret.rsp;
 	ret.stack_low          = stack;
 	ret.deallocation_stack = stack;
@@ -286,8 +289,6 @@ handle_job(JobSystem* job_system, Job job)
 static void
 handle_working_job(JobSystem* job_system, WorkingJob* working_job)
 {
-	dbgln("Welp, I haven't implemented it yet :shrug:");
-
 	resume_fiber(&working_job->fiber, tls_fiber_rsp);
 
 	// The job actually finished, means we can recycle everything.
@@ -327,7 +328,6 @@ job_worker(LPVOID param)
 			default:
 				UNREACHABLE;
 		}
-		handle_job(job_system, job);
 
 //		working_job_wait_for_counter(job_system, 
 

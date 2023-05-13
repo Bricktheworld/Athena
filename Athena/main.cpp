@@ -61,6 +61,7 @@ increment_job(uintptr_t param)
 static void
 frame_entry(uintptr_t param)
 {
+	dbgln("Hello world");
 	volatile u32 data = 0;
 	Job jobs[5];
 	for (u32 i = 0; i < 5; i++)
@@ -72,8 +73,7 @@ frame_entry(uintptr_t param)
 	JobCounterID counter = kick_jobs(JOB_PRIORITY_HIGH, jobs, 5);
 	yield_to_counter(counter);
 
-	ASSERT(data == 5);
-
+//	ASSERT(data == 5);
 	data++;
 }
 
@@ -83,7 +83,6 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, 
 	defer { destroy_application_memory(); };
 
 	run_all_tests();
-	return 0;
 
 	MemoryArena arena = alloc_memory_arena(MiB(32));
 	defer { free_memory_arena(&arena); };

@@ -245,7 +245,10 @@ launch_fiber proc
     mov    rsp, qword ptr [rcx + 8*1]
     ; We need 8 bytes for the return address,
     ; 8 bytes for the old rsp, and 32 more bytes
-    ; for the mandatory shadow space.
+    ; for the mandatory shadow space. Then, in order to
+    ; Adhere to x64's 16 byte rsp alignment requirement,
+    ; there are an additional 8 bytes added, in total
+    ; 56 bytes, or 0x38
     sub    rsp, 38h
     ; Put the old rsp at the highest address
     mov    [rsp + 30h], r9

@@ -97,20 +97,5 @@ test_and_set(volatile s64* dst, s64 val)
 	return prev;
 }
 
-//template <typename T>
-//inline T*
-//test_and_set_ptr(T* volatile* dst, T* val)
-//{
-//	T *prev, *compare_operand;
-//	do 
-//	{
-//		prev = InterlockedCompareExchangePointer(dst, val, compare_operand);
-//	} while (compare_operand != prev);
-//
-//	return prev;
-//}
-//#define test_and_set_ptr(dst, ptr) InterlockedCompareExchangePointer()
-
-
 #define ACQUIRE(lock, var) (*lock) * [&](var)
 
