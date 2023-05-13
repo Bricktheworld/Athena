@@ -37,9 +37,18 @@ struct Fiber
 	__m128i xmm14;
 	__m128i xmm15;
 
+	// This stuff is the TIB content
+	// https://en.wikipedia.org/wiki/Win32_Thread_Information_Block
+	void* stack_low = 0;
+	void* stack_high = 0;
+	void* fiber_local = 0;
+	void* deallocation_stack = 0; // ???? I have no fucking clue what this does
 };
 
-static_assert(offsetof(Fiber, yielded) == 0x58);
+static_assert(offsetof(Fiber, stack_low) == 0x100);
+static_assert(offsetof(Fiber, stack_high) == 0x108);
+static_assert(offsetof(Fiber, fiber_local) == 0x110);
+static_assert(offsetof(Fiber, deallocation_stack) == 0x118);
 
 Fiber init_fiber(void* stack, size_t stack_size, void* proc, uintptr_t param);
 extern "C" void launch_fiber(Fiber* fiber);

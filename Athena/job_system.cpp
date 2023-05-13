@@ -7,9 +7,12 @@ init_fiber(void* stack, size_t stack_size, void* proc, uintptr_t param)
 	ASSERT(stack != nullptr);
 	Fiber ret = {0};
 
-	ret.rip = proc;
-	ret.rsp = reinterpret_cast<void*>((uintptr_t)stack + stack_size);
-	ret.rcx = param;
+	ret.rip                = proc;
+	ret.rsp                = reinterpret_cast<void*>((uintptr_t)stack + stack_size);
+	ret.stack_high         = ret.rsp;
+	ret.stack_low          = stack;
+	ret.deallocation_stack = stack;
+	ret.rcx                = param;
 
 	return ret;
 }
