@@ -335,10 +335,13 @@ job_worker(LPVOID param)
 void
 spawn_job_system_workers(JobSystem* job_system)
 {
+	wchar_t name[128];
 	int count = get_num_physical_cores();
 	for (int i = 0; i < count - 1; i++)
 	{
-		create_thread(KiB(16), &job_worker, job_system, i);
+		Thread thread = create_thread(KiB(16), &job_worker, job_system, i);
+		swprintf_s(name, 128, L"JobSystem Worker %d", i);
+		set_thread_name(&thread, name);
 	}
 }
 

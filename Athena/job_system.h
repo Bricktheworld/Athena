@@ -152,12 +152,6 @@ JobCounterID _kick_jobs(JobPriority priority,
                        JobDebugInfo debug_info,
                        JobSystem* job_system = nullptr);
 
-//inline JobCounterID
-//_kick_job(JobPriority priority, Job job, JobSystem* job_system = nullptr)
-//{
-//	return kick_jobs(priority, &job, 1, job_system);
-//}
-
 #define kick_jobs(priority, jobs, count, ...) _kick_jobs(priority, jobs, count, JOB_DEBUG_INFO_STRUCT, __VA_ARGS__)
 #define kick_job(priority, job, ...) kick_jobs(priority, &job, 1, __VA_ARGS__)
 

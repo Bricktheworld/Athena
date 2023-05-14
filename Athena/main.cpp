@@ -1,7 +1,8 @@
+#include "tests.h"
 #include "math/math.h"
 #include "graphics.h"
 #include "job_system.h"
-#include "tests.h"
+#include "threading.h"
 #include "vendor/imgui/imgui.h"
 #include "vendor/imgui/imgui_impl_win32.h"
 #include "vendor/imgui/imgui_impl_dx12.h"
@@ -83,6 +84,7 @@ frame_entry(uintptr_t param)
 
 int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, int show_code)
 {
+	set_current_thread_name(L"Athena Main");
 	init_application_memory();
 	defer { destroy_application_memory(); };
 
@@ -100,6 +102,8 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, 
 	job.entry = &frame_entry;
 	job.param = 0;
 	JobCounterID id = kick_job(JOB_PRIORITY_HIGH, job, job_system);
+
+	Sleep(100000);
 
 	SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 

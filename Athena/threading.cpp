@@ -20,6 +20,26 @@ destroy_thread(Thread* thread)
 	zero_memory(thread, sizeof(Thread));
 }
 
+u32
+get_num_physical_cores()
+{
+	SYSTEM_INFO info = {0};
+	GetSystemInfo(&info);
+	return info.dwNumberOfProcessors;
+}
+
+void
+set_thread_name(const Thread* thread, const wchar_t* name)
+{
+	HASSERT(SetThreadDescription(thread->handle, name));
+}
+
+void
+set_current_thread_name(const wchar_t* name)
+{
+	HASSERT(SetThreadDescription(GetCurrentThread(), name));
+}
+
 void
 spin_acquire(SpinLock* spin_lock)
 {
@@ -46,12 +66,4 @@ void
 spin_release(SpinLock* spin_lock)
 {
 	spin_lock->value = 0;
-}
-
-u32
-get_num_physical_cores()
-{
-	SYSTEM_INFO info = {0};
-	GetSystemInfo(&info);
-	return info.dwNumberOfProcessors;
 }

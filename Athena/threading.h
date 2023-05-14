@@ -11,6 +11,9 @@ struct Thread
 
 Thread create_thread(size_t stack_size, ThreadProc proc, void* param, u8 core_index);
 void destroy_thread(Thread* thread);
+u32 get_num_physical_cores();
+void set_thread_name(const Thread* thread, const wchar_t* name);
+void set_current_thread_name(const wchar_t* name);
 
 struct SpinLock
 {
@@ -21,7 +24,6 @@ struct SpinLock
 void spin_acquire(SpinLock* spin_lock);
 bool try_spin_acquire(SpinLock* spin_lock, u64 max_cycles);
 void spin_release(SpinLock* spin_lock);
-u32 get_num_physical_cores();
 
 template <typename T>
 struct SpinLocked
@@ -40,6 +42,32 @@ struct SpinLocked
 	T m_value;
 	SpinLock m_lock;
 };
+
+#define ACQUIRE(lock, var) (*lock) * [&](var)
+
+inline u32
+test_and_set(volatile u32* dst, u32 val)
+{
+	u32 prev, compare_operand;
+	do 
+	{
+		prev = InterlockedCompareExchange(dst, val, compare_operand);
+	} while (compare_operand != prev);
+
+	return prev;
+}
+
+inline s64
+test_and_set(volatile s64* dst, s64 val)
+{
+	s64 prev, compare_operand;
+	do 
+	{
+		prev = InterlockedCompareExchange64(dst, val, compare_operand);
+	} while (compare_operand != prev);
+
+	return prev;
+}
 
 template <typename T, typename F, typename R>
 struct __SpinUnlocked__
@@ -72,30 +100,4 @@ auto operator*(SpinLocked<T>& lock, F f)
 {
 	return __SpinUnlocked__<T, F, decltype(f((T*)nullptr))>(&lock, f);
 }
-
-inline u32
-test_and_set(volatile u32* dst, u32 val)
-{
-	u32 prev, compare_operand;
-	do 
-	{
-		prev = InterlockedCompareExchange(dst, val, compare_operand);
-	} while (compare_operand != prev);
-
-	return prev;
-}
-
-inline s64
-test_and_set(volatile s64* dst, s64 val)
-{
-	s64 prev, compare_operand;
-	do 
-	{
-		prev = InterlockedCompareExchange64(dst, val, compare_operand);
-	} while (compare_operand != prev);
-
-	return prev;
-}
-
-#define ACQUIRE(lock, var) (*lock) * [&](var)
 
