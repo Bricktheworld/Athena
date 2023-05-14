@@ -60,31 +60,36 @@ try_ring_buffer_push(RingBuffer* rb, const void* data, size_t size)
 check_return bool
 try_ring_buffer_pop(RingBuffer* rb, size_t size, void* out)
 {
-	void* cpy_addr = rb->buffer + rb->read;
 	size_t read = rb->read;
+	size_t watermark = rb->watermark;
 
 	if (rb->write >= read)
 	{
 		if (rb->write - read < size)
 			return false;
 
-		read += size;
 	}
 	else // (rb->write < read)
 	{
-		if (read >= rb->watermark)
+		if (read >= watermark)
 		{
 			read = 0;
+			watermark = rb->size;
+
+			if (rb->write < size)
+				return false;
+		}
+		// TODO(Brandon): Allow reading _through_ the watermark by skipping over it.
+		else if (watermark - read < size)
+		{
+			return false;
 		}
 
-		// TODO(Brandon): Allow reading _through_ the watermark by skipping over it.
-		if (rb->watermark - read < size)
-			return false;
-
-		read += size;
 	}
 
-	rb->read = read;
+	void* cpy_addr = rb->buffer + read;
+	rb->read = read + size;
+	rb->watermark = watermark;
 
 	if (out != nullptr)
 	{

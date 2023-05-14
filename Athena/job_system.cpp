@@ -11,7 +11,7 @@ init_fiber(void* stack, size_t stack_size, void* proc, uintptr_t param)
 	ASSERT((stack_high & 0xF) == 0x0);
 
 	ret.rip                = proc;
-	ret.rsp                = (void*)stack_high;
+	ret.rsp                = reinterpret_cast<void*>(stack_high);
 	ret.stack_high         = ret.rsp;
 	ret.stack_low          = stack;
 	ret.deallocation_stack = stack;
@@ -103,7 +103,7 @@ dequeue_working_job(WorkingJobQueue* queue, WorkingJob** out)
 
 enum JobType
 {
-	JOB_TYPE_NEVER_LAUNCHED,
+	JOB_TYPE_LAUNCH,
 	JOB_TYPE_WORKING,
 };
 
@@ -118,13 +118,13 @@ wait_for_next_job(JobSystem* job_system, Job* job_out, WorkingJob** working_job_
 			return JOB_TYPE_WORKING;
 
 		if (dequeue_job(&job_system->high_priority, job_out))
-			return JOB_TYPE_NEVER_LAUNCHED;
+			return JOB_TYPE_LAUNCH;
 
 		if (dequeue_job(&job_system->medium_priority, job_out))
-			return JOB_TYPE_NEVER_LAUNCHED;
+			return JOB_TYPE_LAUNCH;
 
 		if (dequeue_job(&job_system->low_priority, job_out))
-			return JOB_TYPE_NEVER_LAUNCHED;
+			return JOB_TYPE_LAUNCH;
 	}
 }
 
@@ -148,7 +148,6 @@ init_job_system(MEMORY_ARENA_PARAM, size_t job_queue_size)
 
 thread_local JobSystem* tls_job_system = nullptr;
 thread_local Fiber* tls_fiber = nullptr;
-thread_local void* tls_fiber_rsp = nullptr;
 
 enum YieldParamType : u8
 {
@@ -172,7 +171,7 @@ yield_to_counter(JobCounterID counter)
 	ASSERT(tls_fiber != nullptr);
 	tls_yield_param.job_counter = counter;
 	tls_yield_param.type = YIELD_PARAM_JOB_COUNTER;
-	save_to_fiber(tls_fiber, tls_fiber_rsp);
+	save_to_fiber(tls_fiber, tls_fiber->stack_high);
 }
 
 static void
@@ -187,7 +186,7 @@ signal_job_counter(JobSystem* job_system, JobCounterID signal)
 		if (value == 0)
 		{
 			WorkingJobQueue waiting = counter->waiting_jobs;
-			// array_remove(counters, index);
+			array_remove(counters, index);
 			return waiting;
 		}
 
@@ -254,7 +253,7 @@ yield_working_job(JobSystem* job_system, WorkingJob* working_job)
 }
 
 static void
-handle_job(JobSystem* job_system, Job job)
+launch_job(JobSystem* job_system, Job job)
 {
 	JobStack* stack = ACQUIRE(&job_system->job_stack_allocator, auto* allocator)
 	{
@@ -263,9 +262,11 @@ handle_job(JobSystem* job_system, Job job)
 
 	Fiber fiber = init_fiber(stack->memory, STACK_SIZE, job.entry, job.param);
 	tls_fiber = &fiber;
-	tls_fiber_rsp = fiber.rsp;
 
+	auto* stack_high_before = fiber.stack_high;
+	ASSERT(fiber.rip != nullptr);
 	launch_fiber(&fiber);
+	ASSERT(fiber.stack_high == stack_high_before);
 
 	// The job actually finished, means we can recycle everything.
 	if (!fiber.yielded)
@@ -287,9 +288,9 @@ handle_job(JobSystem* job_system, Job job)
 }
 
 static void
-handle_working_job(JobSystem* job_system, WorkingJob* working_job)
+resume_working_job(JobSystem* job_system, WorkingJob* working_job)
 {
-	resume_fiber(&working_job->fiber, tls_fiber_rsp);
+	resume_fiber(&working_job->fiber, working_job->fiber.stack_high);
 
 	// The job actually finished, means we can recycle everything.
 	if (!working_job->fiber.yielded)
@@ -317,33 +318,17 @@ job_worker(LPVOID param)
 		JobType type = wait_for_next_job(job_system, &job, &working_job);
 		switch(type)
 		{
-			case JOB_TYPE_NEVER_LAUNCHED:
+			case JOB_TYPE_LAUNCH:
 			{
-				handle_job(job_system, job);
+				launch_job(job_system, job);
 			} break;
 			case JOB_TYPE_WORKING:
 			{
-				handle_working_job(job_system, working_job);
+				resume_working_job(job_system, working_job);
 			} break;
 			default:
 				UNREACHABLE;
 		}
-
-//		working_job_wait_for_counter(job_system, 
-
-//		working_job->
-
-//		working_job_wait_for_counter(
-
-//			{
-//				spin_acquire(&job_system->lock);
-//				defer { spin_release(&job_system->lock); };
-////				if (job.counter != nullptr)
-////				{
-////					InterlockedDecrement(&job.counter->value);
-////				}
-//	
-//			}
 	}
 }
 
@@ -398,6 +383,7 @@ _kick_jobs(JobPriority priority,
 	JobCounterID ret = counter->id;
 	for (size_t i = 0; i < count; i++)
 	{
+		ASSERT(jobs[i].entry != nullptr);
 		jobs[i].completion_signal = ret;
 		jobs[i].debug_info = debug_info;
 	}

@@ -61,20 +61,26 @@ increment_job(uintptr_t param)
 static void
 frame_entry(uintptr_t param)
 {
-	dbgln("Hello world");
 	volatile u32 data = 0;
-	Job jobs[5];
-	for (u32 i = 0; i < 5; i++)
+	static constexpr size_t JOB_FORK_COUNT = 100;
+	Job jobs[JOB_FORK_COUNT];
+	for (u32 i = 0; i < JOB_FORK_COUNT; i++)
 	{
 		jobs[i].entry = &increment_job;
 		jobs[i].param = (uintptr_t)&data;
 	}
 
-	JobCounterID counter = kick_jobs(JOB_PRIORITY_HIGH, jobs, 5);
+	JobCounterID counter = kick_jobs(JOB_PRIORITY_HIGH, jobs, JOB_FORK_COUNT);
 	yield_to_counter(counter);
+	ASSERT(data == JOB_FORK_COUNT);
 
-//	ASSERT(data == 5);
-	data++;
+	dbgln("Completed frame entry %d, running again", param);
+
+	Job recursive_job = {0};
+	recursive_job.entry = &frame_entry;
+	recursive_job.param = param + 1;
+
+	kick_job(JOB_PRIORITY_HIGH, recursive_job);
 }
 
 int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, int show_code)
@@ -94,8 +100,10 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, 
 
 	Job job = {0};
 	job.entry = &frame_entry;
-	job.param = (uintptr_t)&some_data;
+	job.param = 0;
 	JobCounterID id = kick_job(JOB_PRIORITY_HIGH, job, job_system);
+
+	Sleep(1000000);
 
 	SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
