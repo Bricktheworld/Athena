@@ -371,16 +371,15 @@ _kick_jobs(JobPriority priority,
 
 	ASSERT(job_system != nullptr);
 
-	JobCounter* counter = ACQUIRE(&job_system->job_counters, auto* job_counters)
+	JobCounterID ret = ACQUIRE(&job_system->job_counters, auto* job_counters)
 	{
-		return array_add(job_counters);
+		JobCounter* counter = array_add(job_counters);
+		counter->id = InterlockedIncrement(&job_system->current_job_counter_id);
+		counter->value = count;
+		counter->waiting_jobs = { 0 };
+		return counter->id;
 	};
 
-	counter->id = InterlockedIncrement(&job_system->current_job_counter_id);
-	counter->value = count;
-	counter->waiting_jobs = { 0 };
-
-	JobCounterID ret = counter->id;
 	for (size_t i = 0; i < count; i++)
 	{
 		ASSERT(jobs[i].entry != nullptr);
