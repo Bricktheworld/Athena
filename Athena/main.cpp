@@ -52,17 +52,22 @@ LRESULT CALLBACK window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM lparam
 static constexpr const wchar_t* CLASS_NAME = L"AthenaWindowClass";
 static constexpr const wchar_t* WINDOW_NAME = L"Athena";
 
+static constexpr u64 INCREMENT_AMOUNT = 10000;
+
 static void
 increment_job(uintptr_t param)
 {
-	volatile u32* data = reinterpret_cast<volatile u32*>(param);
-	InterlockedIncrement(data);
+	volatile u64* data = reinterpret_cast<volatile u64*>(param);
+	for (u64 i = 0; i < INCREMENT_AMOUNT; i++)
+	{
+		InterlockedIncrement(data);
+	}
 }
 
 static void
 frame_entry(uintptr_t param)
 {
-	volatile u32 data = static_cast<u32>(param);
+	volatile u64 data = param;
 	static constexpr size_t JOB_FORK_COUNT = 128;
 	Job jobs[JOB_FORK_COUNT];
 	for (u32 i = 0; i < JOB_FORK_COUNT; i++)
@@ -73,7 +78,7 @@ frame_entry(uintptr_t param)
 
 	JobCounterID counter = kick_jobs(JOB_PRIORITY_HIGH, jobs, JOB_FORK_COUNT);
 	yield_to_counter(counter);
-	ASSERT(data == param + JOB_FORK_COUNT);
+	ASSERT(data == param + JOB_FORK_COUNT * INCREMENT_AMOUNT);
 
 	Job recursive_job = {0};
 	recursive_job.entry = &frame_entry;
