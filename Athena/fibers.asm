@@ -239,22 +239,17 @@ launch_fiber proc
     ; in registers.
     mov    r8, qword ptr [rcx + 8*0]
     mov    r9, rsp
-    mov    r10, OFFSET unwind_fiber
 
     ; Change rsp to our new stack for the fiber.
     mov    rsp, qword ptr [rcx + 8*1]
-    ; We need 8 bytes for the return address,
-    ; 8 bytes for the old rsp, and 32 more bytes
+    ; We need 8 bytes for the old rsp and 32 more bytes
     ; for the mandatory shadow space. Then, in order to
     ; Adhere to x64's 16 byte rsp alignment requirement,
     ; there are an additional 8 bytes added, in total
-    ; 56 bytes, or 0x38
-    sub    rsp, 38h
+    ; 48 bytes, or 0x30
+    sub    rsp, 30h
     ; Put the old rsp at the highest address
-    mov    [rsp + 30h], r9
-    ; Put the unwind_fiber address at the low
-    ; address so that return will use this.
-    mov    [rsp], r10
+    mov    [rsp + 28h], r9
 
     mov    rbx,     qword ptr [rcx + 8*2]
     mov    rbp,     qword ptr [rcx + 8*3]
@@ -294,12 +289,9 @@ launch_fiber proc
     ; The rcx parameter can now be set
     mov    rcx, qword ptr [rcx + 8*10]
 
-    ; Push the fiber start address, ret will
-    ; pop this off and jump to it.
-    push   r8
-    ret
+    ; Indirect call to our actual entry-point
+    call   r8
 
-unwind_fiber:
     ; Restore our old rsp
     mov    rsp, [rsp + 28h]
 
