@@ -311,6 +311,8 @@ static DWORD
 job_worker(LPVOID param) 
 {
 	JobSystem* job_system = tls_job_system = reinterpret_cast<JobSystem*>(param);
+	// TODO(Brandon): We need an exit condition here, so that the workers can actually
+	// have a signal to die.
 	for (;;)
 	{
 		Job job = {0};
@@ -332,17 +334,23 @@ job_worker(LPVOID param)
 	}
 }
 
-void
-spawn_job_system_workers(JobSystem* job_system)
+Array<Thread>
+spawn_job_system_workers(MEMORY_ARENA_PARAM, JobSystem* job_system)
 {
 	wchar_t name[128];
-	int count = get_num_physical_cores();
-	for (int i = 0; i < count - 1; i++)
+	u32 count = get_num_physical_cores();
+
+	Array<Thread> ret = init_array<Thread>(MEMORY_ARENA_FWD, count);
+	for (u32 i = 0; i < count - 1; i++)
 	{
 		Thread thread = create_thread(KiB(16), &job_worker, job_system, i);
 		swprintf_s(name, 128, L"JobSystem Worker %d", i);
 		set_thread_name(&thread, name);
+
+		*array_add(&ret) = thread;
 	}
+
+	return ret;
 }
 
 static JobQueue*

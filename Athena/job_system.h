@@ -58,7 +58,12 @@ extern "C" void save_to_fiber(Fiber* out, void* stack_high);
 
 typedef void (*JobEntry)(uintptr_t);
 
-#define STACK_SIZE KiB(16)
+// TODO(Brandon): I have no idea why, but dx12 calls eat massive
+// amounts of stack space, so this is a temporary solution.
+// What I actually want is to be able to specify whether a job needs
+// _more_ stack space than a typical maybe 16 KiB, not have the default
+// be a worst case -_-
+#define STACK_SIZE KiB(128)
 // Literally just a hunk of memory lol.
 struct JobStack
 {
@@ -144,7 +149,7 @@ enum JobPriority : u8
 
 JobSystem* init_job_system(MEMORY_ARENA_PARAM, size_t job_queue_size);
 
-void spawn_job_system_workers(JobSystem* job_system);
+Array<Thread> spawn_job_system_workers(MEMORY_ARENA_PARAM, JobSystem* job_system);
 
 JobCounterID _kick_jobs(JobPriority priority,
                        Job* jobs,

@@ -1,4 +1,5 @@
 #include "threading.h"
+#include "array.h"
 #include "memory/memory.h"
 
 Thread
@@ -38,6 +39,21 @@ void
 set_current_thread_name(const wchar_t* name)
 {
 	HASSERT(SetThreadDescription(GetCurrentThread(), name));
+}
+
+void
+join_threads(const Thread* threads, u32 count)
+{
+	MemoryArena arena = alloc_memory_arena(count * sizeof(HANDLE));
+	defer { free_memory_arena(&arena); };
+
+	Array handles = init_array<HANDLE>(&arena, count);
+	for (size_t i = 0; i < count; i++)
+	{
+		*array_add(&handles) = threads[i].handle;
+	}
+
+	WaitForMultipleObjects(count, handles.memory, true, INFINITE);
 }
 
 void

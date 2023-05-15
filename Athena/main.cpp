@@ -87,28 +87,16 @@ frame_entry(uintptr_t param)
 	kick_job(JOB_PRIORITY_HIGH, recursive_job);
 }
 
-int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, int show_code)
+struct WindowSetupParam
 {
-	set_current_thread_name(L"Athena Main");
-	init_application_memory();
-	defer { destroy_application_memory(); };
+	HINSTANCE instance = 0;
+	int show_code = 0;
+};
 
-	run_all_tests();
-
-	MemoryArena arena = alloc_memory_arena(MiB(32));
-	defer { free_memory_arena(&arena); };
-
-	JobSystem* job_system = init_job_system(&arena, 512);
-	spawn_job_system_workers(job_system);
-
-	int some_data = 0;
-
-	Job job = {0};
-	job.entry = &frame_entry;
-	job.param = 0;
-	JobCounterID id = kick_job(JOB_PRIORITY_HIGH, job, job_system);
-
-	Sleep(100000);
+static void
+window_setup(uintptr_t p_param)
+{
+	auto* param = (WindowSetupParam*)p_param;
 
 	SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
@@ -116,7 +104,7 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, 
 	wc.cbSize = sizeof(wc);
 	wc.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
 	wc.lpfnWndProc = &window_proc;
-	wc.hInstance = instance;
+	wc.hInstance = param->instance;
 	wc.lpszClassName = CLASS_NAME;
 
 	ASSERT(RegisterClassExW(&wc));
@@ -134,10 +122,10 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, 
 	                              window_rect.bottom - window_rect.top,
 	                              0,
 	                              0,
-	                              instance,
+	                              param->instance,
 	                              0);
 	ASSERT(window != nullptr);
-	ShowWindow(window, show_code);
+	ShowWindow(window, param->show_code);
 	UpdateWindow(window);
 
 	GraphicsDevice graphics_device = init_graphics_device(window);
@@ -250,7 +238,44 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, 
 	COM_RELEASE(imgui_desc_heap);
 	COM_RELEASE(imgui_dev);
 	destroy_graphics_device(&graphics_device);
+}
 
+int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, int show_code)
+{
+	set_current_thread_name(L"Athena Main");
+
+	init_application_memory();
+	defer { destroy_application_memory(); };
+
+	run_all_tests();
+
+	MemoryArena arena = alloc_memory_arena(MiB(64));
+	defer { free_memory_arena(&arena); };
+
+	JobSystem* job_system = init_job_system(&arena, 512);
+	Array<Thread> threads = spawn_job_system_workers(&arena, job_system);
+
+	int some_data = 0;
+
+//	Job job = {0};
+//	job.entry = &frame_entry;
+//	job.param = 0;
+//	JobCounterID id = kick_job(JOB_PRIORITY_HIGH, job, job_system);
+
+	// TODO(Brandon): This is fucking awful lol. We really want the job system
+	// to be able to manage the lifetime of temporary parameters. I'm not sure
+	// how I want to do this, but I don't want to have to have job parameters
+	// randomly heap allocated with unknown lifetimes.
+	WindowSetupParam* param = push_memory_arena<WindowSetupParam>(&arena);
+	param->instance = instance;
+	param->show_code = show_code;
+
+	Job startup_job = {0};
+	startup_job.entry = &window_setup;
+	startup_job.param = (uintptr_t)param;
+	kick_job(JOB_PRIORITY_HIGH, startup_job, job_system);
+
+	join_threads(threads.memory, static_cast<u32>(threads.size));
 
 	return 0;
 }

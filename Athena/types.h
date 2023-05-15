@@ -91,8 +91,7 @@ template <class F> __Deferrer__<F> operator*(__DeferDummy__, F f) { return {f}; 
 #define DEBUG
 #endif
 
-// #ifdef DEBUG
-#if 1
+ #ifdef DEBUG
 #define DEBUG_BREAK() __debugbreak()
 
 #define ASSERT(expr) \

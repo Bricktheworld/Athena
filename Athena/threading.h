@@ -14,6 +14,7 @@ void destroy_thread(Thread* thread);
 u32 get_num_physical_cores();
 void set_thread_name(const Thread* thread, const wchar_t* name);
 void set_current_thread_name(const wchar_t* name);
+void join_threads(const Thread* threads, u32 count);
 
 struct SpinLock
 {
