@@ -45,16 +45,10 @@ struct Fiber
 	void* deallocation_stack = 0; // ???? I have no fucking clue what this does
 };
 
-static_assert(offsetof(Fiber, stack_low) == 0x100);
-static_assert(offsetof(Fiber, stack_high) == 0x108);
-static_assert(offsetof(Fiber, fiber_local) == 0x110);
-static_assert(offsetof(Fiber, deallocation_stack) == 0x118);
-
 Fiber init_fiber(void* stack, size_t stack_size, void* proc, uintptr_t param);
 extern "C" void launch_fiber(Fiber* fiber);
 extern "C" void resume_fiber(Fiber* fiber, void* stack_high);
 extern "C" void save_to_fiber(Fiber* out, void* stack_high);
-//#define yield job_system_yield_fiber()
 
 typedef void (*JobEntry)(uintptr_t);
 
@@ -126,9 +120,15 @@ struct JobSystem
 	JobQueue medium_priority;
 	JobQueue low_priority;
 
+	// TODO(Brandon): Ideally, these pools would just be atomic
+	// and not SpinLocked.
+
 	SpinLocked<Pool<JobStack>> job_stack_allocator;
 
 	SpinLocked<Pool<WorkingJob>> working_job_allocator;
+
+	// TODO(Brandon): We really want this to be a hashmap from
+	// JobCounterID to actual JobCounter.
 	SpinLocked<Array<JobCounter>> job_counters;
 
 	SpinLocked<WorkingJobQueue> working_jobs_queue;
@@ -136,6 +136,8 @@ struct JobSystem
 	volatile JobCounterID current_job_counter_id = 1;
 
 	SpinLock lock;
+
+	bool should_exit = 0;
 };
 
 enum JobPriority : u8
@@ -149,56 +151,17 @@ enum JobPriority : u8
 
 JobSystem* init_job_system(MEMORY_ARENA_PARAM, size_t job_queue_size);
 
+// These must be called _inside_ of a job.
+JobSystem* get_job_system();
+void kill_job_system(JobSystem* job_system);
+
 Array<Thread> spawn_job_system_workers(MEMORY_ARENA_PARAM, JobSystem* job_system);
 
 JobCounterID _kick_jobs(JobPriority priority,
-                       Job* jobs,
-                       size_t count,
-                       JobDebugInfo debug_info,
-                       JobSystem* job_system = nullptr);
+                        Job* jobs,
+                        size_t count,
+                        JobDebugInfo debug_info,
+                        JobSystem* job_system = nullptr);
 
 #define kick_jobs(priority, jobs, count, ...) _kick_jobs(priority, jobs, count, JOB_DEBUG_INFO_STRUCT, __VA_ARGS__)
 #define kick_job(priority, job, ...) kick_jobs(priority, &job, 1, __VA_ARGS__)
-
-
-#if 0
-#pragma section(".text")
-__declspec(allocate(".text"))
-static u8 save_to_fiber_x64[] =
-{
-	0x4C, 0x8B, 0x04, 0x24,              // mov         r8,qword ptr [rsp]
-	0x4C, 0x89, 0x01,                    // mov         qword ptr [rcx],r8
-	0x4C, 0x8D, 0x44, 0x24, 0x08,        // lea         r8,[rsp+8]
-	0x4C, 0x89, 0x41, 0x08,              // mov         qword ptr [rcx+8],r8
-	0x48, 0x89, 0x59, 0x10,              // mov         qword ptr [rcx+10h],rbx
-	0x48, 0x89, 0x69, 0x18,              // mov         qword ptr [rcx+18h],rbp
-	0x4C, 0x89, 0x61, 0x20,              // mov         qword ptr [rcx+20h],r12
-	0x4C, 0x89, 0x69, 0x28,              // mov         qword ptr [rcx+28h],r13
-	0x4C, 0x89, 0x71, 0x30,              // mov         qword ptr [rcx+30h],r14
-	0x4C, 0x89, 0x79, 0x38,              // mov         qword ptr [rcx+38h],r15
-	0x48, 0x89, 0x79, 0x40,              // mov         qword ptr [rcx+40h],rdi
-	0x48, 0x89, 0x71, 0x48,              // mov         qword ptr [rcx+48h],rsi
-	0x0F, 0x11, 0x71, 0x50,              // movups      xmmword ptr [rcx+50h],xmm6
-	0x0F, 0x11, 0x79, 0x60,              // movups      xmmword ptr [rcx+60h],xmm7
-	0x44, 0x0F, 0x11, 0x41, 0x70,        // movups      xmmword ptr [rcx+70h],xmm8
-	0x44, 0x0F, 0x11, 0x89, 0x80, 0x00,  // movups      xmmword ptr [rcx+0000000000000080h],xmm9
-	0x00, 0x00,                          //
-	0x44, 0x0F, 0x11, 0x91, 0x90, 0x00,  // movups      xmmword ptr [rcx+0000000000000090h],xmm10
-	0x00, 0x00,                          //
-	0x44, 0x0F, 0x11, 0x99, 0xA0, 0x00,  // movups      xmmword ptr [rcx+00000000000000A0h],xmm11
-	0x00, 0x00,                          //
-	0x44, 0x0F, 0x11, 0xA1, 0xB0, 0x00,  // movups      xmmword ptr [rcx+00000000000000B0h],xmm12
-	0x00, 0x00,                          //
-	0x44, 0x0F, 0x11, 0xA9, 0xC0, 0x00,  // movups      xmmword ptr [rcx+00000000000000C0h],xmm13
-	0x00, 0x00,                          //
-	0x44, 0x0F, 0x11, 0xB1, 0xD0, 0x00,  // movups      xmmword ptr [rcx+00000000000000D0h],xmm14
-	0x00, 0x00,                          //
-	0x44, 0x0F, 0x11, 0xB9, 0xE0, 0x00,  // movups      xmmword ptr [rcx+00000000000000E0h],xmm15
-	0x00, 0x00,                          //
-	0x33, 0xC0,                          // xor         eax,eax
-	0xC3,                                // ret
-};
-
-static void (*save_to_fiber)(Fiber*) = (void (*)(Fiber*))(u8*)save_to_fiber_x64;
-#endif
-

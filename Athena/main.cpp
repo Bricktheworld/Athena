@@ -8,12 +8,13 @@
 #include "vendor/imgui/imgui_impl_dx12.h"
 
 extern "C" { __declspec(dllexport) extern const UINT D3D12SDKVersion = 610;}
-
 extern "C" { __declspec(dllexport) extern const char* D3D12SDKPath = u8".\\D3D12\\"; }
 
-extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+extern IMGUI_IMPL_API LRESULT
+ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-LRESULT CALLBACK window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM lparam) 
+LRESULT CALLBACK
+window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM lparam) 
 {
 	if (ImGui_ImplWin32_WndProcHandler(window, msg, wparam, lparam))
 		return true;
@@ -23,27 +24,22 @@ LRESULT CALLBACK window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM lparam
 	{
 		case WM_SIZE:
 		{
-			break;
-		}
+		} break;
 		case WM_DESTROY:
 		{
 			PostQuitMessage(0);
-			break;
-		}
+		} break;
 		case WM_CLOSE:
 		{
 			PostQuitMessage(0);
-			break;
-		}
+		} break;
 		case WM_ACTIVATEAPP:
 		{
-			break;
-		}
+		} break;
 		default:
 		{
 			res = DefWindowProcW(window, msg, wparam, lparam);
-			break;
-		}
+		} break;
 	}
 
 	return res;
@@ -238,9 +234,12 @@ window_setup(uintptr_t p_param)
 	COM_RELEASE(imgui_desc_heap);
 	COM_RELEASE(imgui_dev);
 	destroy_graphics_device(&graphics_device);
+
+	kill_job_system(get_job_system());
 }
 
-int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, int show_code)
+int APIENTRY
+WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, int show_code)
 {
 	set_current_thread_name(L"Athena Main");
 
@@ -255,24 +254,13 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, 
 	JobSystem* job_system = init_job_system(&arena, 512);
 	Array<Thread> threads = spawn_job_system_workers(&arena, job_system);
 
-	int some_data = 0;
-
-//	Job job = {0};
-//	job.entry = &frame_entry;
-//	job.param = 0;
-//	JobCounterID id = kick_job(JOB_PRIORITY_HIGH, job, job_system);
-
-	// TODO(Brandon): This is fucking awful lol. We really want the job system
-	// to be able to manage the lifetime of temporary parameters. I'm not sure
-	// how I want to do this, but I don't want to have to have job parameters
-	// randomly heap allocated with unknown lifetimes.
-	WindowSetupParam* param = push_memory_arena<WindowSetupParam>(&arena);
-	param->instance = instance;
-	param->show_code = show_code;
+	WindowSetupParam param = { 0 };
+	param.instance = instance;
+	param.show_code = show_code;
 
 	Job startup_job = {0};
 	startup_job.entry = &window_setup;
-	startup_job.param = (uintptr_t)param;
+	startup_job.param = reinterpret_cast<uintptr_t>(&param);
 	kick_job(JOB_PRIORITY_HIGH, startup_job, job_system);
 
 	join_threads(threads.memory, static_cast<u32>(threads.size));

@@ -101,16 +101,19 @@ dequeue_working_job(WorkingJobQueue* queue, WorkingJob** out)
 	return true;
 }
 
-enum JobType
+enum JobType : u8
 {
+	JOB_TYPE_INVALID,
 	JOB_TYPE_LAUNCH,
 	JOB_TYPE_WORKING,
+
+	JOB_TYPE_COUNT,
 };
 
 static JobType
 wait_for_next_job(JobSystem* job_system, Job* job_out, WorkingJob** working_job_out)
 {
-	for (;;)
+	while (!job_system->should_exit)
 	{
 		if (ACQUIRE(&job_system->working_jobs_queue, auto* q) {
 			return dequeue_working_job(q, working_job_out); 
@@ -126,6 +129,7 @@ wait_for_next_job(JobSystem* job_system, Job* job_out, WorkingJob** working_job_
 		if (dequeue_job(&job_system->low_priority, job_out))
 			return JOB_TYPE_LAUNCH;
 	}
+	return JOB_TYPE_INVALID;
 }
 
 JobSystem*
@@ -313,7 +317,7 @@ job_worker(LPVOID param)
 	JobSystem* job_system = tls_job_system = reinterpret_cast<JobSystem*>(param);
 	// TODO(Brandon): We need an exit condition here, so that the workers can actually
 	// have a signal to die.
-	for (;;)
+	while (!job_system->should_exit)
 	{
 		Job job = {0};
 		WorkingJob* working_job = nullptr;
@@ -328,10 +332,15 @@ job_worker(LPVOID param)
 			{
 				resume_working_job(job_system, working_job);
 			} break;
+			case JOB_TYPE_INVALID:
+			{
+				return 0;
+			} break;
 			default:
 				UNREACHABLE;
 		}
 	}
+	return 0;
 }
 
 Array<Thread>
@@ -403,4 +412,17 @@ _kick_jobs(JobPriority priority,
 	enqueue_jobs(queue, jobs, count);
 
 	return ret;
+}
+
+JobSystem*
+get_job_system()
+{
+	ASSERT(tls_job_system != nullptr);
+	return tls_job_system;
+}
+
+void
+kill_job_system(JobSystem* job_system)
+{
+	job_system->should_exit = true;
 }

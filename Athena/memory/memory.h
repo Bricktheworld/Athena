@@ -30,30 +30,6 @@ inline void zero_memory(void* memory, size_t size)
 	}
 }
 
-//inline void* aligned_alloc(const AllocatorRef& ref, size_t size, size_t alignment)
-//{
-//	void* res = ref.alloc_cb(ref.allocator, size, alignment);
-//	zero_memory(res, size);
-//	return res;
-//}
-
-
-//template <typename T>
-//inline T* alloc(VolatileAllocator allocator)
-//{
-//	uintptr_t type = allocator & 0x7;
-//
-//	allocator &= ~0xF;
-//	switch(type)
-//	{
-//		case 0x1:
-//		{
-//			break;
-//		}
-//	}
-//}
-
-
 void init_application_memory();
 void destroy_application_memory();
 

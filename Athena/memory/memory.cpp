@@ -12,13 +12,6 @@ enum struct MemoryLocation : u8
 	DEBUG_VRAM,
 };
 
-//struct MemoryMapEntry
-//{
-//	MemoryLocation location = GAME_MEM;
-//	size_t size = 0;
-//};
-
-
 struct DoubleEndedStack
 {
 	uintptr_t upper = 0x0;
