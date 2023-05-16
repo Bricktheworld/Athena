@@ -1,7 +1,8 @@
 #pragma once
 #include "types.h"
+#include "memory/memory.h"
 
-typedef DWORD (*ThreadProc)(LPVOID);
+typedef u32 (*ThreadProc)(void*);
 
 struct Thread
 {
@@ -9,7 +10,11 @@ struct Thread
 	DWORD id = 0;
 };
 
-Thread create_thread(size_t stack_size, ThreadProc proc, void* param, u8 core_index);
+Thread create_thread(MemoryArena scratch_arena,
+                     size_t stack_size,
+                     ThreadProc proc,
+                     void* param,
+                     u8 core_index);
 void destroy_thread(Thread* thread);
 u32 get_num_physical_cores();
 void set_thread_name(const Thread* thread, const wchar_t* name);

@@ -150,6 +150,7 @@
     </FxCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="context.cpp" />
     <ClCompile Include="graphics.cpp" />
     <ClCompile Include="job_system.cpp" />
     <ClCompile Include="main.cpp" />
@@ -169,6 +170,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="array.h" />
+    <ClInclude Include="context.h" />
     <ClInclude Include="error_or.h" />
     <ClInclude Include="graphics.h" />
     <ClInclude Include="hash_table.h" />

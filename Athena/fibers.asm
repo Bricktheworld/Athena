@@ -343,4 +343,9 @@ launch_fiber proc
     ret
 
 launch_fiber endp
+
+get_rsp proc
+    mov   rax, rsp
+    ret
+get_rsp endp
 end

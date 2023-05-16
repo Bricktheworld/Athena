@@ -1,4 +1,5 @@
 #include "job_system.h"
+#include "context.h"
 
 Fiber
 init_fiber(void* stack, size_t stack_size, void* proc, uintptr_t param)
@@ -311,12 +312,15 @@ resume_working_job(JobSystem* job_system, WorkingJob* working_job)
 	yield_working_job(job_system, working_job);
 }
 
-static DWORD
-job_worker(LPVOID param) 
+struct JobWorkerThreadParams
+{
+	JobSystem* job_system = nullptr;
+};
+
+static u32
+job_worker(void* param) 
 {
 	JobSystem* job_system = tls_job_system = reinterpret_cast<JobSystem*>(param);
-	// TODO(Brandon): We need an exit condition here, so that the workers can actually
-	// have a signal to die.
 	while (!job_system->should_exit)
 	{
 		Job job = {0};
@@ -349,10 +353,11 @@ spawn_job_system_workers(MEMORY_ARENA_PARAM, JobSystem* job_system)
 	wchar_t name[128];
 	u32 count = get_num_physical_cores();
 
-	Array<Thread> ret = init_array<Thread>(MEMORY_ARENA_FWD, count);
+	Array ret = init_array<Thread>(MEMORY_ARENA_FWD, count);
 	for (u32 i = 0; i < count - 1; i++)
 	{
-		Thread thread = create_thread(KiB(16), &job_worker, job_system, i);
+		MemoryArena thread_scratch_arena = sub_alloc_memory_arena(MEMORY_ARENA_FWD, DEFAULT_SCRATCH_SIZE);
+		Thread thread = create_thread(thread_scratch_arena, KiB(16), &job_worker, job_system, i);
 		swprintf_s(name, 128, L"JobSystem Worker %d", i);
 		set_thread_name(&thread, name);
 

@@ -174,29 +174,38 @@ alloc_memory_arena(size_t size)
 	MemoryArena ret = {0};
 	ret.start = double_ended_push(&g_game_stack, DOUBLE_ENDED_LOWER, size);
 	ret.pos = ret.start;
+	ret.remote_pos = nullptr;
 	ret.size = size;
-	ret.suballocated = false;
+
 	return ret;
 }
 
 void
-free_memory_arena(MemoryArena* arena)
+free_memory_arena(MEMORY_ARENA_PARAM)
 {
-	ASSERT(!arena->suballocated);
-	double_ended_pop(&g_game_stack, DOUBLE_ENDED_LOWER, arena->start);
+	double_ended_pop(&g_game_stack, DOUBLE_ENDED_LOWER, memory_arena->start);
+}
+
+void
+reset_memory_arena(MEMORY_ARENA_PARAM) 
+{
+	uintptr_t* pos = memory_arena_pos_ptr(MEMORY_ARENA_FWD);
+	ASSERT(*pos >= memory_arena->start);
+	*pos = memory_arena->start;
 }
 
 void*
 push_memory_arena_aligned(MEMORY_ARENA_PARAM, size_t size, size_t alignment)
 {
+	uintptr_t* pos = memory_arena_pos_ptr(MEMORY_ARENA_FWD);
 	// TODO(Brandon): We probably want some overrun protection here too.
-	uintptr_t memory_start = align_address(memory_arena->pos, alignment);
+	uintptr_t memory_start = align_address(*pos, alignment);
 
 	uintptr_t new_pos = memory_start + size;
 
 	ASSERT(new_pos <= memory_arena->start + memory_arena->size);
 
-	memory_arena->pos = new_pos;
+	*pos = new_pos;
 
 	void* ret = reinterpret_cast<void*>(memory_start);
 	zero_memory(ret, size);
@@ -205,14 +214,14 @@ push_memory_arena_aligned(MEMORY_ARENA_PARAM, size_t size, size_t alignment)
 }
 
 MemoryArena
-sub_alloc_memory_arena(MEMORY_ARENA_PARAM, size_t size)
+sub_alloc_memory_arena(MEMORY_ARENA_PARAM, size_t size, size_t alignment)
 {
 	MemoryArena ret = {0};
 
-	ret.start = reinterpret_cast<uintptr_t>(push_memory_arena_aligned(MEMORY_ARENA_FWD, size));
+	ret.start = reinterpret_cast<uintptr_t>(push_memory_arena_aligned(MEMORY_ARENA_FWD, size, alignment));
 	ret.pos = ret.start;
+	ret.remote_pos = nullptr;
 	ret.size = size;
-	ret.suballocated = true;
 
 	return ret;
 }

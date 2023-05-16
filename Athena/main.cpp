@@ -3,6 +3,7 @@
 #include "graphics.h"
 #include "job_system.h"
 #include "threading.h"
+#include "context.h"
 #include "vendor/imgui/imgui.h"
 #include "vendor/imgui/imgui_impl_win32.h"
 #include "vendor/imgui/imgui_impl_dx12.h"
@@ -250,6 +251,9 @@ WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, int show_code
 
 	MemoryArena arena = alloc_memory_arena(MiB(64));
 	defer { free_memory_arena(&arena); };
+
+	MemoryArena scratch_arena = sub_alloc_memory_arena(&arena, DEFAULT_SCRATCH_SIZE);
+	init_context(scratch_arena);
 
 	JobSystem* job_system = init_job_system(&arena, 512);
 	Array<Thread> threads = spawn_job_system_workers(&arena, job_system);

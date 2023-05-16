@@ -1,13 +1,45 @@
 #include "threading.h"
+#include "context.h"
 #include "array.h"
 #include "memory/memory.h"
 
-Thread
-create_thread(size_t stack_size, ThreadProc proc, void* param, u8 core_index)
+struct ThreadEntryProcParams
 {
+	MemoryArena memory_arena = {0};
+	ThreadProc proc = nullptr;
+	void* user_param = nullptr;
+};
+
+// Sets up a memory arena and other things before actually entering
+static DWORD
+thread_entry_proc(LPVOID void_param)
+{
+	ThreadEntryProcParams params = *reinterpret_cast<ThreadEntryProcParams*>(void_param);
+	// We no longer want anything inside of this memory arena,
+	// since it has all been copied out now.
+//	reset_memory_arena(&params.memory_arena);
+
+	init_context(params.memory_arena);
+
+	u32 res = params.proc(params.user_param);
+	return res;
+}
+
+Thread
+create_thread(MemoryArena scratch_arena,
+              size_t stack_size,
+              ThreadProc proc,
+              void* param,
+              u8 core_index)
+{
+	auto* params = push_memory_arena<ThreadEntryProcParams>(&scratch_arena);
+	params->memory_arena = scratch_arena;
+	params->proc = proc;
+	params->user_param = param;
+
 	ASSERT(core_index < 32);
 	Thread ret = {0};
-	ret.handle = CreateThread(0, stack_size, proc, param, 0, &ret.id);
+	ret.handle = CreateThread(0, stack_size, &thread_entry_proc, params, 0, &ret.id);
 	SetThreadAffinityMask(ret.handle, (1ULL << core_index));
 
 	return ret;
@@ -44,8 +76,8 @@ set_current_thread_name(const wchar_t* name)
 void
 join_threads(const Thread* threads, u32 count)
 {
-	MemoryArena arena = alloc_memory_arena(count * sizeof(HANDLE));
-	defer { free_memory_arena(&arena); };
+	MemoryArena arena = alloc_scratch_arena();
+	defer { free_scratch_arena(&arena); };
 
 	Array handles = init_array<HANDLE>(&arena, count);
 	for (size_t i = 0; i < count; i++)

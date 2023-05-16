@@ -49,6 +49,7 @@ Fiber init_fiber(void* stack, size_t stack_size, void* proc, uintptr_t param);
 extern "C" void launch_fiber(Fiber* fiber);
 extern "C" void resume_fiber(Fiber* fiber, void* stack_high);
 extern "C" void save_to_fiber(Fiber* out, void* stack_high);
+extern "C" void* get_rsp();
 
 typedef void (*JobEntry)(uintptr_t);
 
