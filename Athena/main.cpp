@@ -174,9 +174,7 @@ window_setup(uintptr_t p_param)
 		if (done)
 			break;
 
-//		gd_clear_render_target_view(&graphics_device, Rgba(0.0, 1.0, 0.0, 1.0));
 		gd_update(&graphics_device);
-#if 0
 		{
 			// Start the Dear ImGui frame
 			ImGui_ImplDX12_NewFrame();
@@ -221,10 +219,9 @@ window_setup(uintptr_t p_param)
 
 			// Rendering
 			ImGui::Render();
-//			graphics_device.cmd_list->OMSetRenderTargets(1, &graphics_device.back_buffers[graphics_device.back_buffer_index], FALSE, nullptr);
+			graphics_device.cmd_list->SetDescriptorHeaps(1, &imgui_desc_heap);
 			ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), graphics_device.cmd_list);
 		}
-#endif
 
 		gd_present(&graphics_device);
 

@@ -39,6 +39,7 @@ void destroy_application_memory();
 struct MemoryArena
 {
 	uintptr_t start = 0x0;
+	uintptr_t pos = 0x0;
 
 	// The reason it's done this way is so that different memory arenas which
 	// "overlap" and don't know their full size until later can share the same
@@ -47,8 +48,6 @@ struct MemoryArena
 	uintptr_t* remote_pos = nullptr;
 
 	size_t size = 0;
-
-	uintptr_t pos = 0x0;
 };
 
 #define MEMORY_ARENA_PARAM MemoryArena* memory_arena

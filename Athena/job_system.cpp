@@ -265,12 +265,21 @@ launch_job(JobSystem* job_system, Job job)
 		return pool_alloc(allocator);
 	};
 
+	MemoryArena scratch_arena = {0};
+	scratch_arena.start = reinterpret_cast<uintptr_t>(stack->scratch_buf);
+	scratch_arena.size = DEFAULT_SCRATCH_SIZE;
+	scratch_arena.pos = scratch_arena.start;
+
+	Context ctx = init_context(scratch_arena);
+
 	Fiber fiber = init_fiber(stack->memory, STACK_SIZE, job.entry, job.param);
 	tls_fiber = &fiber;
 
 	auto* stack_high_before = fiber.stack_high;
 	ASSERT(fiber.rip != nullptr);
+	push_context(ctx);
 	launch_fiber(&fiber);
+	ctx = pop_context();
 	ASSERT(fiber.stack_high == stack_high_before);
 
 	// The job actually finished, means we can recycle everything.
@@ -289,13 +298,16 @@ launch_job(JobSystem* job_system, Job job)
 	working_job->fiber = fiber;
 	working_job->stack = stack;
 	working_job->next = nullptr;
+	working_job->ctx = ctx;
 	yield_working_job(job_system, working_job);
 }
 
 static void
 resume_working_job(JobSystem* job_system, WorkingJob* working_job)
 {
+	push_context(working_job->ctx);
 	resume_fiber(&working_job->fiber, working_job->fiber.stack_high);
+	working_job->ctx = pop_context();
 
 	// The job actually finished, means we can recycle everything.
 	if (!working_job->fiber.yielded)
@@ -318,7 +330,7 @@ struct JobWorkerThreadParams
 };
 
 static u32
-job_worker(void* param) 
+job_worker(void* param)
 {
 	JobSystem* job_system = tls_job_system = reinterpret_cast<JobSystem*>(param);
 	while (!job_system->should_exit)
@@ -382,6 +394,12 @@ get_queue(JobSystem* job_system, JobPriority priority)
 	return ret;
 }
 
+static JobCounterID
+get_next_job_counter_id(JobSystem* job_system)
+{
+	return InterlockedIncrement(&job_system->current_job_counter_id);
+}
+
 JobCounterID
 _kick_jobs(JobPriority priority,
           Job* jobs,
@@ -399,7 +417,7 @@ _kick_jobs(JobPriority priority,
 	JobCounterID ret = ACQUIRE(&job_system->job_counters, auto* job_counters)
 	{
 		JobCounter* counter = array_add(job_counters);
-		counter->id = InterlockedIncrement(&job_system->current_job_counter_id);
+		counter->id = get_next_job_counter_id(job_system);
 		counter->value = count;
 		counter->waiting_jobs = { 0 };
 		return counter->id;

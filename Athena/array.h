@@ -22,12 +22,6 @@ struct Array
 		return memory[index];
 	}
 
-//	T& at(size_t index)
-//	{
-//		ASSERT(memory != nullptr && index < size);
-//		return memory[index];
-//	}
-
 	USE_ITERATOR(Array, T)
 };
 
@@ -50,6 +44,21 @@ array_add(Array<T>* arr)
 
 	T* ret =  &arr->memory[arr->size++];
 	zero_memory(ret, sizeof(T));
+	return ret;
+}
+
+template <typename T>
+inline T*
+array_insert(Array<T>* arr, size_t index)
+{
+	ASSERT(arr->memory != nullptr && arr->size < arr->capacity && index < arr->size);
+
+	memmove(arr->memory + index + 1, arr->memory + index, (arr->size - index) * sizeof(T));
+
+	arr->size++;
+	T* ret = &arr->memory[index];
+	zero_memory(ret, sizeof(T));
+
 	return ret;
 }
 

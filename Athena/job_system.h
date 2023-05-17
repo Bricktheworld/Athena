@@ -1,5 +1,6 @@
 #pragma once
 #include "ring_buffer.h"
+#include "context.h"
 #include "threading.h"
 #include "pool_allocator.h"
 #include "array.h"
@@ -63,6 +64,7 @@ typedef void (*JobEntry)(uintptr_t);
 struct JobStack
 {
 	alignas(16) byte memory[STACK_SIZE];
+	byte scratch_buf[DEFAULT_SCRATCH_SIZE];
 };
 
 typedef u64 JobCounterID;
@@ -75,6 +77,20 @@ struct JobDebugInfo
 	int line = 0;
 };
 #define JOB_DEBUG_INFO_STRUCT JobDebugInfo{__FILE__, __LINE__}
+
+#if 0 
+enum JobPtrPolicy : u8
+{
+	JOB_POLICY_READ,
+	JOB_POLICY_WRITE,
+
+	// TODO(Brandon): Eventually we'll want to allow multiple jobs to write
+	// to the same ptr at the same time through a SpinLock.
+	JOB_POLICY_SHARED,
+
+	JOB_POLICY_COUNT,
+};
+#endif
 
 struct Job
 {
@@ -92,6 +108,7 @@ struct WorkingJob
 	Fiber fiber;
 
 	JobStack* stack = nullptr;
+	Context ctx;
 
 	WorkingJob* next = nullptr;
 };
@@ -135,8 +152,6 @@ struct JobSystem
 	SpinLocked<WorkingJobQueue> working_jobs_queue;
 
 	volatile JobCounterID current_job_counter_id = 1;
-
-	SpinLock lock;
 
 	bool should_exit = 0;
 };
