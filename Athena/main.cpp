@@ -168,7 +168,6 @@ window_setup(uintptr_t p_param)
 			}
 			TranslateMessage(&message);
 			DispatchMessageW(&message);
-
 		}
 
 		if (done)

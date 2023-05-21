@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <windows.h>
+#include <immintrin.h>
 
 typedef int8_t s8;
 typedef int16_t s16;
@@ -17,6 +18,22 @@ typedef float f32;
 typedef double f64;
 
 typedef unsigned char byte;
+
+// SSE2 support is _required_ for this engine.
+typedef __m128 f32x4;
+typedef __m256 f32x8;
+typedef __m128d f64x2;
+typedef __m256d f64x4;
+
+typedef __m128i s8x16;
+typedef __m128i s16x8;
+typedef __m128i s32x4;
+typedef __m128i s64x2;
+
+typedef __m128i u8x16;
+typedef __m128i u16x8;
+typedef __m128i u32x4;
+typedef __m128i u64x2;
 
 
 inline s32

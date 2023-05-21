@@ -7,8 +7,8 @@ template <typename T>
 struct Array
 {
 	T* memory = nullptr;
-	size_t capacity = 0;
 	size_t size = 0;
+	size_t capacity = 0;
 
 	const T& operator[](size_t index) const
 	{

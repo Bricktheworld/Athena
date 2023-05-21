@@ -2,87 +2,95 @@
 #include "../types.h"
 #include "../memory/memory.h"
 #include <cmath>
-#include <immintrin.h>
-
-typedef __m128 f32x4;
-typedef __m256 f32x8;
-typedef __m128d f64x2;
-typedef __m256d f64x4;
 
 static constexpr f32 PI = 3.14159265358979323846;
 
-inline f32x4 pass_by_register operator+(f32x4 a, f32x4 b)
+inline f32x4 pass_by_register 
+operator+(f32x4 a, f32x4 b)
 {
 	return _mm_add_ps(a, b);
 }
 
-inline f32x4& pass_by_register operator+=(f32x4& a, f32x4 b)
+inline f32x4& pass_by_register 
+operator+=(f32x4& a, f32x4 b)
 {
 	a = a + b;
 	return a;
 }
 
-inline f32x4 pass_by_register operator-(f32x4 a, f32x4 b)
+inline f32x4 pass_by_register 
+operator-(f32x4 a, f32x4 b)
 {
 	return _mm_sub_ps(a, b);
 }
 
-inline f32x4& pass_by_register operator-(f32x4& a)
+inline f32x4& pass_by_register 
+operator-(f32x4& a)
 {
 	a = _mm_setzero_ps() - a;
 	return a;
 }
 
-inline f32x4& pass_by_register operator-=(f32x4& a, f32x4 b)
+inline f32x4& pass_by_register 
+operator-=(f32x4& a, f32x4 b)
 {
 	a = a - b;
 	return a;
 }
 
-inline f32x4 pass_by_register operator/(f32x4 a, f32x4 b)
+inline f32x4 pass_by_register 
+operator/(f32x4 a, f32x4 b)
 {
 	return _mm_div_ps(a, b);
 }
 
-inline f32x4& pass_by_register operator/=(f32x4& a, f32x4 b)
+inline f32x4& pass_by_register 
+operator/=(f32x4& a, f32x4 b)
 {
 	a = a / b;
 	return a;
 }
 
-inline f32x4 pass_by_register operator/(f32x4 a, f32 scale)
+inline f32x4 pass_by_register 
+operator/(f32x4 a, f32 scale)
 {
 	return a / _mm_set1_ps(scale);
 }
 
-inline f32x4& pass_by_register operator/=(f32x4& a, f32 scale)
+inline f32x4& pass_by_register 
+operator/=(f32x4& a, f32 scale)
 {
 	a = a / _mm_set1_ps(scale);
 	return a;
 }
 
-inline f32x4 pass_by_register operator*(f32x4 a, f32 scale)
+inline f32x4 pass_by_register 
+operator*(f32x4 a, f32 scale)
 {
 	return _mm_mul_ps(a, _mm_set1_ps(scale));
 }
 
-inline f32x4& pass_by_register operator*=(f32x4& a, f32 scale)
+inline f32x4& pass_by_register 
+operator*=(f32x4& a, f32 scale)
 {
 	a = _mm_mul_ps(a, _mm_set1_ps(scale));
 	return a;
 }
 
-inline f32x4 pass_by_register operator*(f32 scale, f32x4 a)
+inline f32x4 pass_by_register 
+operator*(f32 scale, f32x4 a)
 {
 	return _mm_mul_ps(_mm_set1_ps(scale), a);
 }
 
-inline f32x4 pass_by_register hadamard_f32(f32x4 a, f32x4 b)
+inline f32x4 pass_by_register 
+hadamard_f32(f32x4 a, f32x4 b)
 {
 	return _mm_mul_ps(a, b);
 }
 
-inline f32 pass_by_register dot_f32(f32x4 a, f32x4 b)
+inline f32 pass_by_register 
+dot_f32(f32x4 a, f32x4 b)
 {
 	f32x4 res = hadamard_f32(a, b);
 	f32 vals[4];
@@ -91,18 +99,21 @@ inline f32 pass_by_register dot_f32(f32x4 a, f32x4 b)
 	return vals[0] + vals[1] + vals[2] + vals[3];
 }
 
-inline f32 pass_by_register length_f32(f32x4 v)
+inline f32 pass_by_register 
+length_f32(f32x4 v)
 {
 	return sqrt(dot_f32(v, v));
 }
 
-inline f32x4 pass_by_register normalize_f32(f32x4 v)
+inline f32x4 pass_by_register
+normalize_f32(f32x4 v)
 {
 	return v / sqrt(dot_f32(v, v));
 }
 
 template <typename T>
-inline void dot_f32_arrays_x4(const T* a,
+inline void
+dot_f32_arrays_x4(const T* a,
                               const T* b,
                               size_t count,
                               f32* out)

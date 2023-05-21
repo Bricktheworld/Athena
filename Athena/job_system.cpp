@@ -146,7 +146,7 @@ init_job_system(MEMORY_ARENA_PARAM, size_t job_queue_size)
 	ret->job_stack_allocator = init_pool<JobStack>(MEMORY_ARENA_FWD, job_queue_size / 2);
 
 	ret->working_job_allocator = init_pool<WorkingJob>(MEMORY_ARENA_FWD, job_queue_size / 2);
-	ret->job_counters = init_array<JobCounter>(MEMORY_ARENA_FWD, 100);
+	ret->job_counters = init_hash_table<JobCounterID, JobCounter>(MEMORY_ARENA_FWD, 128);
 
 	return ret;
 }
@@ -182,16 +182,15 @@ yield_to_counter(JobCounterID counter)
 static void
 signal_job_counter(JobSystem* job_system, JobCounterID signal)
 {
-	Option<WorkingJobQueue> woken_jobs = ACQUIRE(&job_system->job_counters, Array<JobCounter>* counters) -> Option<WorkingJobQueue>
+	Option<WorkingJobQueue> woken_jobs = ACQUIRE(&job_system->job_counters, auto* counters) -> Option<WorkingJobQueue>
 	{
-		size_t index = unwrap(array_find(counters, it->id == signal));
-		JobCounter* counter = array_at(counters, index);
+		JobCounter* counter = unwrap(hash_table_find(counters, signal));
 		ASSERT(counter->value > 0);
 		auto value = InterlockedDecrement(&counter->value);
 		if (value == 0)
 		{
 			WorkingJobQueue waiting = counter->waiting_jobs;
-			array_remove(counters, index);
+			hash_table_erase(counters, signal);
 			return waiting;
 		}
 
@@ -214,7 +213,7 @@ working_job_wait_for_counter(JobSystem* job_system,
 {
 	bool res = ACQUIRE(&job_system->job_counters, auto* job_counters)
 	{
-		auto maybe_counter = array_find_value(job_counters, it->id == signal);
+		auto maybe_counter = hash_table_find(job_counters, signal);
 		if (!maybe_counter)
 			return false;
 
@@ -416,8 +415,9 @@ _kick_jobs(JobPriority priority,
 
 	JobCounterID ret = ACQUIRE(&job_system->job_counters, auto* job_counters)
 	{
-		JobCounter* counter = array_add(job_counters);
-		counter->id = get_next_job_counter_id(job_system);
+		JobCounterID counter_id = get_next_job_counter_id(job_system);
+		JobCounter* counter = hash_table_insert(job_counters, counter_id);
+		counter->id = counter_id;
 		counter->value = count;
 		counter->waiting_jobs = { 0 };
 		return counter->id;

@@ -1,5 +1,6 @@
 #pragma once
 #include "ring_buffer.h"
+#include "hash_table.h"
 #include "context.h"
 #include "threading.h"
 #include "pool_allocator.h"
@@ -147,7 +148,7 @@ struct JobSystem
 
 	// TODO(Brandon): We really want this to be a hashmap from
 	// JobCounterID to actual JobCounter.
-	SpinLocked<Array<JobCounter>> job_counters;
+	SpinLocked<HashTable<JobCounterID, JobCounter>> job_counters;
 
 	SpinLocked<WorkingJobQueue> working_jobs_queue;
 

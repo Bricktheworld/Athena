@@ -274,8 +274,69 @@ test_fiber()
 	launch_fiber(&fiber);
 
 	ASSERT(data == 1);
+}
 
-	hash_u32(nullptr);
+static void
+test_hash_table()
+{
+	MemoryArena memory_arena = alloc_memory_arena(MiB(64));
+	defer { free_memory_arena(&memory_arena); };
+
+	// Test inserting a key-value pair into an empty HashTable
+	const u64 HASH_TABLE_SIZE = 5000;
+	auto table = init_hash_table<int, int>(&memory_arena, HASH_TABLE_SIZE);
+	int key = 42;
+	int* value = hash_table_insert(&table, key);
+	*value = 100;
+	ASSERT(*unwrap(hash_table_find(&table, key)) == 100);
+
+	// Test inserting a key-value pair when the key already exists
+	key = 42;
+	value = hash_table_insert(&table, key);
+	ASSERT(*value == 100);
+	*value = 200;
+	ASSERT(*unwrap(hash_table_find(&table, key)) == 200);
+	ASSERT(hash_table_erase(&table, key));
+	ASSERT(!hash_table_erase(&table, key));
+
+	for (int i = 0; i < HASH_TABLE_SIZE; i++)
+	{
+		value = hash_table_insert(&table, i);
+		*value = i;
+		ASSERT(table.used == i + 1);
+	}
+
+	for (int i = 0; i < HASH_TABLE_SIZE; i++)
+	{
+		ASSERT(*unwrap(hash_table_find(&table, i)) == i);
+	}
+
+	for (int i = 0; i < HASH_TABLE_SIZE; i++)
+	{
+		ASSERT(hash_table_erase(&table, i));
+	}
+
+	for (int i = 0; i < HASH_TABLE_SIZE; i++)
+	{
+		ASSERT(!hash_table_erase(&table, i));
+		ASSERT(!hash_table_find(&table, i));
+	}
+
+	ASSERT(!hash_table_find(&table, 0));
+
+	// Test inserting a key-value pair with a custom type
+	struct CustomType
+	{
+		int value;
+	};
+
+	auto custom_table = init_hash_table<CustomType, int>(&memory_arena, 32);
+	CustomType custom_key;
+	custom_key.value = 42;
+	int* val = hash_table_insert(&custom_table, custom_key);
+	ASSERT(val != nullptr);
+	*val = 100;
+	ASSERT(*unwrap(hash_table_find(&custom_table, custom_key)) == 100);
 }
 
 void
@@ -285,4 +346,5 @@ run_all_tests()
 	test_ring_buffer();
 	test_pool_allocator();
 	test_fiber();
+	test_hash_table();
 }
