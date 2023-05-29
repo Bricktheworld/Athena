@@ -192,9 +192,7 @@ void closure_callback(uintptr_t f)
 template <typename F>
 void yield_async(F func)
 {
-//	USE_SCRATCH_ARENA();
-
-	MemoryArena scratch_arena = alloc_scratch_arena();
+	USE_SCRATCH_ARENA();
 	F* capture = push_memory_arena<F>(SCRATCH_ARENA_PASS);
 	memcpy(capture, &func, sizeof(func));
 
@@ -203,5 +201,4 @@ void yield_async(F func)
 	job.param = (uintptr_t)capture;
 	JobCounterID counter = kick_job(JOB_PRIORITY_LOW, job);
 	yield_to_counter(counter);
-	free_scratch_arena(&scratch_arena);
 }
