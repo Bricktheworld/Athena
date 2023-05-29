@@ -24,3 +24,58 @@ void ring_buffer_pop(RingBuffer* rb, size_t size, void* out = nullptr);
 //bool ring_buffer_is_full(const RingBuffer& rb);
 bool ring_buffer_is_empty(const RingBuffer& rb);
 
+template <typename T>
+struct RingQueue
+{
+	RingBuffer buffer;
+};
+
+template <typename T>
+inline RingQueue<T>
+init_ring_queue(MEMORY_ARENA_PARAM, size_t size)
+{
+	ASSERT(size > 0);
+	// TODO(Brandon): ??? Shouldn't it just be 1?
+	size += 2;
+
+	RingQueue<T> ret = {0};
+	ret.buffer = init_ring_buffer(MEMORY_ARENA_FWD, alignof(T), sizeof(T) * size);
+
+	return ret;
+}
+
+template <typename T>
+inline check_return bool
+try_ring_queue_push(RingQueue<T>* queue, const T& data)
+{
+	return try_ring_buffer_push(&queue->buffer, &data, sizeof(data));
+}
+
+template <typename T>
+inline void
+ring_queue_push(RingQueue<T>* queue, const T& data)
+{
+	ring_buffer_push(&queue->buffer, &data, sizeof(data));
+}
+
+template <typename T>
+inline check_return bool
+try_ring_queue_pop(RingQueue<T>* queue, T* out = nullptr)
+{
+	return try_ring_buffer_pop(&queue->buffer, sizeof(T), out);
+}
+
+template <typename T>
+inline void
+ring_queue_pop(RingQueue<T>* queue, T* out = nullptr)
+{
+	ring_buffer_pop(&queue->buffer, sizeof(T), out);
+}
+
+template <typename T>
+inline bool
+ring_queue_is_empty(const RingQueue<T>& queue)
+{
+	return ring_buffer_is_empty(queue.buffer);
+}
+

@@ -126,10 +126,19 @@ wait_for_next_job(JobSystem* job_system, Job* job_out, WorkingJob** working_job_
 
 		if (dequeue_job(&job_system->medium_priority, job_out))
 			return JOB_TYPE_LAUNCH;
+	}
+	return JOB_TYPE_INVALID;
+}
 
+static JobType
+wait_for_async_job(JobSystem* job_system, Job* job_out)
+{
+	while (!job_system->should_exit)
+	{
 		if (dequeue_job(&job_system->low_priority, job_out))
 			return JOB_TYPE_LAUNCH;
 	}
+
 	return JOB_TYPE_INVALID;
 }
 
@@ -190,6 +199,10 @@ signal_job_counter(JobSystem* job_system, JobCounterID signal)
 		if (value == 0)
 		{
 			WorkingJobQueue waiting = counter->waiting_jobs;
+			if (counter->completion_signal)
+			{
+				notify_all_thread_signal(unwrap(counter->completion_signal));
+			}
 			hash_table_erase(counters, signal);
 			return waiting;
 		}
@@ -257,7 +270,7 @@ yield_working_job(JobSystem* job_system, WorkingJob* working_job)
 }
 
 static void
-launch_job(JobSystem* job_system, Job job)
+launch_job(JobSystem* job_system, Job job, bool can_yield = true)
 {
 	JobStack* stack = ACQUIRE(&job_system->job_stack_allocator, auto* allocator)
 	{
@@ -288,6 +301,8 @@ launch_job(JobSystem* job_system, Job job)
 		return;
 	}
 
+	ASSERT(can_yield);
+
 	WorkingJob* working_job = ACQUIRE(&job_system->working_job_allocator, auto* allocator)
 	{
 		return pool_alloc(allocator);
@@ -305,6 +320,7 @@ static void
 resume_working_job(JobSystem* job_system, WorkingJob* working_job)
 {
 	push_context(working_job->ctx);
+	tls_fiber = &working_job->fiber;
 	resume_fiber(&working_job->fiber, working_job->fiber.stack_high);
 	working_job->ctx = pop_context();
 
@@ -358,14 +374,41 @@ job_worker(void* param)
 	return 0;
 }
 
+static u32
+async_worker(void* param)
+{
+	JobSystem* job_system = tls_job_system = reinterpret_cast<JobSystem*>(param);
+	while(!job_system->should_exit)
+	{
+		Job job = {0};
+		JobType type = wait_for_async_job(job_system, &job);
+		if (type == JOB_TYPE_INVALID)
+			return 0;
+
+		// The async worker shouldn't really have any yields.
+		ASSERT(type == JOB_TYPE_LAUNCH);
+
+		launch_job(job_system, job, false);
+	}
+
+	return 0;
+}
+
 Array<Thread>
 spawn_job_system_workers(MEMORY_ARENA_PARAM, JobSystem* job_system)
 {
 	wchar_t name[128];
-	u32 count = get_num_physical_cores();
+	s32 num_physical_cores = get_num_physical_cores();
+	// TODO(Brandon): Scale these appropriately. This entails making the async workers
+	// not spin and also programmatically fetching the number of _physical_ cores without
+	// hyperthreading
+	u32 worker_threads = 6; // max(1, num_physical_cores - 6);
+	// These are for the async threads... they will be locked to a single core shared with the OS
+	u32 async_threads = 1;
 
-	Array ret = init_array<Thread>(MEMORY_ARENA_FWD, count);
-	for (u32 i = 0; i < count - 1; i++)
+	Array ret = init_array<Thread>(MEMORY_ARENA_FWD, worker_threads);
+
+	for (u32 i = 0; i < worker_threads; i++)
 	{
 		MemoryArena thread_scratch_arena = sub_alloc_memory_arena(MEMORY_ARENA_FWD, DEFAULT_SCRATCH_SIZE);
 		Thread thread = create_thread(thread_scratch_arena, KiB(16), &job_worker, job_system, i);
@@ -373,6 +416,15 @@ spawn_job_system_workers(MEMORY_ARENA_PARAM, JobSystem* job_system)
 		set_thread_name(&thread, name);
 
 		*array_add(&ret) = thread;
+	}
+
+	u8 async_core_index = worker_threads;
+	for (u32 i = 0; i < async_threads; i++)
+	{
+		MemoryArena thread_scratch_arena = sub_alloc_memory_arena(MEMORY_ARENA_FWD, KiB(4));
+		Thread thread = create_thread(thread_scratch_arena, KiB(16), &async_worker, job_system, async_core_index);
+		swprintf_s(name, 128, L"JobSystem Async Worker %d", i);
+		set_thread_name(&thread, name);
 	}
 
 	return ret;
@@ -404,7 +456,8 @@ _kick_jobs(JobPriority priority,
           Job* jobs,
           size_t count,
           JobDebugInfo debug_info,
-          JobSystem* job_system)
+          JobSystem* job_system,
+          Option<ThreadSignal*> thread_signal)
 {
 	if (job_system == nullptr)
 	{
@@ -420,6 +473,7 @@ _kick_jobs(JobPriority priority,
 		counter->id = counter_id;
 		counter->value = count;
 		counter->waiting_jobs = { 0 };
+		counter->completion_signal = thread_signal;
 		return counter->id;
 	};
 

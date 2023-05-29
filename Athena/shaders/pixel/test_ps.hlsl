@@ -1,3 +1,5 @@
+#include "../root_signature.hlsli"
+
 struct PSInput
 {
 	float4 color : COLOR;

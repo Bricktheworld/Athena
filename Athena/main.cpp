@@ -7,6 +7,7 @@
 #include "vendor/imgui/imgui.h"
 #include "vendor/imgui/imgui_impl_win32.h"
 #include "vendor/imgui/imgui_impl_dx12.h"
+#include "render_graph.h"
 
 extern "C" { __declspec(dllexport) extern const UINT D3D12SDKVersion = 610;}
 extern "C" { __declspec(dllexport) extern const char* D3D12SDKPath = u8".\\D3D12\\"; }
@@ -62,70 +63,68 @@ increment_job(uintptr_t param)
 }
 
 static void
-frame_entry(uintptr_t param)
+run_render_graph()
 {
-	volatile u64 data = param;
-	static constexpr size_t JOB_FORK_COUNT = 128;
-	Job jobs[JOB_FORK_COUNT];
-	for (u32 i = 0; i < JOB_FORK_COUNT; i++)
-	{
-		jobs[i].entry = &increment_job;
-		jobs[i].param = (uintptr_t)&data;
-	}
+	USE_SCRATCH_ARENA();
 
-	JobCounterID counter = kick_jobs(JOB_PRIORITY_HIGH, jobs, JOB_FORK_COUNT);
-	yield_to_counter(counter);
-	ASSERT(data == param + JOB_FORK_COUNT * INCREMENT_AMOUNT);
+	using namespace rg;
+	RenderGraph render_graph = init_render_graph(SCRATCH_ARENA_PASS);
 
-	Job recursive_job = {0};
-	recursive_job.entry = &frame_entry;
-	recursive_job.param = data;
+	RenderPass* pass0 = add_render_pass(SCRATCH_ARENA_PASS, &render_graph, "pass0");
+	RenderPass* pass1 = add_render_pass(SCRATCH_ARENA_PASS, &render_graph, "pass1");
+	RenderPass* pass2 = add_render_pass(SCRATCH_ARENA_PASS, &render_graph, "pass2");
+	RenderPass* pass3 = add_render_pass(SCRATCH_ARENA_PASS, &render_graph, "pass3");
+	RenderPass* pass4 = add_render_pass(SCRATCH_ARENA_PASS, &render_graph, "pass4");
+	RenderPass* pass5 = add_render_pass(SCRATCH_ARENA_PASS, &render_graph, "pass5");
+	RenderPass* pass6 = add_render_pass(SCRATCH_ARENA_PASS, &render_graph, "pass6");
+	RenderPass* pass7 = add_render_pass(SCRATCH_ARENA_PASS, &render_graph, "pass7");
+	RenderPass* pass8 = add_render_pass(SCRATCH_ARENA_PASS, &render_graph, "pass8");
 
-	kick_job(JOB_PRIORITY_HIGH, recursive_job);
+	Handle<GpuImage> pass0_out = render_graph_create_image(&render_graph, "pass0_out", {});
+	Handle<GpuImage> pass1_out = render_graph_create_image(&render_graph, "pass1_out", {});
+	Handle<GpuImage> pass2_out = render_graph_create_image(&render_graph, "pass2_out", {});
+	Handle<GpuImage> pass3_out = render_graph_create_image(&render_graph, "pass3_out", {});
+	Handle<GpuImage> pass4_out = render_graph_create_image(&render_graph, "pass4_out", {});
+	Handle<GpuImage> pass5_out = render_graph_create_image(&render_graph, "pass5_out", {});
+	Handle<GpuImage> pass6_out = render_graph_create_image(&render_graph, "pass6_out", {});
+	Handle<GpuImage> pass7_out = render_graph_create_image(&render_graph, "pass7_out", {});
+	Handle<GpuImage> pass8_out = render_graph_create_image(&render_graph, "pass8_out", {});
+
+	render_pass_write(pass8, &pass8_out);
+
+	render_pass_write(pass6, &pass6_out);
+
+	render_pass_read(pass3, pass6_out);
+	render_pass_read(pass3, pass8_out);
+	render_pass_write(pass3, &pass3_out);
+
+	render_pass_write(pass7, &pass7_out);
+
+	render_pass_write(pass5, &pass5_out);
+
+	render_pass_read(pass4, pass5_out);
+	render_pass_read(pass4, pass7_out);
+	render_pass_write(pass4, &pass4_out);
+
+	render_pass_read(pass1, pass4_out);
+	render_pass_write(pass1, &pass1_out);
+
+	render_pass_read(pass2, pass3_out);
+	render_pass_write(pass2, &pass2_out);
+
+	render_pass_read(pass0, pass3_out);
+	render_pass_read(pass0, pass2_out);
+	render_pass_read(pass0, pass1_out);
+	render_pass_write(pass0, &pass0_out);
+
+
+	CompiledRenderGraph compiled = compile_render_graph(SCRATCH_ARENA_PASS, &render_graph, nullptr);
 }
-
-struct WindowSetupParam
-{
-	HINSTANCE instance = 0;
-	int show_code = 0;
-};
 
 static void
 window_setup(uintptr_t p_param)
 {
-	auto* param = (WindowSetupParam*)p_param;
-
-	SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-
-	WNDCLASSEXW wc = {};
-	wc.cbSize = sizeof(wc);
-	wc.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
-	wc.lpfnWndProc = &window_proc;
-	wc.hInstance = param->instance;
-	wc.lpszClassName = CLASS_NAME;
-
-	ASSERT(RegisterClassExW(&wc));
-
-	RECT window_rect = {0, 0, 1920, 1080};
-	AdjustWindowRect(&window_rect, WS_OVERLAPPEDWINDOW, 0);
-
-	HWND window = CreateWindowExW(0,
-	                              wc.lpszClassName,
-	                              WINDOW_NAME,
-	                              WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-	                              CW_USEDEFAULT,
-	                              CW_USEDEFAULT,
-	                              window_rect.right - window_rect.left,
-	                              window_rect.bottom - window_rect.top,
-	                              0,
-	                              0,
-	                              param->instance,
-	                              0);
-	ASSERT(window != nullptr);
-	ShowWindow(window, param->show_code);
-	UpdateWindow(window);
-
-	GraphicsDevice graphics_device = init_graphics_device(window);
+#if 0
 
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
@@ -158,6 +157,8 @@ window_setup(uintptr_t p_param)
 	bool done = false;
 	while (!done)
 	{
+		run_render_graph();
+
 		MSG message;
 		while (PeekMessageW(&message, 0, 0, 0, PM_REMOVE))
 		{
@@ -231,8 +232,114 @@ window_setup(uintptr_t p_param)
 	COM_RELEASE(imgui_desc_heap);
 	COM_RELEASE(imgui_dev);
 	destroy_graphics_device(&graphics_device);
+#endif
+}
 
-	kill_job_system(get_job_system());
+struct FrameEntryParams
+{
+	GraphicsDevice* graphics_device = nullptr;
+	SwapChain* swap_chain = nullptr;
+	GpuShader* vertex_shader = nullptr;
+	GpuShader* pixel_shader = nullptr;
+};
+
+static void
+frame_entry(uintptr_t ptr)
+{
+	auto* params = reinterpret_cast<FrameEntryParams*>(ptr);
+	CmdList cmd = alloc_cmd_list(&params->graphics_device->graphics_cmd_allocator);
+	RenderTargetView* rtv = swap_chain_acquire(params->swap_chain);
+
+	cmd_image_transition(&cmd, rtv->image, D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+	cmd_set_viewport(&cmd,
+	                 0.0,
+	                 0.0,
+	                 static_cast<f32>(params->swap_chain->width),
+	                 static_cast<f32>(params->swap_chain->height));
+	cmd_set_scissor(&cmd);
+#define RAND_F32 ((f32)rand()/(f32)(RAND_MAX))
+	cmd_clear_rtv(&cmd, rtv, Rgba(RAND_F32, RAND_F32, RAND_F32, 1.0));
+	cmd_clear_dsv(&cmd, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, &params->swap_chain->depth_stencil_view, 0.0f, 0);
+	cmd_image_transition(&cmd, rtv->image, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+
+	submit_cmd_list(&params->graphics_device->graphics_cmd_allocator, &cmd);
+	swap_chain_submit(params->swap_chain, params->graphics_device, rtv);
+}
+
+static void
+application_entry(MEMORY_ARENA_PARAM, HINSTANCE instance, int show_code, JobSystem* job_system)
+{
+	SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+
+	WNDCLASSEXW wc = {};
+	wc.cbSize = sizeof(wc);
+	wc.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
+	wc.lpfnWndProc = &window_proc;
+	wc.hInstance = instance;
+	wc.lpszClassName = CLASS_NAME;
+
+	ASSERT(RegisterClassExW(&wc));
+
+	RECT window_rect = {0, 0, 1920, 1080};
+	AdjustWindowRect(&window_rect, WS_OVERLAPPEDWINDOW, 0);
+
+	HWND window = CreateWindowExW(0,
+	                              wc.lpszClassName,
+	                              WINDOW_NAME,
+	                              WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+	                              CW_USEDEFAULT,
+	                              CW_USEDEFAULT,
+	                              window_rect.right - window_rect.left,
+	                              window_rect.bottom - window_rect.top,
+	                              0,
+	                              0,
+	                              instance,
+	                              0);
+	ASSERT(window != nullptr);
+	ShowWindow(window, show_code);
+	UpdateWindow(window);
+
+	GraphicsDevice graphics_device = init_graphics_device(MEMORY_ARENA_FWD);
+	defer { destroy_graphics_device(&graphics_device); };
+	SwapChain swap_chain = init_swap_chain(MEMORY_ARENA_FWD, window, &graphics_device);
+	defer { destroy_swap_chain(&swap_chain); };
+
+	GpuShader vs = load_shader_from_file(&graphics_device, L"vertex/test_vs.hlsl.bin");
+	GpuShader ps = load_shader_from_file(&graphics_device, L"pixel/test_ps.hlsl.bin");
+	defer {
+		destroy_shader(&ps);
+		destroy_shader(&vs); 
+	};
+
+	FrameEntryParams frame_entry_params = {0};
+	frame_entry_params.graphics_device = &graphics_device;
+	frame_entry_params.swap_chain = &swap_chain;
+	frame_entry_params.vertex_shader = &vs;
+	frame_entry_params.pixel_shader = &ps;
+
+	bool done = false;
+	while (!done)
+	{
+		MSG message;
+		while (PeekMessageW(&message, 0, 0, 0, PM_REMOVE))
+		{
+			if (message.message == WM_QUIT)
+			{
+				done = true;
+				break;
+			}
+			TranslateMessage(&message);
+			DispatchMessageW(&message);
+		}
+
+		if (done)
+			break;
+
+		Job job = {0};
+		job.entry = &frame_entry;
+		job.param = reinterpret_cast<uintptr_t>(&frame_entry_params);
+		blocking_kick_job(JOB_PRIORITY_MEDIUM, job, job_system);
+	}
 }
 
 int APIENTRY
@@ -254,16 +361,12 @@ WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, int show_code
 	JobSystem* job_system = init_job_system(&arena, 512);
 	Array<Thread> threads = spawn_job_system_workers(&arena, job_system);
 
-	WindowSetupParam param = { 0 };
-	param.instance = instance;
-	param.show_code = show_code;
+	MemoryArena game_memory = alloc_memory_arena(MiB(128));
 
-	Job startup_job = {0};
-	startup_job.entry = &window_setup;
-	startup_job.param = reinterpret_cast<uintptr_t>(&param);
-	kick_job(JOB_PRIORITY_HIGH, startup_job, job_system);
-
+	application_entry(&game_memory, instance, show_code, job_system);
 	join_threads(threads.memory, static_cast<u32>(threads.size));
+
+	kill_job_system(job_system);
 
 	return 0;
 }

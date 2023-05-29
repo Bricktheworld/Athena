@@ -124,6 +124,9 @@
       </ObjectFileOutput>
       <ShaderModel>6.5</ShaderModel>
     </FxCompile>
+    <PostBuildEvent>
+      <Command>call "$(ProjectDir)\scripts\build_shaders.bat" $(TargetDir)</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
@@ -148,6 +151,9 @@
     <FxCompile>
       <ObjectFileOutput />
     </FxCompile>
+    <PostBuildEvent>
+      <Command>call "$(ProjectDir)\scripts\build_shaders.bat" $(TargetDir)</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="context.cpp" />
@@ -201,9 +207,25 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
+    <None Include="shaders\root_signature.hlsli" />
   </ItemGroup>
   <ItemGroup>
     <MASM Include="fibers.asm" />
+  </ItemGroup>
+  <ItemGroup>
+    <Natvis Include="NatvisFile.natvis" />
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include="shaders\pixel\test_ps.hlsl">
+      <FileType>Document</FileType>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+    </Text>
+    <Text Include="shaders\vertex\test_vs.hlsl">
+      <FileType>Document</FileType>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+    </Text>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

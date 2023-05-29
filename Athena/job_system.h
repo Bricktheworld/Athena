@@ -79,20 +79,6 @@ struct JobDebugInfo
 };
 #define JOB_DEBUG_INFO_STRUCT JobDebugInfo{__FILE__, __LINE__}
 
-#if 0 
-enum JobPtrPolicy : u8
-{
-	JOB_POLICY_READ,
-	JOB_POLICY_WRITE,
-
-	// TODO(Brandon): Eventually we'll want to allow multiple jobs to write
-	// to the same ptr at the same time through a SpinLock.
-	JOB_POLICY_SHARED,
-
-	JOB_POLICY_COUNT,
-};
-#endif
-
 struct Job
 {
 	JobEntry entry = nullptr;
@@ -125,6 +111,7 @@ struct JobCounter
 	volatile u64 value = 0;
 	JobCounterID id = 0;
 	WorkingJobQueue waiting_jobs = {0};
+	Option<ThreadSignal*> completion_signal = None;
 };
 
 struct JobQueue
@@ -146,10 +133,7 @@ struct JobSystem
 
 	SpinLocked<Pool<WorkingJob>> working_job_allocator;
 
-	// TODO(Brandon): We really want this to be a hashmap from
-	// JobCounterID to actual JobCounter.
 	SpinLocked<HashTable<JobCounterID, JobCounter>> job_counters;
-
 	SpinLocked<WorkingJobQueue> working_jobs_queue;
 
 	volatile JobCounterID current_job_counter_id = 1;
@@ -178,7 +162,46 @@ JobCounterID _kick_jobs(JobPriority priority,
                         Job* jobs,
                         size_t count,
                         JobDebugInfo debug_info,
-                        JobSystem* job_system = nullptr);
+                        JobSystem* job_system = nullptr,
+                        Option<ThreadSignal*> thread_signal = None);
+                        
 
 #define kick_jobs(priority, jobs, count, ...) _kick_jobs(priority, jobs, count, JOB_DEBUG_INFO_STRUCT, __VA_ARGS__)
 #define kick_job(priority, job, ...) kick_jobs(priority, &job, 1, __VA_ARGS__)
+
+inline void
+_blocking_kick_job(JobPriority priority,
+                   Job* jobs,
+                   size_t count,
+                   JobDebugInfo debug_info,
+                   JobSystem* job_system)
+{
+	ThreadSignal signal = init_thread_signal();
+	_kick_jobs(priority, jobs, count, debug_info, job_system, &signal);
+	wait_for_thread_signal(&signal);
+}
+
+#define blocking_kick_job(priority, job, job_system) _blocking_kick_job(priority, &job, 1, JOB_DEBUG_INFO_STRUCT, job_system)
+
+template <typename F>
+void closure_callback(uintptr_t f)
+{
+	(*(F*)f)();
+}
+
+template <typename F>
+void yield_async(F func)
+{
+//	USE_SCRATCH_ARENA();
+
+	MemoryArena scratch_arena = alloc_scratch_arena();
+	F* capture = push_memory_arena<F>(SCRATCH_ARENA_PASS);
+	memcpy(capture, &func, sizeof(func));
+
+	Job job = {0};
+	job.entry = (JobEntry)&closure_callback<F>;
+	job.param = (uintptr_t)capture;
+	JobCounterID counter = kick_job(JOB_PRIORITY_LOW, job);
+	yield_to_counter(counter);
+	free_scratch_arena(&scratch_arena);
+}

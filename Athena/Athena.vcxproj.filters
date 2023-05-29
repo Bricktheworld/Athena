@@ -158,10 +158,18 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
+    <None Include="shaders\root_signature.hlsli" />
   </ItemGroup>
   <ItemGroup>
     <MASM Include="fibers.asm">
       <Filter>Source Files</Filter>
     </MASM>
+  </ItemGroup>
+  <ItemGroup>
+    <Natvis Include="NatvisFile.natvis" />
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include="shaders\pixel\test_ps.hlsl" />
+    <Text Include="shaders\vertex\test_vs.hlsl" />
   </ItemGroup>
 </Project>

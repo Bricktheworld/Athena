@@ -1,3 +1,5 @@
+#include "../root_signature.hlsli"
+
 struct VSInput
 {
 	float4 position : POSITION;
@@ -17,6 +19,7 @@ struct Transform
 
 ConstantBuffer<Transform> c_transform : register(b0, space0);
 
+[RootSignature(BINDLESS_ROOT_SIGNATURE)]
 VSOutput main(VSInput IN)
 {
 	VSOutput OUT;

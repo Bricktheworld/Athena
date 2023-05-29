@@ -76,6 +76,8 @@ set_current_thread_name(const wchar_t* name)
 void
 join_threads(const Thread* threads, u32 count)
 {
+	ASSERT(count <= MAXIMUM_WAIT_OBJECTS);
+
 	MemoryArena arena = alloc_scratch_arena();
 	defer { free_scratch_arena(&arena); };
 
@@ -86,6 +88,70 @@ join_threads(const Thread* threads, u32 count)
 	}
 
 	WaitForMultipleObjects(count, handles.memory, true, INFINITE);
+}
+
+void
+rw_acquire_read(RWLock* lock)
+{
+	AcquireSRWLockShared(&lock->lock);
+}
+
+void
+rw_release_read(RWLock* lock)
+{
+	ReleaseSRWLockShared(&lock->lock);
+}
+
+void
+rw_acquire_write(RWLock* lock)
+{
+	AcquireSRWLockExclusive(&lock->lock);
+}
+
+void
+rw_release_write(RWLock* lock)
+{
+	ReleaseSRWLockExclusive(&lock->lock);
+}
+
+void
+mutex_acquire(Mutex* mutex)
+{
+	AcquireSRWLockExclusive(&mutex->lock);
+}
+
+void
+mutex_release(Mutex* mutex)
+{
+	ReleaseSRWLockExclusive(&mutex->lock);
+}
+
+ThreadSignal
+init_thread_signal()
+{
+	ThreadSignal ret = {0};
+	InitializeConditionVariable(&ret.cond_var);
+	return ret;
+}
+
+void
+wait_for_thread_signal(ThreadSignal* signal)
+{
+	AcquireSRWLockExclusive(&signal->lock);
+	ASSERT(SleepConditionVariableSRW(&signal->cond_var, &signal->lock, INFINITE, 0) != 0);
+	ReleaseSRWLockExclusive(&signal->lock);
+}
+
+void
+notify_one_thread_signal(ThreadSignal* signal)
+{
+	WakeConditionVariable(&signal->cond_var);
+}
+
+void
+notify_all_thread_signal(ThreadSignal* signal)
+{
+	WakeAllConditionVariable(&signal->cond_var);
 }
 
 void

@@ -21,6 +21,35 @@ void set_thread_name(const Thread* thread, const wchar_t* name);
 void set_current_thread_name(const wchar_t* name);
 void join_threads(const Thread* threads, u32 count);
 
+struct RWLock
+{
+	SRWLOCK lock = {0};
+};
+
+void rw_acquire_read(RWLock* lock);
+void rw_release_read(RWLock* lock);
+void rw_acquire_write(RWLock* lock);
+void rw_release_write(RWLock* lock);
+
+struct Mutex
+{
+	SRWLOCK lock = {0};
+};
+
+void mutex_acquire(Mutex* mutex);
+void mutex_release(Mutex* mutex);
+
+struct ThreadSignal
+{
+	CONDITION_VARIABLE cond_var;
+	SRWLOCK lock = {0};
+};
+
+ThreadSignal init_thread_signal();
+void wait_for_thread_signal(ThreadSignal* signal);
+void notify_one_thread_signal(ThreadSignal* signal);
+void notify_all_thread_signal(ThreadSignal* signal);
+
 struct SpinLock
 {
 	volatile u64 value = 0;

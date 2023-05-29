@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?> 
+<AutoVisualizer xmlns="http://schemas.microsoft.com/vstudio/debugger/natvis/2010"> 
+  <Type Name="Array&lt;*&gt;">
+    <DisplayString>{{size = {size}}}</DisplayString>
+	<Expand>
+		<Item Name="[size]">size</Item>
+		<Item Name="[capacity]">capacity</Item>
+		<ArrayItems>
+			<Size>size</Size>
+			<ValuePointer>memory</ValuePointer>
+		</ArrayItems>
+	</Expand>
+  </Type>
+  <Type Name="MemoryArena">
+    <DisplayString>{{size = {size}}}</DisplayString>
+    <DisplayString>{{usage = {(float)(pos - start)/(float)size}}}</DisplayString>
+  </Type>
+</AutoVisualizer>

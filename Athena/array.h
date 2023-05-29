@@ -118,4 +118,38 @@ array_at(Array<T>* arr, size_t index)
 
 #define array_find(arr, pred) array_find_predicate(arr, [&](auto* it) { return pred; })
 #define array_find_value(arr, pred) array_find_value_predicate(arr, [&](auto* it) { return pred; })
-//#define array_find_value(arr, pred) array_at(arr, array_find(arr, pred))
+
+template <typename T>
+inline void
+zero_array(Array<T>* arr, size_t size)
+{
+	ASSERT(size <= arr->capacity);
+
+	arr->size = size;
+
+	if (size > 0)
+	{
+		zero_memory(arr->memory, sizeof(T) * size);
+	}
+}
+
+template <typename T>
+inline void
+zero_array(Array<T>* arr)
+{
+	zero_array(arr, arr->capacity);
+}
+
+template <typename T>
+inline void
+reverse_array(Array<T>* arr)
+{
+	for (size_t i = 0; i < arr->size / 2; i++)
+	{
+		size_t swapped_index = arr->size - i - 1;
+
+		T temp = *array_at(arr, i);
+		*array_at(arr, i) = *array_at(arr, swapped_index);
+		*array_at(arr, swapped_index) = temp;
+	}
+}

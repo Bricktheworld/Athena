@@ -73,6 +73,8 @@ swap(T* a, T* b)
 	b = tmp;
 }
 
+#define MAX(a, b) (((a) > (b)) ? (a) : (b))
+
 #define KiB(val) (val * 1024LL)
 #define MiB(val) (KiB(val) * 1024LL)
 #define GiB(val) (MiB(val) * 1024LL)

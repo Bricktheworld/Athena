@@ -75,6 +75,8 @@ init_hash_table(MEMORY_ARENA_PARAM, u64 capacity)
 	return ret;
 }
 
+// TODO(Brandon): Add branch prediction hints
+
 template <typename K, typename V>
 inline V*
 hash_table_insert(HashTable<K, V>* table, K key)

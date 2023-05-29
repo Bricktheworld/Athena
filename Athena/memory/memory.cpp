@@ -1,4 +1,5 @@
 #include "memory.h"
+#include "../context.h"
 #include <windows.h>
 
 static void* g_memory_start = NULL;
@@ -174,8 +175,8 @@ alloc_memory_arena(size_t size)
 	MemoryArena ret = {0};
 	ret.start = double_ended_push(&g_game_stack, DOUBLE_ENDED_LOWER, size);
 	ret.pos = ret.start;
-	ret.remote_pos = nullptr;
 	ret.size = size;
+	ret.use_ctx_pos = false;
 
 	return ret;
 }
@@ -192,6 +193,13 @@ reset_memory_arena(MEMORY_ARENA_PARAM)
 	uintptr_t* pos = memory_arena_pos_ptr(MEMORY_ARENA_FWD);
 	ASSERT(*pos >= memory_arena->start);
 	*pos = memory_arena->start;
+	zero_memory(reinterpret_cast<void*>(memory_arena->start), memory_arena->size);
+}
+
+uintptr_t*
+memory_arena_pos_ptr(MEMORY_ARENA_PARAM)
+{
+	return memory_arena->use_ctx_pos ? context_get_scratch_arena_pos_ptr() : &memory_arena->pos;
 }
 
 void*
@@ -220,8 +228,8 @@ sub_alloc_memory_arena(MEMORY_ARENA_PARAM, size_t size, size_t alignment)
 
 	ret.start = reinterpret_cast<uintptr_t>(push_memory_arena_aligned(MEMORY_ARENA_FWD, size, alignment));
 	ret.pos = ret.start;
-	ret.remote_pos = nullptr;
 	ret.size = size;
+	ret.use_ctx_pos = false;
 
 	return ret;
 }

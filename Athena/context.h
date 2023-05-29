@@ -16,6 +16,8 @@ Context pop_context();
 MemoryArena alloc_scratch_arena();
 void free_scratch_arena(MEMORY_ARENA_PARAM);
 
+uintptr_t* context_get_scratch_arena_pos_ptr();
+
 #define USE_SCRATCH_ARENA() \
 	MemoryArena scratch_arena = alloc_scratch_arena(); \
 	defer { free_scratch_arena(&scratch_arena); }

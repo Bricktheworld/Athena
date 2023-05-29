@@ -41,13 +41,8 @@ struct MemoryArena
 	uintptr_t start = 0x0;
 	uintptr_t pos = 0x0;
 
-	// The reason it's done this way is so that different memory arenas which
-	// "overlap" and don't know their full size until later can share the same
-	// position storage. By default, this will be nullptr and `pos` will be used
-	// instead.
-	uintptr_t* remote_pos = nullptr;
-
 	size_t size = 0;
+	bool use_ctx_pos = false;
 };
 
 #define MEMORY_ARENA_PARAM MemoryArena* memory_arena
@@ -57,11 +52,7 @@ MemoryArena alloc_memory_arena(size_t size);
 void free_memory_arena(MEMORY_ARENA_PARAM);
 void reset_memory_arena(MEMORY_ARENA_PARAM);
 
-inline uintptr_t*
-memory_arena_pos_ptr(MEMORY_ARENA_PARAM)
-{
-	return memory_arena->remote_pos ? memory_arena->remote_pos : &memory_arena->pos;
-}
+uintptr_t* memory_arena_pos_ptr(MEMORY_ARENA_PARAM);
 
 void* push_memory_arena_aligned(MEMORY_ARENA_PARAM, size_t size, size_t alignment = 1);
 
