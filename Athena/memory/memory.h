@@ -3,6 +3,12 @@
 
 #define ALIGN_POW2(v, alignment) (((v) + ((alignment) - 1)) & ~(((v) - (v)) + (alignment) - 1))
 
+inline bool
+is_pow2(u64 v)
+{
+	return (v & ~(v - 1)) == v;
+}
+
 inline uintptr_t
 align_address(uintptr_t address, size_t alignment)
 {

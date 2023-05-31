@@ -8,6 +8,7 @@
 #include "vendor/imgui/imgui_impl_win32.h"
 #include "vendor/imgui/imgui_impl_dx12.h"
 #include "render_graph.h"
+#include "shaders/interlop.hlsli"
 
 extern "C" { __declspec(dllexport) extern const UINT D3D12SDKVersion = 610;}
 extern "C" { __declspec(dllexport) extern const char* D3D12SDKPath = u8".\\D3D12\\"; }
@@ -239,31 +240,88 @@ struct FrameEntryParams
 {
 	GraphicsDevice* graphics_device = nullptr;
 	SwapChain* swap_chain = nullptr;
-	GpuShader* vertex_shader = nullptr;
-	GpuShader* pixel_shader = nullptr;
+	GraphicsPipeline* fullscreen_pipeline = nullptr;
+	GraphicsPipeline* cube_pipeline = nullptr;
+	GpuBuffer* index_buffer = nullptr;
+	DescriptorHeap* cbv_srv_uav_heap = nullptr;
+	BufferSrv* vertex_srv = nullptr;
+	BufferCbv* scene_cbv = nullptr;
+	BufferCbv* transform_cbv = nullptr;
 };
 
 static void
 frame_entry(uintptr_t ptr)
 {
-	auto* params = reinterpret_cast<FrameEntryParams*>(ptr);
+	FrameEntryParams* params = reinterpret_cast<FrameEntryParams*>(ptr);
 	CmdList cmd = alloc_cmd_list(&params->graphics_device->graphics_cmd_allocator);
 	RenderTargetView* rtv = swap_chain_acquire(params->swap_chain);
 
+	cmd_set_primitive_topology(&cmd);
+	cmd_set_graphics_root_signature(&cmd);
+
 	cmd_image_transition(&cmd, rtv->image, D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+	cmd_set_render_targets(&cmd, rtv, 1, None);
 	cmd_set_viewport(&cmd,
 	                 0.0,
 	                 0.0,
 	                 static_cast<f32>(params->swap_chain->width),
 	                 static_cast<f32>(params->swap_chain->height));
 	cmd_set_scissor(&cmd);
-#define RAND_F32 ((f32)rand()/(f32)(RAND_MAX))
-	cmd_clear_rtv(&cmd, rtv, Rgba(RAND_F32, RAND_F32, RAND_F32, 1.0));
-	cmd_clear_dsv(&cmd, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, &params->swap_chain->depth_stencil_view, 0.0f, 0);
-	cmd_image_transition(&cmd, rtv->image, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
 
+	cmd_clear_rtv(&cmd, rtv, Rgba(1.0, 0.0, 0.0, 1.0));
+	cmd_clear_dsv(&cmd, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, &params->swap_chain->depth_stencil_view, 0.0f, 0);
+
+	cmd_set_pipeline(&cmd, params->fullscreen_pipeline);
+	cmd_set_index_buffer(&cmd, params->index_buffer);
+	cmd_draw(&cmd, 3);
+
+	cmd_set_descriptor_heaps(&cmd, params->cbv_srv_uav_heap, 1);
+
+	cmd_set_pipeline(&cmd, params->cube_pipeline);
+	interlop::CubeRenderResources cube_resources = {0};
+	cube_resources.position_idx = params->vertex_srv->descriptor.index;
+	cube_resources.scene_idx = params->scene_cbv->descriptor.index;
+	cube_resources.transform_idx = params->transform_cbv->descriptor.index;
+	cmd_set_graphics_32bit_constants(&cmd, &cube_resources);
+	cmd_set_index_buffer(&cmd, params->index_buffer);
+	cmd_draw_indexed(&cmd, ARRAY_LENGTH(INDICES));
+
+	cmd_image_transition(&cmd, rtv->image, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
 	submit_cmd_list(&params->graphics_device->graphics_cmd_allocator, &cmd);
 	swap_chain_submit(params->swap_chain, params->graphics_device, rtv);
+}
+
+struct UploaderParams
+{
+	const GraphicsDevice* device = nullptr;
+	GpuBuffer* dst = nullptr;
+	const void* src = nullptr;
+	u64 size = 0;
+};
+
+static void
+uploader_job(uintptr_t ptr)
+{
+	USE_SCRATCH_ARENA();
+	UploaderParams* params = reinterpret_cast<UploaderParams*>(ptr);
+	GpuUploadRingBuffer upload_buffer = alloc_gpu_ring_buffer(SCRATCH_ARENA_PASS,
+	                                                          params->device,
+	                                                          KiB(64));
+	defer { free_gpu_ring_buffer(&upload_buffer); };
+	CmdListAllocator cmd_allocator = init_cmd_list_allocator(SCRATCH_ARENA_PASS,
+	                                                         params->device,
+	                                                         &params->device->copy_queue,
+	                                                         4);
+	defer { destroy_cmd_list_allocator(&cmd_allocator); };
+	
+	FenceValue fence_value = block_gpu_upload_buffer(&cmd_allocator,
+	                                                 &upload_buffer,
+	                                                 params->dst,
+	                                                 0, params->src,
+	                                                 params->size, 4);
+	dbgln("Waiting for upload to complete...");
+	block_for_fence_value(&upload_buffer.fence, fence_value);
+	dbgln("Successfully uploaded to buffer!");
 }
 
 static void
@@ -304,18 +362,124 @@ application_entry(MEMORY_ARENA_PARAM, HINSTANCE instance, int show_code, JobSyst
 	SwapChain swap_chain = init_swap_chain(MEMORY_ARENA_FWD, window, &graphics_device);
 	defer { destroy_swap_chain(&swap_chain); };
 
-	GpuShader vs = load_shader_from_file(&graphics_device, L"vertex/test_vs.hlsl.bin");
-	GpuShader ps = load_shader_from_file(&graphics_device, L"pixel/test_ps.hlsl.bin");
+	GpuShader fullscreen_vs = load_shader_from_file(&graphics_device, L"vertex/fullscreen_vs.hlsl.bin");
+	GpuShader fullscreen_ps = load_shader_from_file(&graphics_device, L"pixel/fullscreen_ps.hlsl.bin");
 	defer {
-		destroy_shader(&ps);
-		destroy_shader(&vs); 
+		destroy_shader(&fullscreen_ps);
+		destroy_shader(&fullscreen_vs); 
 	};
+	GraphicsPipelineDesc pipeline_desc = {0};
+	pipeline_desc.vertex_shader = fullscreen_vs;
+	pipeline_desc.pixel_shader = fullscreen_ps;
+	pipeline_desc.comparison_func = D3D12_COMPARISON_FUNC_GREATER;
+	pipeline_desc.stencil_enable = false;
+	pipeline_desc.rtv_formats[0] = swap_chain.format;
+	pipeline_desc.num_render_targets = 1;
+	pipeline_desc.dsv_format = None;
+	GraphicsPipeline fullscreen_pipeline = init_graphics_pipeline(&graphics_device, pipeline_desc, L"Fullscreen Pipeline");
+	defer { destroy_graphics_pipeline(&fullscreen_pipeline); };
+
+	GpuBufferDesc buffer_desc = {0};
+	buffer_desc.size = KiB(64);
+	buffer_desc.heap_type = GPU_HEAP_TYPE_LOCAL;
+
+	GpuBuffer index_buffer = alloc_buffer_no_heap(&graphics_device, buffer_desc, L"Test Index Buffer");
+	defer { free_buffer_no_heap(&index_buffer); };
+
+	GpuBuffer vertex_buffer = alloc_buffer_no_heap(&graphics_device, buffer_desc, L"Test Vertex Buffer");
+	defer { free_buffer_no_heap(&vertex_buffer); };
+
+	UploaderParams index_uploader_params = {0};
+	index_uploader_params.device = &graphics_device;
+	index_uploader_params.dst = &index_buffer;
+	index_uploader_params.src = INDICES;
+	index_uploader_params.size = sizeof(INDICES);
+
+	UploaderParams vertex_uploader_params = {0};
+	vertex_uploader_params.device = &graphics_device;
+	vertex_uploader_params.dst = &vertex_buffer;
+	vertex_uploader_params.src = VERTICES;
+	vertex_uploader_params.size = sizeof(VERTICES);
+
+	Job index_uploader_job = {0};
+	index_uploader_job.entry = &uploader_job,
+	index_uploader_job.param = (uintptr_t)&index_uploader_params;
+	blocking_kick_job(JOB_PRIORITY_LOW, index_uploader_job, job_system);
+	Job vertex_uploader_job = {0};
+	vertex_uploader_job.entry = &uploader_job;
+	vertex_uploader_job.param = (uintptr_t)&vertex_uploader_params;
+	blocking_kick_job(JOB_PRIORITY_LOW, vertex_uploader_job, job_system);
+
+	DescriptorHeap cbv_srv_uav_heap = init_descriptor_heap(MEMORY_ARENA_FWD,
+	                                                       &graphics_device,
+	                                                       1024,
+	                                                       DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+	defer { destroy_descriptor_heap(&cbv_srv_uav_heap); };
+
+	BufferSrv vertex_srv = alloc_buffer_srv(&graphics_device,
+	                                        &cbv_srv_uav_heap,
+	                                        &vertex_buffer,
+	                                        0,
+	                                        ARRAY_LENGTH(VERTICES),
+	                                        sizeof(Vec4));
+
+	buffer_desc.heap_type = GPU_HEAP_TYPE_UPLOAD;
+	GpuBuffer scene_buffer = alloc_buffer_no_heap(&graphics_device, buffer_desc, L"Scene buffer");
+	GpuBuffer transform_buffer = alloc_buffer_no_heap(&graphics_device, buffer_desc, L"Transform buffer");
+	defer { 
+		free_buffer_no_heap(&transform_buffer);
+		free_buffer_no_heap(&scene_buffer);
+	};
+
+	BufferCbv scene_cbv = alloc_buffer_cbv(&graphics_device,
+	                                       &cbv_srv_uav_heap,
+	                                       &scene_buffer,
+	                                       0, sizeof(interlop::SceneBuffer));
+	BufferCbv transform_cbv = alloc_buffer_cbv(&graphics_device,
+	                                           &cbv_srv_uav_heap,
+	                                           &transform_buffer,
+	                                           0, sizeof(interlop::TransformBuffer));
+
+	interlop::SceneBuffer scene_buf;
+	scene_buf.proj = perspective_infinite_reverse_lh(PI / 4.0f,
+	                                                 static_cast<f32>(swap_chain.width) /
+	                                                 static_cast<f32>(swap_chain.height),
+	                                                 0.1f);
+	scene_buf.view = look_at_lh(Vec3(0.0, 0.0, -10.0), Vec3(0.0, 0.0, 1.0), Vec3(0.0, 1.0, 0.0));
+	scene_buf.view_proj = scene_buf.proj * scene_buf.view;
+	memcpy(unwrap(scene_buffer.mapped), &scene_buf, sizeof(scene_buf));
+
+	interlop::TransformBuffer transform_buf;
+	transform_buf.model = Mat4();
+	memcpy(unwrap(transform_buffer.mapped), &transform_buf, sizeof(transform_buf));
+
+	GpuShader cube_vs = load_shader_from_file(&graphics_device, L"vertex/cube_vs.hlsl.bin");
+	GpuShader cube_ps = load_shader_from_file(&graphics_device, L"pixel/cube_ps.hlsl.bin");
+	defer {
+		destroy_shader(&cube_ps);
+		destroy_shader(&cube_vs); 
+	};
+	pipeline_desc.vertex_shader = cube_vs;
+	pipeline_desc.pixel_shader = cube_ps;
+	pipeline_desc.comparison_func = D3D12_COMPARISON_FUNC_GREATER;
+	pipeline_desc.stencil_enable = false;
+	pipeline_desc.rtv_formats[0] = swap_chain.format;
+	pipeline_desc.num_render_targets = 1;
+	pipeline_desc.dsv_format = None;
+	GraphicsPipeline cube_pipeline = init_graphics_pipeline(&graphics_device, pipeline_desc, L"Cube Pipeline");
+	defer { destroy_graphics_pipeline(&cube_pipeline); };
+
 
 	FrameEntryParams frame_entry_params = {0};
 	frame_entry_params.graphics_device = &graphics_device;
 	frame_entry_params.swap_chain = &swap_chain;
-	frame_entry_params.vertex_shader = &vs;
-	frame_entry_params.pixel_shader = &ps;
+	frame_entry_params.fullscreen_pipeline = &fullscreen_pipeline;
+	frame_entry_params.cube_pipeline = &cube_pipeline;
+	frame_entry_params.index_buffer = &index_buffer;
+	frame_entry_params.cbv_srv_uav_heap = &cbv_srv_uav_heap;
+	frame_entry_params.vertex_srv = &vertex_srv;
+	frame_entry_params.scene_cbv = &scene_cbv;
+	frame_entry_params.transform_cbv = &transform_cbv;
 
 	bool done = false;
 	while (!done)

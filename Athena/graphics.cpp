@@ -117,14 +117,13 @@ init_fence(ID3D12Device2* d3d12_dev)
 }
 
 Fence
-init_fence(GraphicsDevice* device)
+init_fence(const GraphicsDevice* device)
 {
 	Fence ret = {0};
 	HASSERT(device->d3d12->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&ret.d3d12_fence)));
 	ASSERT(ret.d3d12_fence != nullptr);
 
 	ret.cpu_event = CreateEventW(NULL, FALSE, FALSE, NULL);
-	ASSERT(ret.cpu_event != nullptr);
 
 	return ret;
 }
@@ -132,6 +131,7 @@ init_fence(GraphicsDevice* device)
 void
 destroy_fence(Fence* fence)
 {
+	CloseHandle(fence->cpu_event);
 	COM_RELEASE(fence->d3d12_fence);
 	zero_memory(fence, sizeof(Fence));
 }
@@ -166,16 +166,26 @@ yield_for_fence_value(Fence* fence, FenceValue value)
 	if (is_fence_complete(fence, value))
 		return;
 
-	HASSERT(fence->d3d12_fence->SetEventOnCompletion(value, fence->cpu_event));
-	yield_async([&fence]()
+	yield_async([&]()
 	{
-		ASSERT(fence != nullptr);
-		WaitForSingleObject(fence->cpu_event, -1);
+		block_for_fence_value(fence, value);
 	});
 }
 
+void
+block_for_fence_value(Fence* fence, FenceValue value)
+{
+	if (is_fence_complete(fence, value))
+		return;
+
+	HASSERT(fence->d3d12_fence->SetEventOnCompletion(value, fence->cpu_event));
+
+	WaitForSingleObject(fence->cpu_event, -1);
+	poll_fence_value(fence);
+}
+
 CmdQueue
-init_cmd_queue(GraphicsDevice* device, CmdListType type)
+init_cmd_queue(const GraphicsDevice* device, CmdListType type)
 {
 	CmdQueue ret = {0};
 
@@ -187,6 +197,7 @@ init_cmd_queue(GraphicsDevice* device, CmdListType type)
 
 	HASSERT(device->d3d12->CreateCommandQueue(&desc, IID_PPV_ARGS(&ret.d3d12_queue)));
 	ASSERT(ret.d3d12_queue != nullptr);
+	ret.type = type;
 
 	return ret;
 }
@@ -200,13 +211,13 @@ destroy_cmd_queue(CmdQueue* queue)
 }
 
 void
-cmd_queue_gpu_wait_for_fence(CmdQueue* queue, Fence* fence, FenceValue value)
+cmd_queue_gpu_wait_for_fence(const CmdQueue* queue, Fence* fence, FenceValue value)
 {
 	HASSERT(queue->d3d12_queue->Wait(fence->d3d12_fence, value));
 }
 
 FenceValue
-cmd_queue_signal(CmdQueue* queue, Fence* fence)
+cmd_queue_signal(const CmdQueue* queue, Fence* fence)
 {
 	FenceValue value = inc_fence(fence);
 	HASSERT(queue->d3d12_queue->Signal(fence->d3d12_fence, value));
@@ -216,8 +227,8 @@ cmd_queue_signal(CmdQueue* queue, Fence* fence)
 
 CmdListAllocator
 init_cmd_list_allocator(MEMORY_ARENA_PARAM,
-                        GraphicsDevice* device,
-                        CmdQueue* queue,
+                        const GraphicsDevice* device,
+                        const CmdQueue* queue,
                         u16 pool_size)
 {
 	ASSERT(pool_size > 0);
@@ -291,21 +302,30 @@ alloc_cmd_list(CmdListAllocator* allocator)
 	return ret;
 }
 
-void
-submit_cmd_list(CmdListAllocator* allocator, CmdList* list)
+FenceValue
+submit_cmd_list(CmdListAllocator* allocator, CmdList* list, Option<Fence*> fence)
 {
+	FenceValue ret = 0;
+
 	list->d3d12_list->Close();
 	ID3D12CommandList* cmd_lists[] = { list->d3d12_list };
 	allocator->d3d12_queue->ExecuteCommandLists(1, cmd_lists);
 
 	FenceValue value = inc_fence(&allocator->fence);
 	HASSERT(allocator->d3d12_queue->Signal(allocator->fence.d3d12_fence, value));
+	if (fence)
+	{
+		ret = inc_fence(unwrap(fence));
+		HASSERT(allocator->d3d12_queue->Signal(unwrap(fence)->d3d12_fence, ret));
+	}
 
 	CmdAllocator cmd_allocator = {0};
 	cmd_allocator.d3d12_allocator = list->d3d12_allocator;
 	cmd_allocator.fence_value = value;
 	ring_queue_push(&allocator->allocators, cmd_allocator);
 	ring_queue_push(&allocator->lists, list->d3d12_list);
+
+	return ret;
 }
 
 
@@ -325,7 +345,7 @@ get_d3d12_heap_type(GpuHeapType type)
 }
 
 GpuResourceHeap
-init_gpu_resource_heap(GraphicsDevice* device, u64 size, GpuHeapType type)
+init_gpu_resource_heap(const GraphicsDevice* device, u64 size, GpuHeapType type)
 {
 	D3D12_HEAP_DESC desc = {0};
 	desc.SizeInBytes = size;
@@ -390,7 +410,7 @@ init_graphics_device(MEMORY_ARENA_PARAM)
 }
 
 void
-wait_for_device_idle(GraphicsDevice* device)
+wait_for_device_idle(const GraphicsDevice* device)
 {
 //	yield_flush_queue(&device->graphics_queue);
 //	yield_flush_queue(&device->compute_queue);
@@ -422,7 +442,7 @@ is_depth_format(DXGI_FORMAT format)
 }
 
 GpuImage
-alloc_image_2D_no_heap(GraphicsDevice* device, GpuImageDesc desc, const wchar_t* name)
+alloc_image_2D_no_heap(const GraphicsDevice* device, GpuImageDesc desc, const wchar_t* name)
 {
 	GpuImage ret = {0};
 	ret.desc = desc;
@@ -459,10 +479,158 @@ alloc_image_2D_no_heap(GraphicsDevice* device, GpuImageDesc desc, const wchar_t*
 }
 
 void
-free_image(GpuImage* image)
+free_image_no_heap(GpuImage* image)
 {
 	COM_RELEASE(image->d3d12_image);
 	zero_memory(image, sizeof(GpuImage));
+}
+
+GpuBuffer
+alloc_buffer_no_heap(const GraphicsDevice* device, GpuBufferDesc desc, const wchar_t* name)
+{
+	GpuBuffer ret = {0};
+	ret.desc = desc;
+
+	D3D12_HEAP_PROPERTIES heap_props = CD3DX12_HEAP_PROPERTIES(get_d3d12_heap_type(desc.heap_type));
+	auto resource_desc = CD3DX12_RESOURCE_DESC::Buffer(desc.size, desc.flags);
+
+	HASSERT(device->d3d12->CreateCommittedResource(&heap_props,
+	                                               D3D12_HEAP_FLAG_NONE,
+	                                               &resource_desc,
+	                                               D3D12_RESOURCE_STATE_COMMON,
+	                                               nullptr,
+	                                               IID_PPV_ARGS(&ret.d3d12_buffer)));
+	ret.d3d12_buffer->SetName(name);
+	if (desc.heap_type == GPU_HEAP_TYPE_UPLOAD)
+	{
+		void* mapped = nullptr;
+		ret.d3d12_buffer->Map(0, nullptr, &mapped);
+		ret.mapped = mapped;
+	}
+
+	return ret;
+}
+
+void
+free_buffer_no_heap(GpuBuffer* buffer)
+{
+	COM_RELEASE(buffer->d3d12_buffer);
+	zero_memory(buffer, sizeof(GpuBuffer));
+}
+
+GpuUploadRingBuffer
+alloc_gpu_ring_buffer(MEMORY_ARENA_PARAM, const GraphicsDevice* device, u64 size)
+{
+	ASSERT(is_pow2(size));
+	ASSERT(size > 0);
+	GpuUploadRingBuffer ret = {0};
+
+	GpuBufferDesc desc = {0};
+	desc.size = size;
+	desc.heap_type = GPU_HEAP_TYPE_UPLOAD;
+
+	// TODO(Brandon): Maybe flag deny shader resource?
+	desc.flags = D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE;
+
+	ret.gpu_buffer = alloc_buffer_no_heap(device, desc, L"GPU Upload Ring Buffer");
+	ret.size = size;
+	ret.read = 0;
+	ret.write = 0;
+	ret.upload_fence_values = init_ring_queue<GpuUploadRange>(MEMORY_ARENA_FWD, size / KiB(1));
+	ret.fence = init_fence(device);
+	ret.cpu_event = CreateEventW(NULL, FALSE, FALSE, NULL);
+
+	return ret;
+}
+
+void
+free_gpu_ring_buffer(GpuUploadRingBuffer* ring_buffer)
+{
+	CloseHandle(ring_buffer->cpu_event);
+	destroy_fence(&ring_buffer->fence);
+	free_buffer_no_heap(&ring_buffer->gpu_buffer);
+}
+
+static u64
+gpu_ring_buffer_size(GpuUploadRingBuffer* ring_buffer)
+{
+	return ring_buffer->write - ring_buffer->read;
+}
+
+static u64
+gpu_ring_buffer_remaining_size(GpuUploadRingBuffer* ring_buffer)
+{
+	return ring_buffer->size - gpu_ring_buffer_size(ring_buffer);
+}
+
+static bool
+gpu_ring_buffer_is_full(GpuUploadRingBuffer* ring_buffer)
+{
+	return gpu_ring_buffer_size(ring_buffer) == ring_buffer->size;
+}
+
+static bool
+gpu_ring_buffer_is_empty(GpuUploadRingBuffer* ring_buffer)
+{
+	return ring_buffer->read == ring_buffer->write;
+}
+
+static u64
+gpu_ring_buffer_mask(GpuUploadRingBuffer* ring_buffer, u64 val)
+{
+	return (val & (ring_buffer->size - 1));
+}
+
+FenceValue
+block_gpu_upload_buffer(CmdListAllocator* cmd_allocator,
+                        GpuUploadRingBuffer* ring_buffer,
+                        GpuBuffer* dst,
+                        u64 dst_offset,
+                        const void* src,
+                        u64 size,
+                        u64 alignment)
+{
+	void* mapped = unwrap(ring_buffer->gpu_buffer.mapped);
+	u64 write_masked = ring_buffer->write & (ring_buffer->size - 1);
+	u64 write_addr = reinterpret_cast<u64>(mapped) + write_masked;
+	u64 aligned_addr = align_address(write_addr, alignment);
+	u64 aligned_diff = aligned_addr - write_addr;
+	u64 total_allocation_size = aligned_diff + size;
+	while (gpu_ring_buffer_remaining_size(ring_buffer) < total_allocation_size)
+	{
+		block_for_fence_value(&ring_buffer->fence, ring_buffer->fence.last_completed_value);
+		for (;;)
+		{
+			GpuUploadRange range = {0};
+			ring_queue_peak_front(ring_buffer->upload_fence_values, &range);
+
+			if (!is_fence_complete(&ring_buffer->fence, range.fence_value))
+				break;
+
+			ring_queue_pop(&ring_buffer->upload_fence_values, &range);
+			ring_buffer->read += range.size;
+		}
+	}
+
+	ring_buffer->write += total_allocation_size;
+
+	memcpy(reinterpret_cast<void*>(aligned_addr), src, size);
+
+	auto cmd = alloc_cmd_list(cmd_allocator);
+
+	cmd.d3d12_list->CopyBufferRegion(dst->d3d12_buffer,
+	                                 dst_offset,
+	                                 ring_buffer->gpu_buffer.d3d12_buffer, 
+	                                 aligned_addr - reinterpret_cast<u64>(mapped), 
+	                                 size);
+	FenceValue fence_value = submit_cmd_list(cmd_allocator, &cmd, &ring_buffer->fence);
+
+	GpuUploadRange upload_range = {0};
+	upload_range.size = total_allocation_size;
+	upload_range.fence_value = fence_value;
+
+	ring_queue_push(&ring_buffer->upload_fence_values, upload_range);
+	return fence_value;
 }
 
 static D3D12_DESCRIPTOR_HEAP_TYPE
@@ -491,7 +659,7 @@ descriptor_type_is_shader_visible(DescriptorHeapType type)
 }
 
 DescriptorHeap
-init_descriptor_heap(MEMORY_ARENA_PARAM, GraphicsDevice* device, u32 size, DescriptorHeapType type)
+init_descriptor_heap(MEMORY_ARENA_PARAM, const GraphicsDevice* device, u32 size, DescriptorHeapType type)
 {
 	DescriptorHeap ret = {0};
 	ret.num_descriptors = size;
@@ -549,7 +717,7 @@ alloc_descriptor(DescriptorHeap* heap)
 
 	if (heap->gpu_start)
 	{
-		unwrap(ret.gpu_handle).ptr = unwrap(heap->gpu_start).ptr + offset;
+		ret.gpu_handle = D3D12_GPU_DESCRIPTOR_HANDLE{unwrap(heap->gpu_start).ptr + offset};
 	}
 
 	ret.type = heap->type;
@@ -568,8 +736,10 @@ free_descriptor(DescriptorHeap* heap, Descriptor* descriptor)
 
 
 RenderTargetView
-alloc_rtv(GraphicsDevice* device, DescriptorHeap* heap, const GpuImage* image)
+alloc_rtv(const GraphicsDevice* device, DescriptorHeap* heap, const GpuImage* image)
 {
+	ASSERT(heap->type == DESCRIPTOR_HEAP_TYPE_RTV);
+
 	RenderTargetView ret = {0};
 	ret.descriptor = alloc_descriptor(heap);
 
@@ -582,8 +752,10 @@ alloc_rtv(GraphicsDevice* device, DescriptorHeap* heap, const GpuImage* image)
 }
 
 DepthStencilView
-alloc_dsv(GraphicsDevice* device, DescriptorHeap* heap, const GpuImage* image)
+alloc_dsv(const GraphicsDevice* device, DescriptorHeap* heap, const GpuImage* image)
 {
+	ASSERT(heap->type == DESCRIPTOR_HEAP_TYPE_DSV);
+
 	DepthStencilView ret = {0};
 	ret.descriptor = alloc_descriptor(heap);
 
@@ -595,11 +767,86 @@ alloc_dsv(GraphicsDevice* device, DescriptorHeap* heap, const GpuImage* image)
 	return ret;
 }
 
+BufferSrv
+alloc_buffer_srv(const GraphicsDevice* device,
+                 DescriptorHeap* heap,
+                 const GpuBuffer* buffer,
+                 u32 first_element,
+                 u32 num_elements,
+                 u32 stride)
+{
+	ASSERT(heap->type == DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+	BufferSrv ret = {0};
+	ret.descriptor = alloc_descriptor(heap);
+	ret.buffer = buffer;
+	ret.first_element = first_element;
+	ret.num_elements = num_elements;
+	ret.stride = stride;
+
+	D3D12_SHADER_RESOURCE_VIEW_DESC desc = {0};
+	desc.Buffer.FirstElement = first_element;
+	desc.Buffer.NumElements = num_elements;
+	desc.Buffer.StructureByteStride = stride;
+	desc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
+	desc.Format = DXGI_FORMAT_UNKNOWN;
+	desc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+	desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+
+	device->d3d12->CreateShaderResourceView(buffer->d3d12_buffer, &desc, ret.descriptor.cpu_handle);
+
+	return ret;
+}
+
+static bool
+buffer_is_aligned(const GpuBuffer* buffer, u64 alignment, u64 offset = 0)
+{
+	return (buffer->d3d12_buffer->GetGPUVirtualAddress() + offset) % alignment == 0;
+}
+
+BufferCbv alloc_buffer_cbv(const GraphicsDevice* device,
+                           DescriptorHeap* heap,
+                           const GpuBuffer* buffer,
+                           u64 offset,
+                           u32 size)
+{
+	ASSERT(heap->type == DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+	ASSERT(buffer_is_aligned(buffer, 256, offset));
+
+	BufferCbv ret = {0};
+	ret.descriptor = alloc_descriptor(heap);
+	ret.buffer = buffer;
+	ret.offset = offset;
+	ret.size = size;
+
+	D3D12_CONSTANT_BUFFER_VIEW_DESC desc = {0};
+	desc.BufferLocation = buffer->d3d12_buffer->GetGPUVirtualAddress() + offset;
+	desc.SizeInBytes = size;
+	device->d3d12->CreateConstantBufferView(&desc, ret.descriptor.cpu_handle);
+
+	return ret;
+}
+
+static ID3D12RootSignature* g_root_signature = nullptr;
+
 GpuShader
-load_shader_from_file(GraphicsDevice* device, const wchar_t* path)
+load_shader_from_file(const GraphicsDevice* device, const wchar_t* path)
 {
 	GpuShader ret = {0};
 	HASSERT(D3DReadFileToBlob(path, &ret.d3d12_shader));
+	if (g_root_signature == nullptr)
+	{
+		ID3DBlob* root_signature_blob = nullptr;
+		defer { COM_RELEASE(root_signature_blob); };
+
+		HASSERT(D3DGetBlobPart(ret.d3d12_shader->GetBufferPointer(),
+		                       ret.d3d12_shader->GetBufferSize(),
+		                       D3D_BLOB_ROOT_SIGNATURE, 0,
+		                       &root_signature_blob));
+		device->d3d12->CreateRootSignature(0,
+		                                   root_signature_blob->GetBufferPointer(),
+		                                   root_signature_blob->GetBufferSize(),
+		                                   IID_PPV_ARGS(&g_root_signature));
+	}
 	return ret;
 }
 
@@ -617,10 +864,12 @@ destroy_shader(GpuShader* shader)
 //}
 
 GraphicsPipeline
-init_graphics_pipeline(GraphicsDevice* device,
+init_graphics_pipeline(const GraphicsDevice* device,
                        GraphicsPipelineDesc desc,
                        const wchar_t* name)
 {
+	ASSERT(desc.num_render_targets <= 8);
+
 	GraphicsPipeline ret = {0};
 
 	D3D12_RENDER_TARGET_BLEND_DESC render_target_blend_desc;
@@ -638,13 +887,13 @@ init_graphics_pipeline(GraphicsDevice* device,
 	blend_desc.AlphaToCoverageEnable = FALSE;
 	blend_desc.IndependentBlendEnable = FALSE;
 
-	for(u32 i = 0; i < desc.render_targets.size; i++)
+	for(u32 i = 0; i < desc.num_render_targets; i++)
 	{
 		blend_desc.RenderTarget[i] = render_target_blend_desc;
 	}
 
 	D3D12_DEPTH_STENCIL_DESC depth_stencil_desc;
-	depth_stencil_desc.DepthEnable = static_cast<bool>(desc.depth_stencil_view);
+	depth_stencil_desc.DepthEnable = static_cast<bool>(desc.dsv_format);
 	depth_stencil_desc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
 	depth_stencil_desc.DepthFunc = unwrap_or(desc.comparison_func, D3D12_COMPARISON_FUNC_NONE);
 	depth_stencil_desc.StencilEnable = desc.stencil_enable;
@@ -652,8 +901,7 @@ init_graphics_pipeline(GraphicsDevice* device,
 	depth_stencil_desc.StencilWriteMask = D3D12_DEFAULT_STENCIL_WRITE_MASK;
 
 
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
-//	pso_desc.pRootSignature = PipelineState::s_rootSignature.Get(),
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc = {0};
 	pso_desc.VS = CD3DX12_SHADER_BYTECODE(desc.vertex_shader.d3d12_shader);
 	if (desc.pixel_shader)
 	{
@@ -664,24 +912,20 @@ init_graphics_pipeline(GraphicsDevice* device,
 	pso_desc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT),
 	pso_desc.DepthStencilState = depth_stencil_desc,
 	pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE,
-	pso_desc.NumRenderTargets = static_cast<u32>(desc.render_targets.size);
+	pso_desc.NumRenderTargets = desc.num_render_targets;
 
-	pso_desc.DSVFormat = DXGI_FORMAT_UNKNOWN;
-	if (desc.depth_stencil_view)
-	{
-		pso_desc.DSVFormat = unwrap(desc.depth_stencil_view).image->desc.format;
-	}
+	pso_desc.DSVFormat = unwrap_or(desc.dsv_format, DXGI_FORMAT_UNKNOWN);
 
 	pso_desc.SampleDesc.Count = 1;
 	pso_desc.SampleDesc.Quality = 0;
 	pso_desc.NodeMask = 0;
 
-	pso_desc.RasterizerState.FrontCounterClockwise = true;
+	pso_desc.RasterizerState.FrontCounterClockwise = false;
 	pso_desc.RasterizerState.CullMode = D3D12_CULL_MODE_BACK;
 
-	for (u32 i = 0; i < desc.render_targets.size; i++)
+	for (u32 i = 0; i < desc.num_render_targets; i++)
 	{
-		pso_desc.RTVFormats[i] = desc.render_targets[i].image->desc.format;
+		pso_desc.RTVFormats[i] = desc.rtv_formats[i];
 	}
 
 	HASSERT(device->d3d12->CreateGraphicsPipelineState(&pso_desc, IID_PPV_ARGS(&ret.d3d12_pso)));
@@ -717,7 +961,7 @@ alloc_back_buffers_from_swap_chain(const SwapChain* swap_chain,
 
 
 SwapChain
-init_swap_chain(MEMORY_ARENA_PARAM, HWND window, GraphicsDevice* device)
+init_swap_chain(MEMORY_ARENA_PARAM, HWND window, const GraphicsDevice* device)
 {
 	auto* factory = init_factory();
 	defer { COM_RELEASE(factory); };
@@ -808,10 +1052,10 @@ destroy_swap_chain(SwapChain* swap_chain)
 	destroy_descriptor_heap(&swap_chain->depth_stencil_view_heap);
 	destroy_descriptor_heap(&swap_chain->render_target_view_heap);
 
-	free_image(swap_chain->depth_buffer);
+	free_image_no_heap(swap_chain->depth_buffer);
 	for (auto* image : swap_chain->back_buffers)
 	{
-		free_image(image);
+		free_image_no_heap(image);
 	}
 	destroy_fence(&swap_chain->fence);
 	COM_RELEASE(swap_chain->d3d12_swap_chain);
@@ -829,7 +1073,7 @@ swap_chain_acquire(SwapChain* swap_chain)
 }
 
 void
-swap_chain_submit(SwapChain* swap_chain, GraphicsDevice* device, RenderTargetView* rtv)
+swap_chain_submit(SwapChain* swap_chain, const GraphicsDevice* device, RenderTargetView* rtv)
 {
 	u32 index = swap_chain->back_buffer_index;
 	ASSERT(&swap_chain->back_buffer_views[index] == rtv);
@@ -881,19 +1125,22 @@ cmd_set_scissor(CmdList* cmd, u32 left, u32 top, u32 right, u32 bottom)
 }
 
 void
-cmd_set_render_targets(CmdList* cmd, const Array<RenderTargetView> render_targets, DepthStencilView dsv)
+cmd_set_render_targets(CmdList* cmd,
+                       const RenderTargetView* render_targets,
+                       u8 num_render_targets,
+                       Option<DepthStencilView> dsv)
 {
 	USE_SCRATCH_ARENA();
-	auto rtv_handles = init_array<D3D12_CPU_DESCRIPTOR_HANDLE>(SCRATCH_ARENA_PASS, render_targets.size);
-	for (RenderTargetView rtv : render_targets)
+	auto rtv_handles = init_array<D3D12_CPU_DESCRIPTOR_HANDLE>(SCRATCH_ARENA_PASS, num_render_targets);
+	for (u8 i = 0; i < num_render_targets; i++)
 	{
-		*array_add(&rtv_handles) = rtv.descriptor.cpu_handle;
+		*array_add(&rtv_handles) = render_targets[i].descriptor.cpu_handle;
 	}
 
-	cmd->d3d12_list->OMSetRenderTargets(static_cast<u32>(render_targets.size),
+	cmd->d3d12_list->OMSetRenderTargets(num_render_targets,
 	                                    &rtv_handles[0],
 	                                    FALSE,
-	                                    &dsv.descriptor.cpu_handle);
+	                                    dsv ? &unwrap(dsv).descriptor.cpu_handle : nullptr);
 }
 
 void
@@ -909,616 +1156,51 @@ cmd_set_descriptor_heaps(CmdList* cmd, const DescriptorHeap* heaps, u32 num_heap
 	cmd->d3d12_list->SetDescriptorHeaps(num_heaps, &d3d12_heaps[0]);
 }
 
-#if 0
-static IDXGISwapChain4*
-init_swap_chain(HWND window,
-                                        IDXGIFactory4* factory,
-                                        ID3D12CommandQueue* command_queue,
-                                        u32 width,
-                                        u32 height,
-                                        u32 buffer_count)
+void
+cmd_set_pipeline(CmdList* cmd, const GraphicsPipeline* pipeline)
 {
-	IDXGISwapChain4* dxgi_swap_chain4 = nullptr;
-
-	DXGI_SWAP_CHAIN_DESC1 swap_chain_desc = { 0 };
-	swap_chain_desc.Width = width;
-	swap_chain_desc.Height = height;
-	swap_chain_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-	swap_chain_desc.Stereo = FALSE;
-	swap_chain_desc.SampleDesc = { 1, 0 };
-	swap_chain_desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-	swap_chain_desc.BufferCount = buffer_count;
-	swap_chain_desc.Scaling = DXGI_SCALING_STRETCH;
-	swap_chain_desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-	swap_chain_desc.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
-	swap_chain_desc.Flags = check_tearing_support(factory) ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0;
-
-	IDXGISwapChain1* swap_chain1 = nullptr;
-	HASSERT(factory->CreateSwapChainForHwnd(command_queue,
-	                                        window,
-	                                        &swap_chain_desc,
-	                                        nullptr,
-	                                        nullptr,
-	                                        &swap_chain1));
-
-	HASSERT(factory->MakeWindowAssociation(window, DXGI_MWA_NO_ALT_ENTER));
-	HASSERT(swap_chain1->QueryInterface(IID_PPV_ARGS(&dxgi_swap_chain4)));
-	COM_RELEASE(swap_chain1);
-
-	ASSERT(dxgi_swap_chain4 != nullptr);
-
-	return dxgi_swap_chain4;
-}
-
-static ID3D12DescriptorHeap*
-init_descriptor_heap(ID3D12Device2* d3d12_dev, 
-                                                  D3D12_DESCRIPTOR_HEAP_TYPE type,
-                                                  u32 count)
-{
-	ID3D12DescriptorHeap* descriptor_heap = nullptr;
-	D3D12_DESCRIPTOR_HEAP_DESC desc;
-	desc.NumDescriptors = count;
-	desc.Type = type;
-	desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-	desc.NodeMask = 0;
-
-	HASSERT(d3d12_dev->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&descriptor_heap)));
-	ASSERT(descriptor_heap != nullptr);
-
-	return descriptor_heap;
-}
-
-static void
-update_render_target_views(ID3D12Device2* d3d12_dev,
-                                       IDXGISwapChain4* swap_chain,
-                                       ID3D12DescriptorHeap* descriptor_heap,
-                                       ID3D12Resource** out_back_buffers)
-{
-	auto rtv_descriptor_size = d3d12_dev->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-	CD3DX12_CPU_DESCRIPTOR_HANDLE rtv_handle(descriptor_heap->GetCPUDescriptorHandleForHeapStart());
-
-	for (u8 i = 0; i < FRAMES_IN_FLIGHT; i++)
-	{
-		ID3D12Resource* back_buffer = nullptr;
-		HASSERT(swap_chain->GetBuffer(i, IID_PPV_ARGS(&back_buffer)));
-		d3d12_dev->CreateRenderTargetView(back_buffer, nullptr, rtv_handle);
-
-		out_back_buffers[i] = back_buffer;
-
-		rtv_handle.Offset(rtv_descriptor_size);
-	}
-}
-
-static ID3D12CommandQueue*
-init_cmd_queue(ID3D12Device2* d3d12_dev,
-                                          D3D12_COMMAND_LIST_TYPE type)
-{
-	ID3D12CommandQueue* cmd_queue = nullptr;
-
-	D3D12_COMMAND_QUEUE_DESC desc = { };
-	desc.Type = type;
-	desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
-	desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
-	desc.NodeMask = 0;
-
-	HASSERT(d3d12_dev->CreateCommandQueue(&desc, IID_PPV_ARGS(&cmd_queue)));
-	ASSERT(cmd_queue != nullptr);
-
-	return cmd_queue;
-}
-
-static ID3D12CommandAllocator*
-init_cmd_allocator(ID3D12Device2* d3d12_dev,
-                                                  D3D12_COMMAND_LIST_TYPE type)
-{
-	ID3D12CommandAllocator* cmd_allocator = nullptr;
-	HASSERT(d3d12_dev->CreateCommandAllocator(type, IID_PPV_ARGS(&cmd_allocator)));
-	ASSERT(cmd_allocator != nullptr);
-
-	return cmd_allocator;
-}
-
-static ID3D12GraphicsCommandList*
-init_cmd_list(ID3D12Device2* d3d12_dev, 
-                                                ID3D12CommandAllocator* cmd_allocator,
-                                                D3D12_COMMAND_LIST_TYPE type)
-{
-	ID3D12GraphicsCommandList* cmd_list = nullptr;
-	HASSERT(d3d12_dev->CreateCommandList(0, type, cmd_allocator, nullptr, IID_PPV_ARGS(&cmd_list)));
-	ASSERT(cmd_list != nullptr);
-
-	return cmd_list;
-}
-
-static ID3D12Fence* 
-init_fence(ID3D12Device2* d3d12_dev)
-{
-	ID3D12Fence* fence = nullptr;
-	HASSERT(d3d12_dev->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)));
-	ASSERT(fence != nullptr);
-
-	return fence;
-}
-
-static HANDLE
-init_event_handle()
-{
-	HANDLE fence_event = CreateEventW(NULL, FALSE, FALSE, NULL);
-	ASSERT(fence_event);
-
-	return fence_event;
-}
-
-static u64
-signal(ID3D12CommandQueue* cmd_queue,
-                  ID3D12Fence* fence,
-                  u64* fence_value)
-{
-	u64 fence_value_for_signal = ++(*fence_value);
-	HASSERT(cmd_queue->Signal(fence, fence_value_for_signal));
-
-	return fence_value_for_signal;
-}
-
-static void
-wait_for_fence_value(ID3D12Fence* fence,
-                                 u64 fence_value,
-                                 HANDLE fence_event,
-                                 u64 max_duration_ms = -1)
-{
-	if (fence->GetCompletedValue() < fence_value)
-	{
-		HASSERT(fence->SetEventOnCompletion(fence_value, fence_event));
-		WaitForSingleObject(fence_event, static_cast<DWORD>(max_duration_ms));
-	}
-}
-
-static void
-wait_for_device_idle(ID3D12CommandQueue* cmd_queue,
-                                 ID3D12Fence* fence,
-                                 u64* fence_value,
-                                 HANDLE fence_event)
-{
-	u64 fence_value_for_signal = signal(cmd_queue, fence, fence_value);
-	wait_for_fence_value(fence, fence_value_for_signal, fence_event);
-}
-
-static void
-update_buffer_resource(ID3D12Device2* d3d12_dev,
-                                   ID3D12GraphicsCommandList* cmd_list, 
-                                   ID3D12Resource** dst,
-                                   ID3D12Resource** scratch,
-                                   size_t size,
-                                   const void* src,
-                                   D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE)
-{
-	auto props = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
-	auto buffer = CD3DX12_RESOURCE_DESC::Buffer(size, flags);
-	HASSERT(d3d12_dev->CreateCommittedResource(&props,
-	                                           D3D12_HEAP_FLAG_NONE,
-	                                           &buffer,
-	                                           D3D12_RESOURCE_STATE_COPY_DEST,
-	                                           nullptr,
-	                                           IID_PPV_ARGS(dst)));
-
-	if (src == nullptr)
-		return;
-
-	props = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
-	buffer = CD3DX12_RESOURCE_DESC::Buffer(size);
-	HASSERT(d3d12_dev->CreateCommittedResource(&props,
-	                                           D3D12_HEAP_FLAG_NONE,
-	                                           &buffer,
-	                                           D3D12_RESOURCE_STATE_GENERIC_READ,
-	                                           nullptr,
-	                                           IID_PPV_ARGS(scratch)));
-	D3D12_SUBRESOURCE_DATA subresource_data = {};
-	subresource_data.pData = src;
-	subresource_data.RowPitch = size;
-	subresource_data.SlicePitch  = size;
-
-	UpdateSubresources(cmd_list, *dst, *scratch, 0, 0, 1, &subresource_data);
-}
-
-UploadBuffer
-alloc_upload_buffer(GraphicsDevice* d, size_t size)
-{
-	D3D12_HEAP_PROPERTIES heap_props = {};
-	heap_props.Type = D3D12_HEAP_TYPE_UPLOAD;
-	heap_props.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
-	heap_props.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
-	heap_props.CreationNodeMask = 1;
-	heap_props.VisibleNodeMask = 1;
-
-	D3D12_RESOURCE_DESC resource_desc = {};
-	resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-	resource_desc.Width = size;
-	resource_desc.Height = 1;
-	resource_desc.DepthOrArraySize = 1;
-	resource_desc.MipLevels = 1;
-	resource_desc.Format = DXGI_FORMAT_UNKNOWN;
-	resource_desc.SampleDesc.Count = 1;
-	resource_desc.SampleDesc.Quality = 0;
-	resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-	resource_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
-	resource_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
-
-	ID3D12Resource* resource = nullptr;
-	HASSERT(d->dev->CreateCommittedResource(&heap_props,
-	                                        D3D12_HEAP_FLAG_NONE,
-	                                        &resource_desc,
-	                                        D3D12_RESOURCE_STATE_GENERIC_READ,
-	                                        nullptr,
-	                                        IID_PPV_ARGS(&resource)));
-
-	void* mapped = nullptr;
-	auto range = CD3DX12_RANGE(0, size);
-	HASSERT(resource->Map(0, &range, &mapped));
-
-	UploadBuffer res = {0};
-	res.resource = resource;
-	res.gpu_addr = resource->GetGPUVirtualAddress();
-	res.mapped = mapped;
-
-	return res;
+	cmd->d3d12_list->SetPipelineState(pipeline->d3d12_pso);
 }
 
 void
-free_upload_buffer(UploadBuffer* upload_buffer)
+cmd_set_graphics_root_signature(CmdList* cmd)
 {
-	COM_RELEASE(upload_buffer->resource);
-	zero_memory(&upload_buffer, sizeof(UploadBuffer));
-}
-
-static CmdAllocatorPool 
-init_cmd_allocator_pool(MEMORY_ARENA_PARAM,
-                        ID3D12Device2* d3d12_dev,
-                        D3D12_COMMAND_LIST_TYPE type,
-                        u32 size)
-{
-	CmdAllocatorPool ret = {0};
-	ret.free_allocators = push_memory_arena<ID3D12CommandAllocator*>(MEMORY_ARENA_FWD, size);
-
-	for (u32 i = 0; i < size; i++)
-	{
-		ret.free_allocators[i] = init_cmd_allocator(d3d12_dev, type);
-	}
-
-	ret.free_allocator_count = size;
-
-	ret.submitted_allocators = push_memory_arena<ID3D12CommandAllocator*>(MEMORY_ARENA_FWD, size);
-	zero_memory(ret.submitted_allocators, sizeof(ID3D12CommandAllocator*) * size);
-
-	ret.submitted_allocator_count = 0;
-
-	return ret;
-}
-
-static void
-destroy_cmd_allocator_pool(CmdAllocatorPool* cmd_allocator_pool)
-{
-	for (u32 i = 0; i < cmd_allocator_pool->free_allocator_count; i++)
-	{
-		COM_RELEASE(cmd_allocator_pool->free_allocators[i]);
-	}
-
-	for (u32 i = 0; i < cmd_allocator_pool->submitted_allocator_count; i++)
-	{
-		COM_RELEASE(cmd_allocator_pool->submitted_allocators[i]);
-	}
-	zero_memory(cmd_allocator_pool, sizeof(CmdAllocatorPool));
-}
-
-GraphicsDevice
-init_graphics_device(HWND window)
-{
-#ifdef DEBUG
-	ID3D12Debug* debug_interface = nullptr;
-	HASSERT(D3D12GetDebugInterface(IID_PPV_ARGS(&debug_interface)));
-	debug_interface->EnableDebugLayer();
-	defer { COM_RELEASE(debug_interface); };
-#endif
-
-	RECT client_rect;
-	GetClientRect(window, &client_rect);
-	u32 client_width = client_rect.right - client_rect.left;
-	u32 client_height = client_rect.bottom - client_rect.top;
-
-	GraphicsDevice res;
-	auto* factory = init_factory();
-	defer { COM_RELEASE(factory); };
-
-	auto* adapter = init_adapter(factory);
-	defer { COM_RELEASE(adapter); };
-
-	res.tearing_supported = check_tearing_support(factory);
-	res.dev = init_d3d12_device(adapter);
-
-	res.cmd_queue = init_cmd_queue(res.dev, D3D12_COMMAND_LIST_TYPE_DIRECT);
-	res.swap_chain = init_swap_chain(window, factory, res.cmd_queue, client_width, client_height, FRAMES_IN_FLIGHT);
-
-	res.back_buffer_index = res.swap_chain->GetCurrentBackBufferIndex();
-
-	res.rtv_descriptor_heap = init_descriptor_heap(res.dev, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, FRAMES_IN_FLIGHT);
-	res.rtv_descriptor_size = res.dev->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-
-	res.dsv_heap = init_descriptor_heap(res.dev, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 1);
-
-	update_render_target_views(res.dev, res.swap_chain, res.rtv_descriptor_heap, res.back_buffers);
-
-	for (u8 i = 0; i < FRAMES_IN_FLIGHT; i++)
-	{
-		res.cmd_allocators[i] = init_cmd_allocator(res.dev, D3D12_COMMAND_LIST_TYPE_DIRECT);
-	}
-
-	res.cmd_list = init_cmd_list(res.dev, res.cmd_allocators[res.back_buffer_index], D3D12_COMMAND_LIST_TYPE_DIRECT);
-	res.cmd_list->Close();
-
-	res.fence = init_fence(res.dev);
-	res.fence_event = init_event_handle();
-
-	res.scissor_rect = CD3DX12_RECT(0, 0, LONG_MAX, LONG_MAX);
-	res.viewport = CD3DX12_VIEWPORT(0.0f, 0.0f, static_cast<f32>(client_width), static_cast<f32>(client_height));
-
-	res.proj = perspective_infinite_reverse_lh(PI / 4.0f,
-	                                           static_cast<f32>(client_width) / static_cast<f32>(client_height),
-	                                           0.1f);
-
-	{
-		UploadBuffer vertex_upload_buffer = alloc_upload_buffer(&res, sizeof(VERTICES));
-		memcpy(vertex_upload_buffer.mapped, VERTICES, sizeof(VERTICES));
-	
-		res.vertex_buffer = vertex_upload_buffer.resource;
-		res.vertex_buffer_view.BufferLocation = res.vertex_buffer->GetGPUVirtualAddress();
-		res.vertex_buffer_view.SizeInBytes = sizeof(VERTICES);
-		res.vertex_buffer_view.StrideInBytes = sizeof(Vertex);
-	
-		UploadBuffer index_upload_buffer = alloc_upload_buffer(&res, sizeof(INDICES));
-		memcpy(index_upload_buffer.mapped, INDICES, sizeof(INDICES));
-	
-		res.index_buffer = index_upload_buffer.resource;
-		res.index_buffer_view.BufferLocation = res.index_buffer->GetGPUVirtualAddress();
-		res.index_buffer_view.Format = DXGI_FORMAT_R16_UINT;
-		res.index_buffer_view.SizeInBytes = sizeof(INDICES);
-	}
-
-	{
-		D3D12_FEATURE_DATA_ROOT_SIGNATURE feature_data = {0};
-		feature_data.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_1;
-		if (FAILED(res.dev->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, &feature_data, sizeof(feature_data))))
-		{
-			feature_data.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_0;
-		}
-	
-		D3D12_ROOT_SIGNATURE_FLAGS flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT |
-										D3D12_ROOT_SIGNATURE_FLAG_DENY_HULL_SHADER_ROOT_ACCESS |
-										D3D12_ROOT_SIGNATURE_FLAG_DENY_DOMAIN_SHADER_ROOT_ACCESS |
-										D3D12_ROOT_SIGNATURE_FLAG_DENY_GEOMETRY_SHADER_ROOT_ACCESS |
-										D3D12_ROOT_SIGNATURE_FLAG_DENY_PIXEL_SHADER_ROOT_ACCESS;
-	
-		CD3DX12_ROOT_PARAMETER1 root_params[1];
-		root_params[0].InitAsConstants(sizeof(Mat4) / 4, 0, 0, D3D12_SHADER_VISIBILITY_VERTEX);
-	
-		CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC root_signature_desc;
-		root_signature_desc.Init_1_1(ARRAY_LENGTH(root_params), root_params, 0, nullptr, flags);
-	
-		ID3DBlob* root_signature_blob = nullptr;
-		defer { COM_RELEASE(root_signature_blob); };
-
-		ID3DBlob* error_blob = nullptr;
-		defer { COM_RELEASE(error_blob); };
-
-		HASSERT(D3DX12SerializeVersionedRootSignature(&root_signature_desc,
-													feature_data.HighestVersion,
-													&root_signature_blob,
-													&error_blob));
-		HASSERT(res.dev->CreateRootSignature(0, root_signature_blob->GetBufferPointer(), root_signature_blob->GetBufferSize(), IID_PPV_ARGS(&res.root_signature)));
-	}
-
-	{
-		ID3DBlob* vs_blob = nullptr;
-		defer { COM_RELEASE(vs_blob); };
-		HASSERT(D3DReadFileToBlob(L"test_vs_d.cso", &vs_blob));
-
-		ID3DBlob* ps_blob = nullptr;
-		defer { COM_RELEASE(ps_blob); };
-		HASSERT(D3DReadFileToBlob(L"test_ps_d.cso", &ps_blob));
-
-		D3D12_INPUT_ELEMENT_DESC input_layout[] = {
-			{ "POSITION", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-			{ "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-		};
-
-		struct PipelineStateStream
-		{
-			CD3DX12_PIPELINE_STATE_STREAM_ROOT_SIGNATURE root_signature;
-			CD3DX12_PIPELINE_STATE_STREAM_INPUT_LAYOUT input_layout;
-			CD3DX12_PIPELINE_STATE_STREAM_PRIMITIVE_TOPOLOGY primitive_topology_type;
-			CD3DX12_PIPELINE_STATE_STREAM_VS vs;
-			CD3DX12_PIPELINE_STATE_STREAM_PS ps;
-			CD3DX12_PIPELINE_STATE_STREAM_DEPTH_STENCIL_FORMAT dsv_format;
-			CD3DX12_PIPELINE_STATE_STREAM_DEPTH_STENCIL1 depth_state;
-			CD3DX12_PIPELINE_STATE_STREAM_RENDER_TARGET_FORMATS rtv_formats;
-		};
-		PipelineStateStream pipeline_state_stream = {0};
-
-		D3D12_RT_FORMAT_ARRAY rtv_formats = {0};
-		rtv_formats.NumRenderTargets = 1;
-		rtv_formats.RTFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
-
-		pipeline_state_stream.root_signature = res.root_signature;
-		pipeline_state_stream.input_layout = { input_layout, ARRAY_LENGTH(input_layout) };
-		pipeline_state_stream.primitive_topology_type = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-		pipeline_state_stream.vs = CD3DX12_SHADER_BYTECODE(vs_blob);
-		pipeline_state_stream.ps = CD3DX12_SHADER_BYTECODE(ps_blob);
-		pipeline_state_stream.dsv_format = DXGI_FORMAT_D32_FLOAT;
-		CD3DX12_DEPTH_STENCIL_DESC1 depth_stencil_desc;
-		depth_stencil_desc.DepthEnable = TRUE;
-		depth_stencil_desc.DepthFunc = D3D12_COMPARISON_FUNC_GREATER;
-		depth_stencil_desc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
-		depth_stencil_desc.StencilEnable = FALSE;
-		pipeline_state_stream.depth_state = depth_stencil_desc;
-
-		pipeline_state_stream.rtv_formats = rtv_formats;
-
-		D3D12_PIPELINE_STATE_STREAM_DESC pipeline_state_stream_desc = {sizeof(pipeline_state_stream), &pipeline_state_stream};
-		HASSERT(res.dev->CreatePipelineState(&pipeline_state_stream_desc, IID_PPV_ARGS(&res.pipeline_state)));
-	}
-
-	{
-		D3D12_CLEAR_VALUE clear_value = {};
-		clear_value.Format = DXGI_FORMAT_D32_FLOAT;
-		clear_value.DepthStencil = { 0.0f, 0 };
-
-		auto props = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
-		auto desc = CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_D32_FLOAT,
-		                                         client_width,
-		                                         client_height,
-		                                         1, 0, 1, 0,
-		                                         D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
-
-		HASSERT(res.dev->CreateCommittedResource(&props,
-		                                         D3D12_HEAP_FLAG_NONE,
-		                                         &desc,
-		                                         D3D12_RESOURCE_STATE_DEPTH_WRITE,
-		                                         &clear_value, 
-		                                         IID_PPV_ARGS(&res.depth_buffer)));
-
-		D3D12_DEPTH_STENCIL_VIEW_DESC view_desc = {0};
-		view_desc.Format = DXGI_FORMAT_D32_FLOAT;
-		view_desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
-		view_desc.Texture2D.MipSlice = 0;
-		view_desc.Flags = D3D12_DSV_FLAG_NONE;
-
-		res.dev->CreateDepthStencilView(res.depth_buffer, &view_desc, res.dsv_heap->GetCPUDescriptorHandleForHeapStart());
-	}
-
-	return res;
+	ASSERT(g_root_signature != nullptr);
+	cmd->d3d12_list->SetGraphicsRootSignature(g_root_signature);
 }
 
 void
-destroy_graphics_device(GraphicsDevice* d)
+cmd_set_graphics_32bit_constants(CmdList* cmd, const void* data)
 {
-	wait_for_device_idle(d->cmd_queue, d->fence, &d->fence_value, d->fence_event);
-
-	COM_RELEASE(d->pipeline_state);
-	COM_RELEASE(d->root_signature);
-
-	COM_RELEASE(d->index_buffer);
-	COM_RELEASE(d->vertex_buffer);
-	COM_RELEASE(d->dsv_heap);
-	COM_RELEASE(d->depth_buffer);
-
-	COM_RELEASE(d->fence);
-
-	COM_RELEASE(d->rtv_descriptor_heap);
-	COM_RELEASE(d->cmd_list);
-
-	for (u8 i = 0; i < FRAMES_IN_FLIGHT; i++)
-	{
-		COM_RELEASE(d->back_buffers[i]);
-		COM_RELEASE(d->cmd_allocators[i]);
-	}
-
-	COM_RELEASE(d->swap_chain);
-	COM_RELEASE(d->cmd_queue);
-	COM_RELEASE(d->dev);
-
-	zero_memory(d, sizeof(GraphicsDevice));
-}
-
-UploadContext
-init_upload_context(MEMORY_ARENA_PARAM, GraphicsDevice* d, u32 max_allocators)
-{
-	UploadContext ret = {0};
-	ret.dev = d->dev;
-	ret.cmd_allocator_pool = init_cmd_allocator_pool(MEMORY_ARENA_FWD, ret.dev, D3D12_COMMAND_LIST_TYPE_DIRECT, max_allocators);
-	return ret;
+	cmd->d3d12_list->SetGraphicsRoot32BitConstants(0, 64, data, 0);
 }
 
 void
-destroy_upload_context(UploadContext* upload_context)
+cmd_set_primitive_topology(CmdList* cmd)
 {
-	destroy_cmd_allocator_pool(&upload_context->cmd_allocator_pool);
-	zero_memory(upload_context, sizeof(UploadContext));
+	cmd->d3d12_list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 }
 
 void
-gd_update(GraphicsDevice* d)
+cmd_set_index_buffer(CmdList* cmd, const GpuBuffer* buffer)
 {
-	wait_for_fence_value(d->fence, d->frame_fence_values[d->back_buffer_index], d->fence_event);
+	D3D12_INDEX_BUFFER_VIEW index_buffer_view;
+	index_buffer_view.BufferLocation = buffer->d3d12_buffer->GetGPUVirtualAddress();
+	index_buffer_view.SizeInBytes = static_cast<u32>(buffer->desc.size);
+	index_buffer_view.Format = DXGI_FORMAT_R16_UINT;
 
-	auto cmd_allocator = d->cmd_allocators[d->back_buffer_index];
-	auto back_buffer = d->back_buffers[d->back_buffer_index];
-
-	cmd_allocator->Reset();
-	d->cmd_list->Reset(cmd_allocator, nullptr);
-
-	{
-		CD3DX12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(back_buffer,
-		                                                                        D3D12_RESOURCE_STATE_PRESENT,
-		                                                                        D3D12_RESOURCE_STATE_RENDER_TARGET);
-
-		d->cmd_list->ResourceBarrier(1, &barrier);
-	}
-
-	CD3DX12_CPU_DESCRIPTOR_HANDLE rtv(d->rtv_descriptor_heap->GetCPUDescriptorHandleForHeapStart(),
-									d->back_buffer_index,
-									d->rtv_descriptor_size);
-	CD3DX12_CPU_DESCRIPTOR_HANDLE dsv(d->dsv_heap->GetCPUDescriptorHandleForHeapStart());
-	{
-		Rgba clear_color(0.4f, 0.6f, 0.9f, 1.0f);
-	
-		d->cmd_list->ClearRenderTargetView(rtv, (f32*)&clear_color, 0, nullptr);
-
-		d->cmd_list->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, 0.0f, 0, 0, nullptr);
-	}
-	{
-		d->cmd_list->SetPipelineState(d->pipeline_state);
-		d->cmd_list->SetGraphicsRootSignature(d->root_signature);
-		d->cmd_list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-		d->cmd_list->IASetVertexBuffers(0, 1, &d->vertex_buffer_view);
-		d->cmd_list->IASetIndexBuffer(&d->index_buffer_view);
-	}
-	{
-		d->cmd_list->RSSetViewports(1, &d->viewport);
-		d->cmd_list->RSSetScissorRects(1, &d->scissor_rect);
-		d->cmd_list->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
-
-		Mat4 view = look_at_lh(Vec3(0.0, 0.0, -10.0), Vec3(0.0, 0.0, 1.0), Vec3(0.0, 1.0, 0.0));
-		Mat4 model = {};
-		Mat4 mvp = d->proj * view * model;
-
-		d->cmd_list->SetGraphicsRoot32BitConstants(0, sizeof(Mat4) / 4, &mvp, 0);
-		d->cmd_list->DrawIndexedInstanced(ARRAY_LENGTH(INDICES), 1, 0, 0, 0);
-	}
-
+	cmd->d3d12_list->IASetIndexBuffer(&index_buffer_view);
 }
 
 void
-gd_present(GraphicsDevice* d)
+cmd_draw_indexed(CmdList* cmd, u32 num_indices)
 {
-	auto back_buffer = d->back_buffers[d->back_buffer_index];
-	{
-		CD3DX12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(back_buffer,
-		                                                                        D3D12_RESOURCE_STATE_RENDER_TARGET,
-		                                                                        D3D12_RESOURCE_STATE_PRESENT);
-		d->cmd_list->ResourceBarrier(1, &barrier);
-	}
-
-	HASSERT(d->cmd_list->Close());
-
-	ID3D12CommandList* const cmd_list[] = {d->cmd_list};
-
-	d->cmd_queue->ExecuteCommandLists(ARRAY_LENGTH(cmd_list), cmd_list);
-
-	d->frame_fence_values[d->back_buffer_index] = signal(d->cmd_queue, d->fence, &d->fence_value);
-
-	u32 sync_interval = d->vsync ? 1 : 0;
-	u32 present_flags = d->tearing_supported && !d->vsync ? DXGI_PRESENT_ALLOW_TEARING : 0;
-	HASSERT(d->swap_chain->Present(sync_interval, present_flags));
-
-	d->back_buffer_index = d->swap_chain->GetCurrentBackBufferIndex();
+	cmd->d3d12_list->DrawIndexedInstanced(num_indices, 1, 0, 0, 0);
 }
 
-#endif
+void
+cmd_draw(CmdList* cmd, u32 num_vertices)
+{
+	cmd->d3d12_list->DrawInstanced(num_vertices, 1, 0, 0);
+}
+

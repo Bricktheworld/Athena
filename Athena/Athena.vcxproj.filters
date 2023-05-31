@@ -72,6 +72,9 @@
     <ClCompile Include="vendor\xxhash\xxhash.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="vendor\ufbx\ufbx.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="math\math.h">
@@ -155,10 +158,14 @@
     <ClInclude Include="vendor\xxhash\xxhash.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="vendor\ufbx\ufbx.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
     <None Include="shaders\root_signature.hlsli" />
+    <None Include="shaders\interlop.hlsli" />
   </ItemGroup>
   <ItemGroup>
     <MASM Include="fibers.asm">
@@ -169,7 +176,9 @@
     <Natvis Include="NatvisFile.natvis" />
   </ItemGroup>
   <ItemGroup>
-    <Text Include="shaders\pixel\test_ps.hlsl" />
-    <Text Include="shaders\vertex\test_vs.hlsl" />
+    <Text Include="shaders\pixel\fullscreen_ps.hlsl" />
+    <Text Include="shaders\vertex\fullscreen_vs.hlsl" />
+    <Text Include="shaders\vertex\cube_vs.hlsl" />
+    <Text Include="shaders\pixel\cube_ps.hlsl" />
   </ItemGroup>
 </Project>

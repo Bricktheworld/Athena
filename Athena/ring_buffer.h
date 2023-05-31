@@ -79,3 +79,10 @@ ring_queue_is_empty(const RingQueue<T>& queue)
 	return ring_buffer_is_empty(queue.buffer);
 }
 
+template <typename T>
+inline void
+ring_queue_peak_front(const RingQueue<T>& queue, T* out = nullptr)
+{
+	ASSERT(!ring_queue_is_empty(queue));
+	memcpy(out, queue.buffer.buffer + queue.buffer.read, sizeof(T));
+}

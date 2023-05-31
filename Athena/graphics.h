@@ -11,6 +11,28 @@
 typedef Vec4 Rgba;
 typedef Vec3 Rgb;
 
+const Vec4 VERTICES[8] =
+{
+	Vec4(-1.0f, -1.0f, -1.0f, 1.0f), // 0
+	Vec4(-1.0f, 1.0f, -1.0f, 1.0f),  // 1
+	Vec4(1.0f, 1.0f, -1.0f, 1.0f),   // 2
+	Vec4(1.0f, -1.0f, -1.0f, 1.0f),  // 3
+	Vec4(-1.0f, -1.0f, 1.0f, 1.0f),  // 4
+	Vec4(-1.0f, 1.0f, 1.0f, 1.0f),   // 5
+	Vec4( 1.0f, 1.0f, 1.0f, 1.0f),   // 6
+	Vec4(1.0f, -1.0f, 1.0f, 1.0f)    // 7
+};
+
+const u16 INDICES[36] =
+{
+	0, 1, 2, 0, 2, 3,
+	4, 6, 5, 4, 7, 6,
+	4, 5, 1, 4, 1, 0,
+	3, 2, 6, 3, 6, 7,
+	1, 5, 6, 1, 6, 2,
+	4, 0, 3, 4, 3, 7
+};
+
 static constexpr u8 FRAMES_IN_FLIGHT = 3;
 static constexpr u8 MAX_COMMAND_LIST_THREADS = 8;
 static constexpr u8 COMMAND_ALLOCATORS = FRAMES_IN_FLIGHT * MAX_COMMAND_LIST_THREADS;
@@ -25,9 +47,10 @@ struct Fence
 	HANDLE cpu_event = nullptr;
 };
 
-Fence init_fence(GraphicsDevice* device);
+Fence init_fence(const GraphicsDevice* device);
 void destroy_fence(Fence* fence);
 void yield_for_fence_value(Fence* fence, FenceValue value);
+void block_for_fence_value(Fence* fence, FenceValue value);
 
 enum CmdListType : u8
 {
@@ -44,11 +67,11 @@ struct CmdQueue
 	CmdListType type = CMD_LIST_TYPE_GRAPHICS;
 };
 
-CmdQueue init_cmd_queue(GraphicsDevice* device, CmdListType type);
-void destroy_cmd_queue(CmdQueue* queue);
+CmdQueue init_cmd_queue(const GraphicsDevice* device, CmdListType type);
+void destroy_cmd_queue(const CmdQueue* queue);
 
-void cmd_queue_gpu_wait_for_fence(CmdQueue* queue, Fence* fence, FenceValue value);
-FenceValue cmd_queue_signal(CmdQueue* queue, Fence* fence);
+void cmd_queue_gpu_wait_for_fence(const CmdQueue* queue, Fence* fence, FenceValue value);
+FenceValue cmd_queue_signal(const CmdQueue* queue, Fence* fence);
 
 struct CmdAllocator
 {
@@ -72,12 +95,14 @@ struct CmdList
 };
 
 CmdListAllocator init_cmd_list_allocator(MEMORY_ARENA_PARAM,
-                                         GraphicsDevice* device,
-                                         CmdQueue* queue,
+                                         const GraphicsDevice* device,
+                                         const CmdQueue* queue,
                                          u16 pool_size);
 void destroy_cmd_list_allocator(CmdListAllocator* allocator);
 CmdList alloc_cmd_list(CmdListAllocator* allocator);
-void submit_cmd_list(CmdListAllocator* allocator, CmdList* list);
+FenceValue submit_cmd_list(CmdListAllocator* allocator,
+                           CmdList* list,
+                           Option<Fence*> fence = None);
 
 struct GraphicsDevice
 {
@@ -93,7 +118,7 @@ struct GraphicsDevice
 GraphicsDevice init_graphics_device(MEMORY_ARENA_PARAM);
 void destroy_graphics_device(GraphicsDevice* device);
 
-void wait_for_device_idle(GraphicsDevice* device);
+void wait_for_device_idle(const GraphicsDevice* device);
 
 enum GpuHeapType : u8
 {
@@ -112,19 +137,10 @@ struct GpuResourceHeap
 	GpuHeapType type = GPU_HEAP_TYPE_LOCAL;
 };
 
-GpuResourceHeap init_gpu_resource_heap(GraphicsDevice* device,
+GpuResourceHeap init_gpu_resource_heap(const GraphicsDevice* device,
                                        u64 size,
                                        GpuHeapType type);
 void destroy_gpu_resource_heap(GpuResourceHeap* heap);
-
-enum MemoryLocation : u8
-{
-	MEMORY_LOCATION_GPU_PRIVATE,
-	MEMORY_LOCATION_GPU_SHARED,
-	MEMORY_LOCATION_CPU_SHARED,
-
-	MEMORY_LOCATION_COUNT,
-};
 
 struct GpuImageDesc
 {
@@ -145,23 +161,59 @@ struct GpuImage
 	ID3D12Resource* d3d12_image = nullptr;
 };
 
-GpuImage alloc_image_2D_no_heap(GraphicsDevice* device,
+GpuImage alloc_image_2D_no_heap(const GraphicsDevice* device,
                                 GpuImageDesc desc,
                                 const wchar_t* name);
-void free_image(GpuImage* image);
+void free_image_no_heap(GpuImage* image);
 
 struct GpuBufferDesc
 {
 	u64 size = 0;
-	MemoryLocation memory_location = MEMORY_LOCATION_COUNT;
-	u64 alignment = 0;
+
+	GpuHeapType heap_type = GPU_HEAP_TYPE_LOCAL;
+	D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE;
 };
 
 struct GpuBuffer
 {
 	GpuBufferDesc desc;
-	ID3D12Resource* resource = nullptr;
+	ID3D12Resource* d3d12_buffer = nullptr;
+	Option<void*> mapped = None;
 };
+GpuBuffer alloc_buffer_no_heap(const GraphicsDevice* device,
+                               GpuBufferDesc desc,
+                               const wchar_t* name);
+void free_buffer_no_heap(GpuBuffer* buffer);
+
+struct GpuUploadRange
+{
+	u64 size = 0;
+	FenceValue fence_value = 0;
+};
+
+struct GpuUploadRingBuffer
+{
+	GpuBuffer gpu_buffer;
+	u64 write = 0;
+	u64 read = 0;
+	u64 size = 0;
+
+	RingQueue<GpuUploadRange> upload_fence_values;
+	Fence fence;
+	HANDLE cpu_event;
+};
+
+GpuUploadRingBuffer alloc_gpu_ring_buffer(MEMORY_ARENA_PARAM,
+                                          const GraphicsDevice* device,
+                                          u64 size);
+void free_gpu_ring_buffer(GpuUploadRingBuffer* gpu_upload_ring_buffer);
+FenceValue block_gpu_upload_buffer(CmdListAllocator* cmd_allocator,
+                                   GpuUploadRingBuffer* ring_buffer,
+                                   GpuBuffer* dst,
+                                   u64 dst_offset,
+                                   const void* src,
+                                   u64 size,
+                                   u64 alignment);
 
 enum DescriptorHeapType
 {
@@ -187,7 +239,7 @@ struct DescriptorHeap
 };
 
 DescriptorHeap init_descriptor_heap(MEMORY_ARENA_PARAM,
-                                    GraphicsDevice* device,
+                                    const GraphicsDevice* device,
                                     u32 size,
                                     DescriptorHeapType type);
 
@@ -210,7 +262,7 @@ struct RenderTargetView
 	const GpuImage* image = nullptr;
 };
 
-RenderTargetView alloc_rtv(GraphicsDevice* device,
+RenderTargetView alloc_rtv(const GraphicsDevice* device,
                            DescriptorHeap* heap,
                            const GpuImage* image);
 
@@ -220,16 +272,46 @@ struct DepthStencilView
 	const GpuImage* image = nullptr;
 };
 
-DepthStencilView alloc_dsv(GraphicsDevice* device,
+DepthStencilView alloc_dsv(const GraphicsDevice* device,
                            DescriptorHeap* heap,
                            const GpuImage* image);
+
+struct BufferSrv
+{
+	Descriptor descriptor;
+	const GpuBuffer* buffer = nullptr;
+	u32 first_element = 0;
+	u32 num_elements = 0;
+	u32 stride = 0;
+};
+
+BufferSrv alloc_buffer_srv(const GraphicsDevice* device,
+                           DescriptorHeap* heap,
+                           const GpuBuffer* buffer,
+                           u32 first_element,
+                           u32 num_elements,
+                           u32 stride);
+
+struct BufferCbv
+{
+	Descriptor descriptor;
+	const GpuBuffer* buffer = nullptr;
+	u64 offset = 0;
+	u32 size = 0;
+};
+
+BufferCbv alloc_buffer_cbv(const GraphicsDevice* device,
+                           DescriptorHeap* heap,
+                           const GpuBuffer* buffer,
+                           u64 offset,
+                           u32 size);
 
 struct GpuShader
 {
 	ID3DBlob* d3d12_shader = nullptr;
 };
 
-GpuShader load_shader_from_file(GraphicsDevice* device, const wchar_t* path);
+GpuShader load_shader_from_file(const GraphicsDevice* device, const wchar_t* path);
 void destroy_shader(GpuShader* shader);
 
 typedef u64 GraphicsPipelineHash;
@@ -240,8 +322,9 @@ struct GraphicsPipelineDesc
 	Option<D3D12_COMPARISON_FUNC> comparison_func = None;
 	bool stencil_enable;
 
-	Array<RenderTargetView> render_targets;
-	Option<DepthStencilView> depth_stencil_view;
+	DXGI_FORMAT rtv_formats[8];
+	u8 num_render_targets = 0;
+	Option<DXGI_FORMAT> dsv_format = None;
 };
 
 GraphicsPipelineHash hash_pipeline_desc(GraphicsPipelineDesc desc);
@@ -251,7 +334,7 @@ struct GraphicsPipeline
 	ID3D12PipelineState* d3d12_pso = nullptr;
 	GraphicsPipelineHash hash = 0;
 };
-GraphicsPipeline init_graphics_pipeline(GraphicsDevice* device,
+GraphicsPipeline init_graphics_pipeline(const GraphicsDevice* device,
                                         GraphicsPipelineDesc desc,
                                         const wchar_t* name);
 void destroy_graphics_pipeline(GraphicsPipeline* pipeline);
@@ -281,11 +364,11 @@ struct SwapChain
 	bool fullscreen = false;
 };
 
-SwapChain init_swap_chain(MEMORY_ARENA_PARAM, HWND window, GraphicsDevice* device);
+SwapChain init_swap_chain(MEMORY_ARENA_PARAM, HWND window, const GraphicsDevice* device);
 void destroy_swap_chain(SwapChain* swap_chain);
 
 RenderTargetView* swap_chain_acquire(SwapChain* swap_chain);
-void swap_chain_submit(SwapChain* swap_chain, GraphicsDevice* device, RenderTargetView* rtv);
+void swap_chain_submit(SwapChain* swap_chain, const GraphicsDevice* device, RenderTargetView* rtv);
 
 void cmd_image_transition(CmdList* cmd,
                           const GpuImage* image,
@@ -304,131 +387,15 @@ void cmd_set_scissor(CmdList* cmd,
                      u32 right = LONG_MAX,
                      u32 bottom = LONG_MAX);
 void cmd_set_render_targets(CmdList* cmd,
-                            const Array<RenderTargetView> render_targets,
-                            DepthStencilView dsv);
+                            const RenderTargetView* render_targets,
+                            u8 num_render_targets,
+                            Option<DepthStencilView> dsv);
 void cmd_set_descriptor_heaps(CmdList* cmd, const DescriptorHeap* heaps, u32 num_heaps);
-
-
-#if 0
-struct CBuffer
-{
-	Mat4 projection;
-	Mat4 view;
-	Mat4 model;
-};
-
-typedef u64 FenceValue;
-
-struct CmdAllocatorPool
-{
-	ID3D12CommandAllocator** free_allocators = nullptr;
-	u32 free_allocator_count = 0;
-	ID3D12CommandAllocator** submitted_allocators = nullptr;
-	u32 submitted_allocator_count = 0;
-};
-
-struct Fence
-{
-	ID3D12Fence* fence = nullptr;
-	u64 value = 0;
-};
-
-struct GraphicsDevice
-{
-	Mat4 proj;
-
-	ID3D12Device2* dev = nullptr;
-	ID3D12CommandQueue* cmd_queue = nullptr;
-	IDXGISwapChain4* swap_chain = nullptr;
-	ID3D12GraphicsCommandList* cmd_list = nullptr;
-	ID3D12CommandAllocator* cmd_allocators[FRAMES_IN_FLIGHT] = {0};
-
-	ID3D12DescriptorHeap* rtv_descriptor_heap = nullptr;
-	u32 rtv_descriptor_size = 0;
-
-	ID3D12Resource* back_buffers[FRAMES_IN_FLIGHT] = {0};
-	u32 back_buffer_index = 0;
-
-	ID3D12Fence* fence = nullptr;
-	u64 fence_value = 0;
-	u64 frame_fence_values[FRAMES_IN_FLIGHT] = {0};
-	HANDLE fence_event;
-
-	bool vsync = true;
-	bool tearing_supported = false;
-	bool fullscreen = false;
-
-	ID3D12Resource* depth_buffer = nullptr;
-	ID3D12DescriptorHeap* dsv_heap  = nullptr;
-
-	ID3D12Resource* vertex_buffer = nullptr;
-	D3D12_VERTEX_BUFFER_VIEW vertex_buffer_view = {0};
-
-	ID3D12Resource* index_buffer = nullptr;
-	D3D12_INDEX_BUFFER_VIEW index_buffer_view = {0};
-
-	ID3D12RootSignature* root_signature = nullptr;
-	ID3D12PipelineState* pipeline_state = nullptr;
-
-	D3D12_VIEWPORT viewport = {0};
-	D3D12_RECT scissor_rect = {0};
-};
-
-
-// Should only be accessed by one thread.
-struct UploadContext
-{
-	ID3D12Device2* dev = nullptr;
-	CmdAllocatorPool cmd_allocator_pool = {0};
-};
-
-UploadContext init_upload_context(MEMORY_ARENA_PARAM, GraphicsDevice* d, u32 max_allocators);
-void destroy_upload_context(UploadContext* upload_context);
-
-struct UploadBuffer
-{
-	ID3D12Resource* resource = nullptr;
-	D3D12_GPU_VIRTUAL_ADDRESS gpu_addr = 0;
-	size_t size = 0;
-	void* mapped = nullptr;
-};
-
-UploadBuffer alloc_upload_buffer(GraphicsDevice* dev, size_t size);
-void free_upload_buffer(UploadBuffer* upload_buffer);
-
-struct Vertex
-{
-	Vec4 position;
-	Rgba color;
-};
-
-const Vertex VERTICES[8] =
-{
-	{ Vec4(-1.0f, -1.0f, -1.0f, 1.0f), Rgba(0.0f, 0.0f, 0.0f, 1.0f) }, // 0
-	{ Vec4(-1.0f, 1.0f, -1.0f, 1.0f), Rgba(0.0f, 1.0f, 0.0f, 1.0f) },  // 1
-	{ Vec4(1.0f, 1.0f, -1.0f, 1.0f), Rgba(1.0f, 1.0f, 0.0f, 1.0f) },   // 2
-	{ Vec4(1.0f, -1.0f, -1.0f, 1.0f), Rgba(1.0f, 0.0f, 0.0f, 1.0f) },  // 3
-	{ Vec4(-1.0f, -1.0f, 1.0f, 1.0f), Rgba(0.0f, 0.0f, 1.0f, 1.0f) },  // 4
-	{ Vec4(-1.0f, 1.0f, 1.0f, 1.0f), Rgba(0.0f, 1.0f, 1.0f, 1.0f) },   // 5
-	{ Vec4( 1.0f, 1.0f, 1.0f, 1.0f), Rgba(1.0f, 1.0f, 1.0f, 1.0f) },   // 6
-	{ Vec4(1.0f, -1.0f, 1.0f, 1.0f), Rgba(1.0f, 0.0f, 1.0f, 1.0f) }    // 7
-};
-
-const u16 INDICES[36] =
-{
-	0, 1, 2, 0, 2, 3,
-	4, 6, 5, 4, 7, 6,
-	4, 5, 1, 4, 1, 0,
-	3, 2, 6, 3, 6, 7,
-	1, 5, 6, 1, 6, 2,
-	4, 0, 3, 4, 3, 7
-};
-
-
-GraphicsDevice init_graphics_device(HWND window);
-void destroy_graphics_device(GraphicsDevice* d);
-
-void gd_update(GraphicsDevice* d);
-void gd_present(GraphicsDevice* d);
-#endif
+void cmd_set_pipeline(CmdList* cmd, const GraphicsPipeline* pipeline);
+void cmd_set_index_buffer(CmdList* cmd, const GpuBuffer* buffer);
+void cmd_set_primitive_topology(CmdList* cmd);
+void cmd_set_graphics_root_signature(CmdList* cmd);
+void cmd_set_graphics_32bit_constants(CmdList* cmd, const void* data);
+void cmd_draw_indexed(CmdList* cmd, u32 num_indices);
+void cmd_draw(CmdList* cmd, u32 num_vertices);
 
