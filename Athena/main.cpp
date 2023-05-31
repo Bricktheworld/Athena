@@ -272,7 +272,6 @@ frame_entry(uintptr_t ptr)
 	cmd_clear_dsv(&cmd, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, &params->swap_chain->depth_stencil_view, 0.0f, 0);
 
 	cmd_set_pipeline(&cmd, params->fullscreen_pipeline);
-	cmd_set_index_buffer(&cmd, params->index_buffer);
 	cmd_draw(&cmd, 3);
 
 	cmd_set_descriptor_heaps(&cmd, params->cbv_srv_uav_heap, 1);
@@ -283,7 +282,7 @@ frame_entry(uintptr_t ptr)
 	cube_resources.scene_idx = params->scene_cbv->descriptor.index;
 	cube_resources.transform_idx = params->transform_cbv->descriptor.index;
 	cmd_set_graphics_32bit_constants(&cmd, &cube_resources);
-	cmd_set_index_buffer(&cmd, params->index_buffer);
+	cmd_set_index_buffer(&cmd, params->index_buffer, 0, ARRAY_LENGTH(INDICES));
 	cmd_draw_indexed(&cmd, ARRAY_LENGTH(INDICES));
 
 	cmd_image_transition(&cmd, rtv->image, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);

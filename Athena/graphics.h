@@ -178,6 +178,8 @@ struct GpuBuffer
 {
 	GpuBufferDesc desc;
 	ID3D12Resource* d3d12_buffer = nullptr;
+	u64 gpu_addr = 0;
+
 	Option<void*> mapped = None;
 };
 GpuBuffer alloc_buffer_no_heap(const GraphicsDevice* device,
@@ -392,7 +394,7 @@ void cmd_set_render_targets(CmdList* cmd,
                             Option<DepthStencilView> dsv);
 void cmd_set_descriptor_heaps(CmdList* cmd, const DescriptorHeap* heaps, u32 num_heaps);
 void cmd_set_pipeline(CmdList* cmd, const GraphicsPipeline* pipeline);
-void cmd_set_index_buffer(CmdList* cmd, const GpuBuffer* buffer);
+void cmd_set_index_buffer(CmdList* cmd, const GpuBuffer* buffer, u32 start_index, u32 num_indices);
 void cmd_set_primitive_topology(CmdList* cmd);
 void cmd_set_graphics_root_signature(CmdList* cmd);
 void cmd_set_graphics_32bit_constants(CmdList* cmd, const void* data);

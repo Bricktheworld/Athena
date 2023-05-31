@@ -501,6 +501,7 @@ alloc_buffer_no_heap(const GraphicsDevice* device, GpuBufferDesc desc, const wch
 	                                               nullptr,
 	                                               IID_PPV_ARGS(&ret.d3d12_buffer)));
 	ret.d3d12_buffer->SetName(name);
+	ret.gpu_addr = ret.d3d12_buffer->GetGPUVirtualAddress();
 	if (desc.heap_type == GPU_HEAP_TYPE_UPLOAD)
 	{
 		void* mapped = nullptr;
@@ -800,7 +801,7 @@ alloc_buffer_srv(const GraphicsDevice* device,
 static bool
 buffer_is_aligned(const GpuBuffer* buffer, u64 alignment, u64 offset = 0)
 {
-	return (buffer->d3d12_buffer->GetGPUVirtualAddress() + offset) % alignment == 0;
+	return (buffer->gpu_addr + offset) % alignment == 0;
 }
 
 BufferCbv alloc_buffer_cbv(const GraphicsDevice* device,
@@ -819,7 +820,7 @@ BufferCbv alloc_buffer_cbv(const GraphicsDevice* device,
 	ret.size = size;
 
 	D3D12_CONSTANT_BUFFER_VIEW_DESC desc = {0};
-	desc.BufferLocation = buffer->d3d12_buffer->GetGPUVirtualAddress() + offset;
+	desc.BufferLocation = buffer->gpu_addr + offset;
 	desc.SizeInBytes = size;
 	device->d3d12->CreateConstantBufferView(&desc, ret.descriptor.cpu_handle);
 
@@ -1182,11 +1183,11 @@ cmd_set_primitive_topology(CmdList* cmd)
 }
 
 void
-cmd_set_index_buffer(CmdList* cmd, const GpuBuffer* buffer)
+cmd_set_index_buffer(CmdList* cmd, const GpuBuffer* buffer, u32 start_index, u32 num_indices)
 {
 	D3D12_INDEX_BUFFER_VIEW index_buffer_view;
-	index_buffer_view.BufferLocation = buffer->d3d12_buffer->GetGPUVirtualAddress();
-	index_buffer_view.SizeInBytes = static_cast<u32>(buffer->desc.size);
+	index_buffer_view.BufferLocation = buffer->gpu_addr + start_index * sizeof(u16);
+	index_buffer_view.SizeInBytes = num_indices * sizeof(u16);
 	index_buffer_view.Format = DXGI_FORMAT_R16_UINT;
 
 	cmd->d3d12_list->IASetIndexBuffer(&index_buffer_view);
