@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <windows.h>
 #include <immintrin.h>
+#include <initializer_list>
 
 typedef int8_t s8;
 typedef int16_t s16;
@@ -34,6 +35,22 @@ typedef __m128i u8x16;
 typedef __m128i u16x8;
 typedef __m128i u32x4;
 typedef __m128i u64x2;
+
+template <typename T>
+using InitializerList = std::initializer_list<T>;
+
+#define U64_MAX ((u64)0xFFFFFFFFFFFFFFFF)
+#define U32_MAX ((u32)0xFFFFFFFF)
+#define U16_MAX ((u16)0xFFFF)
+#define U8_MAX ((u8)0xFF)
+#define S64_MAX ((s64)0x7FFFFFFFFFFFFFFF)
+#define S32_MAX ((s32)0x7FFFFFFF)
+#define S16_MAX ((s16)0x7FFF)
+#define S8_MAX ((s8)0x7F)
+#define S64_MIN ((s64)0x8000000000000000)
+#define S32_MIN ((s32)0x80000000)
+#define S16_MIN ((s16)0x8000)
+#define S8_MIN ((s8)0x80)
 
 
 inline s32
@@ -74,6 +91,7 @@ swap(T* a, T* b)
 }
 
 #define MAX(a, b) (((a) > (b)) ? (a) : (b))
+#define MIN(a, b) (((a) < (b)) ? (a) : (b))
 
 #define KiB(val) (val * 1024LL)
 #define MiB(val) (KiB(val) * 1024LL)
@@ -144,6 +162,6 @@ template <class F> __Deferrer__<F> operator*(__DeferDummy__, F f) { return {f}; 
 #define HASSERT(hres) do { } while(0)
 #endif
 
-#define UNREACHABLE ASSERT(false)
+#define UNREACHABLE ASSERT(false); __assume(0)
 
 

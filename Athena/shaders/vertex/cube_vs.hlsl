@@ -13,10 +13,11 @@ VSOutput main(uint vert_id: SV_VertexID)
 {
 	VSOutput ret;
 
-	StructuredBuffer<float4> position_buf = ResourceDescriptorHeap[render_resources.position_idx];
-	ConstantBuffer<interlop::SceneBuffer> scene_buf = ResourceDescriptorHeap[render_resources.scene_idx];
-	ConstantBuffer<interlop::TransformBuffer> transform_buf = ResourceDescriptorHeap[render_resources.transform_idx];
+	StructuredBuffer<float4> position_buf = ResourceDescriptorHeap[render_resources.position];
+	ConstantBuffer<interlop::SceneBuffer> scene_buf = ResourceDescriptorHeap[render_resources.scene];
+	ConstantBuffer<interlop::TransformBuffer> transform_buf = ResourceDescriptorHeap[render_resources.transform];
 
 	ret.position = mul(scene_buf.view_proj, position_buf[vert_id]);
+	// ret.position = position_buf[vert_id];
 	return ret;
 }

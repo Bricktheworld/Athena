@@ -150,7 +150,8 @@ dot_f32_arrays_x4(const T* a,
 // This method will produce garbage in the w component
 // since the cross product is only defined for 3-component
 // vectors.
-inline f32x4 pass_by_register cross_f32(f32x4 a, f32x4 b)
+inline f32x4 pass_by_register
+cross_f32(f32x4 a, f32x4 b)
 {
 	//         [a.y * b.z - a.z * b.y]
 	// a x b = [a.z * b.x - a.x * b.z]
@@ -235,58 +236,68 @@ struct alignas(16) Vec2
 	};
 };
 
-inline f32 pass_by_register dot_f32(Vec2 a, Vec2 b)
+inline f32 pass_by_register
+dot_f32(Vec2 a, Vec2 b)
 {
 	Vec2 res = hadamard_f32(a, b);
 
 	return res.x + res.y;
 }
 
-inline Vec2 pass_by_register operator+(Vec2 a, Vec2 b)
+inline Vec2 pass_by_register
+operator+(Vec2 a, Vec2 b)
 {
 	return a.avx + b.avx;
 }
 
-inline Vec2 pass_by_register operator-(Vec2 a, Vec2 b)
+inline Vec2 pass_by_register
+operator-(Vec2 a, Vec2 b)
 {
 	return a.avx - b.avx;
 }
 
-inline Vec2& pass_by_register operator-(Vec2& a)
+inline Vec2& pass_by_register
+operator-(Vec2& a)
 {
 	a.avx = -a.avx;
 	return a;
 }
 
-inline Vec2& pass_by_register operator+=(Vec2& a, Vec2 b)
+inline Vec2& pass_by_register
+operator+=(Vec2& a, Vec2 b)
 {
 	a.avx = a.avx + b.avx;
 	return a;
 }
 
-inline Vec2& pass_by_register operator-=(Vec2& a, Vec2 b)
+inline Vec2& pass_by_register
+operator-=(Vec2& a, Vec2 b)
 {
 	a.avx = a.avx - b.avx;
 	return a;
 }
 
-inline Vec2 pass_by_register operator*(Vec2 a, f32 scale)
+inline Vec2 pass_by_register
+operator*(Vec2 a, f32 scale)
 {
 	return a.avx * scale;
 }
 
-inline Vec2& pass_by_register operator*=(Vec2& a, f32 scale)
+inline Vec2& pass_by_register
+operator*=(Vec2& a, f32 scale)
 {
 	a.avx = a.avx * scale;
 	return a;
 }
 
-inline Vec2 pass_by_register operator/(Vec2 a, f32 scale)
+inline Vec2 pass_by_register
+operator/(Vec2 a, f32 scale)
 {
 	return a.avx / scale;
 }
 
-inline Vec2& pass_by_register operator/=(Vec2& a, f32 scale)
+inline Vec2& pass_by_register
+operator/=(Vec2& a, f32 scale)
 {
 	a.avx = a.avx / scale;
 	return a;

@@ -271,7 +271,7 @@ test_fiber()
 	void* stack = push_memory_arena_aligned(&memory_arena, KiB(64), 16);
 
 	int data = 0;
-	Fiber fiber = init_fiber(stack, KiB(64), &test_job_entry, (uintptr_t)&data);
+	Fiber fiber = init_fiber(stack, KiB(64), &test_job_entry, &data);
 	launch_fiber(&fiber);
 
 	ASSERT(data == 1);
@@ -329,6 +329,7 @@ test_hash_table()
 	struct CustomType
 	{
 		int value;
+		auto operator<=>(const CustomType& rhs) const = default;
 	};
 
 	auto custom_table = init_hash_table<CustomType, int>(&memory_arena, 32);

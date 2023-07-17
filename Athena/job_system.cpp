@@ -2,7 +2,7 @@
 #include "context.h"
 
 Fiber
-init_fiber(void* stack, size_t stack_size, void* proc, uintptr_t param)
+init_fiber(void* stack, size_t stack_size, void* proc, void* param)
 {
 	ASSERT(stack_size >= 1);
 	ASSERT(stack != nullptr);
@@ -25,29 +25,29 @@ static JobQueue
 init_job_queue(MEMORY_ARENA_PARAM, size_t size)
 {
 	JobQueue ret = {0};
-	size *= sizeof(Job);
-	ret.queue = init_ring_buffer(MEMORY_ARENA_FWD, alignof(Job), size);
+	size *= sizeof(JobDesc);
+	ret.queue = init_ring_buffer(MEMORY_ARENA_FWD, alignof(JobDesc), size);
 
 	return ret;
 }
 
 static void
-enqueue_jobs(JobQueue* job_queue, const Job* jobs, size_t count)
+enqueue_jobs(JobQueue* job_queue, const JobDesc* jobs, size_t count)
 {
 	spin_acquire(&job_queue->lock);
 	defer { spin_release(&job_queue->lock); };
 
-	ring_buffer_push(&job_queue->queue, jobs, count * sizeof(Job));
+	ring_buffer_push(&job_queue->queue, jobs, count * sizeof(JobDesc));
 }
 
 static bool
-dequeue_job(JobQueue* job_queue, Job* out)
+dequeue_job(JobQueue* job_queue, JobDesc* out)
 {
 	ASSERT(out != nullptr);
 	spin_acquire(&job_queue->lock);
 	defer { spin_release(&job_queue->lock); };
 
-	return try_ring_buffer_pop(&job_queue->queue, sizeof(Job), out);
+	return try_ring_buffer_pop(&job_queue->queue, sizeof(JobDesc), out);
 }
 
 static void
@@ -112,7 +112,7 @@ enum JobType : u8
 };
 
 static JobType
-wait_for_next_job(JobSystem* job_system, Job* job_out, WorkingJob** working_job_out)
+wait_for_next_job(JobSystem* job_system, JobDesc* job_out, WorkingJob** working_job_out)
 {
 	while (!job_system->should_exit)
 	{
@@ -131,7 +131,7 @@ wait_for_next_job(JobSystem* job_system, Job* job_out, WorkingJob** working_job_
 }
 
 static JobType
-wait_for_async_job(JobSystem* job_system, Job* job_out)
+wait_for_async_job(JobSystem* job_system, JobDesc* job_out)
 {
 	while (!job_system->should_exit)
 	{
@@ -270,7 +270,7 @@ yield_working_job(JobSystem* job_system, WorkingJob* working_job)
 }
 
 static void
-launch_job(JobSystem* job_system, Job job, bool can_yield = true)
+launch_job(JobSystem* job_system, JobDesc job, bool can_yield = true)
 {
 	JobStack* stack = ACQUIRE(&job_system->job_stack_allocator, auto* allocator)
 	{
@@ -284,7 +284,7 @@ launch_job(JobSystem* job_system, Job job, bool can_yield = true)
 
 	Context ctx = init_context(scratch_arena);
 
-	Fiber fiber = init_fiber(stack->memory, STACK_SIZE, job.entry, job.param);
+	Fiber fiber = init_fiber(stack->memory, STACK_SIZE, job.entry.func_ptr, job.entry.params + job.entry.param_offset);
 	tls_fiber = &fiber;
 
 	auto* stack_high_before = fiber.stack_high;
@@ -350,7 +350,7 @@ job_worker(void* param)
 	JobSystem* job_system = tls_job_system = reinterpret_cast<JobSystem*>(param);
 	while (!job_system->should_exit)
 	{
-		Job job = {0};
+		JobDesc job = {0};
 		WorkingJob* working_job = nullptr;
 		JobType type = wait_for_next_job(job_system, &job, &working_job);
 		switch(type)
@@ -380,7 +380,7 @@ async_worker(void* param)
 	JobSystem* job_system = tls_job_system = reinterpret_cast<JobSystem*>(param);
 	while(!job_system->should_exit)
 	{
-		Job job = {0};
+		JobDesc job = {0};
 		JobType type = wait_for_async_job(job_system, &job);
 		if (type == JOB_TYPE_INVALID)
 			return 0;
@@ -436,9 +436,9 @@ get_queue(JobSystem* job_system, JobPriority priority)
 	JobQueue* ret = nullptr;
 	switch(priority)
 	{
-		case JOB_PRIORITY_HIGH:   ret = &job_system->high_priority; break;
-		case JOB_PRIORITY_MEDIUM: ret = &job_system->medium_priority; break;
-		case JOB_PRIORITY_LOW:    ret = &job_system->low_priority; break;
+		case kJobPriorityHigh:   ret = &job_system->high_priority; break;
+		case kJobPriorityMedium: ret = &job_system->medium_priority; break;
+		case kJobPriorityLow:    ret = &job_system->low_priority; break;
 	}
 	ASSERT(ret != nullptr);
 
@@ -453,7 +453,7 @@ get_next_job_counter_id(JobSystem* job_system)
 
 JobCounterID
 _kick_jobs(JobPriority priority,
-          Job* jobs,
+          JobDesc* jobs,
           size_t count,
           JobDebugInfo debug_info,
           JobSystem* job_system,
@@ -479,7 +479,7 @@ _kick_jobs(JobPriority priority,
 
 	for (size_t i = 0; i < count; i++)
 	{
-		ASSERT(jobs[i].entry != nullptr);
+		ASSERT(jobs[i].entry.func_ptr != nullptr);
 		jobs[i].completion_signal = ret;
 		jobs[i].debug_info = debug_info;
 	}

@@ -11,9 +11,10 @@ static constexpr NoneT None = NoneT();
 template <typename T>
 struct Option
 {
-	Option() = default;
-	Option(NoneT none) {}
-	Option(const T& v) : value(v), m_has_value(true) {}
+	Option() { zero_memory(&value, sizeof(T));  }
+	Option(NoneT none) { zero_memory(&value, sizeof(T)); }
+	template <typename U>
+	Option(const U& v) : value(v), m_has_value(true) {}
 
 	operator bool() const { return m_has_value; }
 
@@ -57,8 +58,8 @@ T unwrap(const Option<T>& optional)
 	return optional.value;
 }
 
-template <typename T>
-T unwrap_or(Option<T> optional, T replacement)
+template <typename T, typename U>
+T unwrap_or(Option<T> optional, U replacement)
 {
 	if (!optional)
 		return replacement;
@@ -67,7 +68,7 @@ T unwrap_or(Option<T> optional, T replacement)
 }
 
 template <typename T, typename F>
-T unwrap_or(Option<T> optional, F callback)
+T unwrap_or_callback(Option<T> optional, F callback)
 {
 	if (!optional)
 		return callback();

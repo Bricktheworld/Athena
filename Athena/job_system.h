@@ -20,11 +20,7 @@ struct Fiber
 	void* rdi = 0;
 	void* rsi = 0;
 
-	// NOTE(Brandon): Technically if you have more than one param
-	// this fiber system won't actually account for that. Maybe 
-	// be more comprehensive in the future? Or maybe we just say fibers
-	// should pull from stack :shrug:
-	uintptr_t rcx = 0;
+	void* rcx = 0;
 
 	u8 yielded = false;
 
@@ -47,13 +43,13 @@ struct Fiber
 	void* deallocation_stack = 0; // ???? I have no fucking clue what this does
 };
 
-Fiber init_fiber(void* stack, size_t stack_size, void* proc, uintptr_t param);
+Fiber init_fiber(void* stack, size_t stack_size, void* proc, void* param);
 extern "C" void launch_fiber(Fiber* fiber);
 extern "C" void resume_fiber(Fiber* fiber, void* stack_high);
 extern "C" void save_to_fiber(Fiber* out, void* stack_high);
 extern "C" void* get_rsp();
 
-typedef void (*JobEntry)(uintptr_t);
+//typedef void (*JobEntry)(uintptr_t);
 
 // TODO(Brandon): I have no idea why, but dx12 calls eat massive
 // amounts of stack space, so this is a temporary solution.
@@ -79,19 +75,25 @@ struct JobDebugInfo
 };
 #define JOB_DEBUG_INFO_STRUCT JobDebugInfo{__FILE__, __LINE__}
 
-struct Job
+struct JobEntry
 {
-	JobEntry entry = nullptr;
-	uintptr_t param = 0;
+	void (*func_ptr)(void*);
+	u8 params[256]{0};
+	u8 param_offset = 0;
+};
 
+struct JobDesc
+{
 	JobCounterID completion_signal = 0;
 
 	JobDebugInfo debug_info = {0};
+
+	JobEntry entry = {0};
 };
 
 struct WorkingJob
 {
-	Job job;
+	JobDesc job;
 	Fiber fiber;
 
 	JobStack* stack = nullptr;
@@ -143,11 +145,11 @@ struct JobSystem
 
 enum JobPriority : u8
 {
-	JOB_PRIORITY_HIGH,
-	JOB_PRIORITY_MEDIUM,
-	JOB_PRIORITY_LOW,
+	kJobPriorityHigh,
+	kJobPriorityMedium,
+	kJobPriorityLow,
 
-	JOB_PRIORITY_COUNT,
+	kJobPriorityCount,
 };
 
 JobSystem* init_job_system(MEMORY_ARENA_PARAM, size_t job_queue_size);
@@ -159,46 +161,74 @@ void kill_job_system(JobSystem* job_system);
 Array<Thread> spawn_job_system_workers(MEMORY_ARENA_PARAM, JobSystem* job_system);
 
 JobCounterID _kick_jobs(JobPriority priority,
-                        Job* jobs,
+                        JobDesc* jobs,
                         size_t count,
                         JobDebugInfo debug_info,
                         JobSystem* job_system = nullptr,
                         Option<ThreadSignal*> thread_signal = None);
-                        
 
-#define kick_jobs(priority, jobs, count, ...) _kick_jobs(priority, jobs, count, JOB_DEBUG_INFO_STRUCT, __VA_ARGS__)
-#define kick_job(priority, job, ...) kick_jobs(priority, &job, 1, __VA_ARGS__)
+inline JobCounterID
+_kick_single_job(JobPriority priority,
+                 JobDesc desc,
+                 JobDebugInfo debug_info,
+                 JobSystem* job_system = nullptr,
+                 Option<ThreadSignal*> thread_signal = None)
+{
+	return _kick_jobs(priority, &desc, 1, debug_info, job_system, thread_signal);
+}
 
 inline void
-_blocking_kick_job(JobPriority priority,
-                   Job* jobs,
-                   size_t count,
-                   JobDebugInfo debug_info,
-                   JobSystem* job_system)
+blocking_kick_job_descs(JobPriority priority,
+                        JobDesc* jobs,
+                        size_t count,
+                        JobDebugInfo debug_info,
+                        JobSystem* job_system)
 {
 	ThreadSignal signal = init_thread_signal();
 	_kick_jobs(priority, jobs, count, debug_info, job_system, &signal);
 	wait_for_thread_signal(&signal);
 }
 
-#define blocking_kick_job(priority, job, job_system) _blocking_kick_job(priority, &job, 1, JOB_DEBUG_INFO_STRUCT, job_system)
+inline void
+_blocking_kick_single_job(JobPriority priority,
+                          JobDesc desc,
+                          JobDebugInfo debug_info,
+                          JobSystem* job_system)
+{
+	blocking_kick_job_descs(priority, &desc, 1, debug_info, job_system);
+}
+
 
 template <typename F>
-void closure_callback(uintptr_t f)
+void closure_callback(void* f)
 {
 	(*(F*)f)();
 }
 
 template <typename F>
+inline JobDesc
+init_job_desc_from_closure(F func)
+{
+	JobDesc ret = {0};
+	static_assert(sizeof(F) <= sizeof(ret.entry.params));
+
+	u8* aligned = align_ptr(ret.entry.params, alignof(F));
+	memcpy(aligned, &func, sizeof(func));
+
+	ret.entry.param_offset = u8(uintptr_t(aligned) - uintptr_t(ret.entry.params));
+	ret.entry.func_ptr = &closure_callback<F>;
+	return ret;
+}
+
+#define kick_job_descs(priority, job_descs, count, ...) _kick_jobs(priority, job_descs, count, JOB_DEBUG_INFO_STRUCT, __VA_ARGS__)
+#define kick_closure_job(priority, closure) _kick_single_job(priority, init_job_desc_from_closure(closure), JOB_DEBUG_INFO_STRUCT)
+#define kick_job(priority, function_call) kick_closure_job(priority, [&]() { function_call; })
+#define blocking_kick_closure_job(priority, job_system, closure) _blocking_kick_single_job(priority, init_job_desc_from_closure(closure), JOB_DEBUG_INFO_STRUCT, job_system)
+#define blocking_kick_job(priority, job_system, function_call) blocking_kick_closure_job(priority, job_system, [&]() { function_call; })
+
+template <typename F>
 void yield_async(F func)
 {
-	USE_SCRATCH_ARENA();
-	F* capture = push_memory_arena<F>(SCRATCH_ARENA_PASS);
-	memcpy(capture, &func, sizeof(func));
-
-	Job job = {0};
-	job.entry = (JobEntry)&closure_callback<F>;
-	job.param = (uintptr_t)capture;
-	JobCounterID counter = kick_job(JOB_PRIORITY_LOW, job);
+	JobCounterID counter = kick_closure_job(kJobPriorityLow, func);
 	yield_to_counter(counter);
 }

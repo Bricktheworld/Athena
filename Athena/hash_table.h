@@ -11,9 +11,9 @@ hash_u64(const void* data, size_t size)
 
 enum HashTableCtrl : u8
 {
-	HASH_TABLE_CTRL_EMPTY     = 0x80,
-	HASH_TABLE_CTRL_DELETED   = 0xFF,
-	HASH_TABLE_CTRL_FULL_MASK = 0x7F,
+	kHashTableCtrlEmpty     = 0x80,
+	kHashTableCtrlDeleted   = 0xFF,
+	kHashTableCtrlFullMask = 0x7F,
 };
 
 // Swiss-table implementation. Really simple to implement and really well optimized.
@@ -53,6 +53,68 @@ struct HashTable
 	u64 capacity = 0;
 
 	u64 used = 0;
+
+#if 0
+	Iterator<HashTable, T> begin() { return Iterator<Container, T>::begin(this);  }
+	Iterator<Container, T> end() { return Iterator<Container, T>::end(this);  }
+	Iterator<const Container, const T> begin() const { return Iterator<const Container, const T>::begin(this);  }
+	Iterator<const Container, const T> end() const { return Iterator<const Container, const T>::end(this);  }
+private:
+	friend Iterator<Container, T>;
+	friend Iterator<const Container, const T>;
+	size_t m_increment_idx(size_t idx) const
+	{ 
+		ASSERT(idx < groups_size * 16);
+		idx++;
+
+		while (idx / 16 < groups_size)
+		{
+			HashTable::Group* group = this->groups + idx / 16;
+			u16 mask = _mm_movemask_epi8(_mm_cmpeq_epi8(_mm_set1_epi8(kHashTableCtrlFullMask), group->ctrls_sse));
+
+			do
+			{
+				u64 shift = idx % 16;
+				if ((mask & (1 << shift)) != 0)
+					return idx;
+
+				idx++;
+			}
+			while (idx % 16 != 0);
+		}
+
+		ASSERT(idx == groups_size * 16);
+		return idx;
+	}
+
+	size_t m_decrement_idx(size_t idx) const
+	{ 
+		ASSERT(idx > 0);
+		idx--;
+
+		while (idx > 0)
+		{
+			HashTable::Group* group = this->groups + idx / 16;
+			u16 mask = _mm_movemask_epi8(_mm_cmpeq_epi8(_mm_set1_epi8(kHashTableCtrlFullMask), group->ctrls_sse));
+
+			do
+			{
+				u64 shift = idx % 16;
+				if ((mask & (1 << shift)) != 0)
+					return idx;
+
+				idx--;
+			}
+			while (idx % 16 != 0);
+		}
+
+		ASSERT(idx == 0);
+		return idx;
+	}
+
+	size_t m_begin_idx() const { return m_increment_idx(0); }
+	size_t m_end_idx() const { return groups_size * 16; }
+#endif
 };
 
 template <typename K, typename V>
@@ -61,15 +123,16 @@ init_hash_table(MEMORY_ARENA_PARAM, u64 capacity)
 {
 	HashTable<K, V> ret = {};
 
-	ret.groups_size = (capacity * 4 / 3 + 15) / 16;
-	ret.groups = push_memory_arena<typename HashTable<K, V>::Group>(MEMORY_ARENA_FWD, ret.groups_size);
-	ret.values = push_memory_arena<V>(MEMORY_ARENA_FWD, capacity);
-	ret.capacity = capacity;
-	ret.used     = 0;
+	capacity = capacity * 4 / 3 + 15;
+	ret.groups_size = capacity / 16;
+	ret.groups      = push_memory_arena<typename HashTable<K, V>::Group>(MEMORY_ARENA_FWD, ret.groups_size);
+	ret.values      = push_memory_arena<V>(MEMORY_ARENA_FWD, capacity);
+	ret.capacity    = capacity;
+	ret.used        = 0;
 
 	for (u64 i = 0; i < ret.groups_size; i++)
 	{
-		ret.groups[i].ctrls_sse = _mm_set1_epi8(HASH_TABLE_CTRL_EMPTY);
+		ret.groups[i].ctrls_sse = _mm_set1_epi8(kHashTableCtrlEmpty);
 	}
 
 	return ret;
@@ -79,7 +142,7 @@ init_hash_table(MEMORY_ARENA_PARAM, u64 capacity)
 
 template <typename K, typename V>
 inline V*
-hash_table_insert(HashTable<K, V>* table, K key)
+hash_table_insert(HashTable<K, V>* table, const K& key)
 {
 	ASSERT(table->used < table->capacity);
 
@@ -102,7 +165,7 @@ hash_table_insert(HashTable<K, V>* table, K key)
 				{
 					if ((mask & (1 << i)) == 0)
 						continue;
-					if (memcmp(&group->keys[i], &key, sizeof(K)) != 0)
+					if (group->keys[i] != key)
 						continue;
 
 					return &table->values[group_index * 16 + i];
@@ -112,7 +175,7 @@ hash_table_insert(HashTable<K, V>* table, K key)
 		{
 			// We AND with the ctrl_empty mask because we also want to include
 			// tombstones here.
-			u16 mask = _mm_movemask_epi8(_mm_and_si128(_mm_set1_epi8(HASH_TABLE_CTRL_EMPTY), group->ctrls_sse));
+			u16 mask = _mm_movemask_epi8(_mm_and_si128(_mm_set1_epi8(kHashTableCtrlEmpty), group->ctrls_sse));
 
 			// Find the first empty/deleted element in the hashmap
 			for (u8 i = 0; i < 16; i++)
@@ -120,7 +183,7 @@ hash_table_insert(HashTable<K, V>* table, K key)
 				if ((mask & (1 << i)) == 0)
 					continue;
 	
-				group->ctrls[i] = (u8)h.meta & HASH_TABLE_CTRL_FULL_MASK;
+				group->ctrls[i] = (u8)h.meta & kHashTableCtrlFullMask;
 				group->keys[i] = key;
 
 				table->used++;
@@ -138,7 +201,7 @@ hash_table_insert(HashTable<K, V>* table, K key)
 
 template <typename K, typename V>
 inline Option<V*>
-hash_table_find(const HashTable<K, V>* table, K key)
+hash_table_find(const HashTable<K, V>* table, const K& key)
 {
 	using Hash = typename HashTable<K, V>::Hash;
 
@@ -155,12 +218,12 @@ hash_table_find(const HashTable<K, V>* table, K key)
 		{
 			if ((mask & (1 << i)) == 0)
 				continue;
-			if (memcmp(&group->keys[i], &key, sizeof(K)) != 0)
+			if (group->keys[i] != key)
 				continue;
 			return &table->values[group_index * 16 + i];
 		}
 
-		u16 empty_mask = _mm_movemask_epi8(_mm_cmpeq_epi8(_mm_set1_epi8(HASH_TABLE_CTRL_EMPTY), group->ctrls_sse));
+		u16 empty_mask = _mm_movemask_epi8(_mm_cmpeq_epi8(_mm_set1_epi8(kHashTableCtrlEmpty), group->ctrls_sse));
 
 		// If there is at least one non-empty element, then that means that the hash _had_
 		// a place to go, but there obviously isn't one.
@@ -175,7 +238,7 @@ hash_table_find(const HashTable<K, V>* table, K key)
 
 template <typename K, typename V>
 inline bool
-hash_table_erase(HashTable<K, V>* table, K key)
+hash_table_erase(HashTable<K, V>* table, const K& key)
 {
 	using Hash = typename HashTable<K, V>::Hash;
 
@@ -188,16 +251,16 @@ hash_table_erase(HashTable<K, V>* table, K key)
 	{
 		auto* group = table->groups + group_index;
 		u16 mask = _mm_movemask_epi8(_mm_cmpeq_epi8(_mm_set1_epi8(h.meta), group->ctrls_sse));
-		u16 empty_mask = _mm_movemask_epi8(_mm_cmpeq_epi8(_mm_set1_epi8(HASH_TABLE_CTRL_EMPTY), group->ctrls_sse));
+		u16 empty_mask = _mm_movemask_epi8(_mm_cmpeq_epi8(_mm_set1_epi8(kHashTableCtrlEmpty), group->ctrls_sse));
 		for (u8 i = 0; i < 16; i++)
 		{
 			if ((mask & (1 << i)) == 0)
 				continue;
-			if (memcmp(&group->keys[i], &key, sizeof(K)) != 0)
+			if (group->keys[i] != key)
 				continue;
 
 			table->used--;
-			group->ctrls[i] = empty_mask == 0 ? HASH_TABLE_CTRL_DELETED : HASH_TABLE_CTRL_EMPTY;
+			group->ctrls[i] = empty_mask == 0 ? kHashTableCtrlDeleted : kHashTableCtrlEmpty;
 			return true;
 		}
 
