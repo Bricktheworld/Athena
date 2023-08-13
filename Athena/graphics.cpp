@@ -129,6 +129,10 @@ namespace gfx
 		ASSERT(ret.d3d12_fence != nullptr);
 	
 		ret.cpu_event = CreateEventW(NULL, FALSE, FALSE, NULL);
+		ret.value = 0;
+		ret.last_completed_value = 0;
+		ret.last_completed_value = 0;
+		ret.already_waiting = false;
 	
 		return ret;
 	}
@@ -180,13 +184,16 @@ namespace gfx
 	void
 	block_for_fence_value(Fence* fence, FenceValue value)
 	{
+		ASSERT(!fence->already_waiting);
 		if (is_fence_complete(fence, value))
 			return;
 	
 		HASSERT(fence->d3d12_fence->SetEventOnCompletion(value, fence->cpu_event));
+		fence->already_waiting = true;
 	
 		WaitForSingleObject(fence->cpu_event, -1);
 		poll_fence_value(fence);
+		fence->already_waiting = false;
 	}
 	
 	CmdQueue
@@ -462,13 +469,24 @@ namespace gfx
 		zero_memory(device, sizeof(GraphicsDevice));
 	}
 	
-	static bool
+	bool
 	is_depth_format(DXGI_FORMAT format)
 	{
 		return format == DXGI_FORMAT_D32_FLOAT ||
 					format == DXGI_FORMAT_D16_UNORM ||
 					format == DXGI_FORMAT_D24_UNORM_S8_UINT ||
 					format == DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
+	}
+
+	static DXGI_FORMAT
+	get_typeless_depth_format(DXGI_FORMAT format)
+	{
+		switch (format)
+		{
+			case DXGI_FORMAT_D32_FLOAT: return DXGI_FORMAT_R32_TYPELESS;
+			case DXGI_FORMAT_D16_UNORM: return DXGI_FORMAT_R16_TYPELESS;
+			default: UNREACHABLE; // TODO(Brandon): Implement
+		}
 	}
 	
 	GpuImage
@@ -491,24 +509,30 @@ namespace gfx
 		resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
 		resource_desc.Flags = desc.flags;
 	
+		D3D12_CLEAR_VALUE clear_value;
+		D3D12_CLEAR_VALUE* p_clear_value = nullptr;
+		clear_value.Format = desc.format;
 		if (is_depth_format(desc.format))
 		{
 			resource_desc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
-			if (!desc.clear_value)
-			{
-				D3D12_CLEAR_VALUE default_depth_clear;
-				default_depth_clear.Format = desc.format;
-				default_depth_clear.DepthStencil.Depth   = 0.0f;
-				default_depth_clear.DepthStencil.Stencil = 0;
-				desc.clear_value = default_depth_clear;
-			}
+			clear_value.DepthStencil.Depth   = desc.depth_clear_value;
+			clear_value.DepthStencil.Stencil = desc.stencil_clear_value;
+			p_clear_value = &clear_value;
+		}
+		else if (desc.flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET)
+		{
+			clear_value.Color[0] = desc.color_clear_value.x;
+			clear_value.Color[1] = desc.color_clear_value.y;
+			clear_value.Color[2] = desc.color_clear_value.z;
+			clear_value.Color[3] = desc.color_clear_value.w;
+			p_clear_value = &clear_value;
 		}
 	
 		HASSERT(device->d3d12->CreateCommittedResource(&heap_props,
 																									D3D12_HEAP_FLAG_NONE,
 																									&resource_desc,
 																									desc.initial_state,
-																									desc.clear_value ? &unwrap(desc.clear_value) : nullptr,
+																									p_clear_value,
 																									IID_PPV_ARGS(&ret.d3d12_image)));
 	
 		ret.d3d12_image->SetName(name);
@@ -546,43 +570,36 @@ namespace gfx
 		resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
 		resource_desc.Flags = desc.flags;
 	
+		D3D12_CLEAR_VALUE clear_value;
+		D3D12_CLEAR_VALUE* p_clear_value = nullptr;
+		clear_value.Format = desc.format;
+		if (is_depth_format(desc.format))
+		{
+			resource_desc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+			clear_value.DepthStencil.Depth   = desc.depth_clear_value;
+			clear_value.DepthStencil.Stencil = desc.stencil_clear_value;
+			p_clear_value = &clear_value;
+		}
+		else if (desc.flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET)
+		{
+			clear_value.Color[0] = desc.color_clear_value.x;
+			clear_value.Color[1] = desc.color_clear_value.y;
+			clear_value.Color[2] = desc.color_clear_value.z;
+			clear_value.Color[3] = desc.color_clear_value.w;
+			p_clear_value = &clear_value;
+		}
+
 		D3D12_RESOURCE_ALLOCATION_INFO info = device->d3d12->GetResourceAllocationInfo(0, 1, &resource_desc);
 	
 		u64 new_pos = ALIGN_POW2(allocator->pos, info.Alignment) + info.SizeInBytes;
 		ASSERT(new_pos <= allocator->heap.size);
 	
-		if (is_depth_format(desc.format))
-		{
-			resource_desc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
-			if (!desc.clear_value)
-			{
-				D3D12_CLEAR_VALUE default_depth_clear;
-				default_depth_clear.Format = desc.format;
-				default_depth_clear.DepthStencil.Depth   = 0.0f;
-				default_depth_clear.DepthStencil.Stencil = 0;
-				desc.clear_value = default_depth_clear;
-			}
-		}
-		else
-		{
-			if (!desc.clear_value)
-			{
-				D3D12_CLEAR_VALUE default_render_target_clear;
-				default_render_target_clear.Format = desc.format;
-				default_render_target_clear.Color[0] = 0.0f;
-				default_render_target_clear.Color[1] = 0.0f;
-				default_render_target_clear.Color[2] = 0.0f;
-				default_render_target_clear.Color[3] = 1.0f;
-
-				desc.clear_value = default_render_target_clear;
-			}
-		}
-	
+		u64 allocation_offset = ALIGN_POW2(allocator->pos, info.Alignment);
 		HASSERT(device->d3d12->CreatePlacedResource(allocator->heap.d3d12_heap,
-																								allocator->pos,
+																								allocation_offset,
 																								&resource_desc,
 																								desc.initial_state,
-																								desc.clear_value ? &unwrap(desc.clear_value) : nullptr,
+																								p_clear_value,
 																								IID_PPV_ARGS(&ret.d3d12_image)));
 	
 		ret.d3d12_image->SetName(name);
@@ -737,7 +754,7 @@ namespace gfx
 	}
 	
 	FenceValue
-	block_gpu_upload_buffer(CmdListAllocator* cmd_allocator,
+	yield_gpu_upload_buffer(CmdListAllocator* cmd_allocator,
 													GpuUploadRingBuffer* ring_buffer,
 													GpuBuffer* dst,
 													u64 dst_offset,
@@ -745,25 +762,26 @@ namespace gfx
 													u64 size,
 													u64 alignment)
 	{
+		// TODO(Brandon): This whole fucking thing is broken.
+		UNREACHABLE;
 		void* mapped = unwrap(ring_buffer->gpu_buffer.mapped);
 		u64 write_masked = ring_buffer->write & (ring_buffer->size - 1);
 		u64 write_addr = reinterpret_cast<u64>(mapped) + write_masked;
 		u64 aligned_addr = align_address(write_addr, alignment);
 		u64 aligned_diff = aligned_addr - write_addr;
 		u64 total_allocation_size = aligned_diff + size;
+		ASSERT(total_allocation_size <= ring_buffer->size);
 		while (gpu_ring_buffer_remaining_size(ring_buffer) < total_allocation_size)
 		{
-			block_for_fence_value(&ring_buffer->fence, ring_buffer->fence.last_completed_value);
-			for (;;)
+			yield_for_fence_value(&ring_buffer->fence, ring_buffer->fence.last_completed_value);
+			GpuUploadRange range = {0};
+			ring_queue_peak_front(ring_buffer->upload_fence_values, &range);
+	
+			if (is_fence_complete(&ring_buffer->fence, range.fence_value))
 			{
-				GpuUploadRange range = {0};
-				ring_queue_peak_front(ring_buffer->upload_fence_values, &range);
-	
-				if (!is_fence_complete(&ring_buffer->fence, range.fence_value))
-					break;
-	
 				ring_queue_pop(&ring_buffer->upload_fence_values, &range);
 				ring_buffer->read += range.size;
+				break;
 			}
 		}
 	
@@ -970,8 +988,13 @@ namespace gfx
 	{
 		ASSERT(descriptor->type == kDescriptorHeapTypeDsv);
 	
+		D3D12_DEPTH_STENCIL_VIEW_DESC desc;
+		desc.Texture2D.MipSlice = 0;
+		desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+		desc.Flags = D3D12_DSV_FLAG_NONE;
+		desc.Format = image->desc.format;
 		device->d3d12->CreateDepthStencilView(image->d3d12_image,
-																					nullptr,
+																					&desc,
 																					descriptor->cpu_handle);
 	}
 	
@@ -1046,7 +1069,14 @@ namespace gfx
 
 		D3D12_SHADER_RESOURCE_VIEW_DESC desc = {0};
 		desc.Texture2D.MipLevels = 1;
-		desc.Format = image->desc.format;
+		if (is_depth_format(image->desc.format))
+		{
+			desc.Format = (DXGI_FORMAT)((u32)image->desc.format + 1);
+		}
+		else
+		{
+			desc.Format = image->desc.format;
+		}
 		desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
 		desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 	
@@ -1111,14 +1141,14 @@ namespace gfx
 		COM_RELEASE(shader->d3d12_shader);
 	}
 	
-	PipelineState
+	GraphicsPSO
 	init_graphics_pipeline(const GraphicsDevice* device,
 												GraphicsPipelineDesc desc,
 												const wchar_t* name)
 	{
-		ASSERT(desc.rtv_formats.size <= 8);
+//		ASSERT(desc.rtv_formats.size <= 8);
 	
-		PipelineState ret = {0};
+		GraphicsPSO ret = {0};
 	
 		D3D12_RENDER_TARGET_BLEND_DESC render_target_blend_desc;
 		render_target_blend_desc.BlendEnable = FALSE;
@@ -1141,9 +1171,9 @@ namespace gfx
 		}
 	
 		D3D12_DEPTH_STENCIL_DESC depth_stencil_desc;
-		depth_stencil_desc.DepthEnable = static_cast<bool>(desc.dsv_format);
+		depth_stencil_desc.DepthEnable = desc.dsv_format != DXGI_FORMAT_UNKNOWN;
 		depth_stencil_desc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
-		depth_stencil_desc.DepthFunc = unwrap_or(desc.comparison_func, D3D12_COMPARISON_FUNC_NONE);
+		depth_stencil_desc.DepthFunc = desc.comparison_func;
 		depth_stencil_desc.StencilEnable = desc.stencil_enable;
 		depth_stencil_desc.StencilReadMask = D3D12_DEFAULT_STENCIL_READ_MASK;
 		depth_stencil_desc.StencilWriteMask = D3D12_DEFAULT_STENCIL_WRITE_MASK;
@@ -1151,10 +1181,7 @@ namespace gfx
 	
 		D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc = {0};
 		pso_desc.VS = CD3DX12_SHADER_BYTECODE(desc.vertex_shader.d3d12_shader);
-		if (desc.pixel_shader)
-		{
-			pso_desc.PS = CD3DX12_SHADER_BYTECODE(unwrap(desc.pixel_shader).d3d12_shader);
-		}
+		pso_desc.PS = CD3DX12_SHADER_BYTECODE(desc.pixel_shader.d3d12_shader);
 		pso_desc.BlendState = blend_desc,
 		pso_desc.SampleMask = UINT32_MAX,
 		pso_desc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT),
@@ -1162,7 +1189,7 @@ namespace gfx
 		pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE,
 		pso_desc.NumRenderTargets = static_cast<u32>(desc.rtv_formats.size);
 	
-		pso_desc.DSVFormat = unwrap_or(desc.dsv_format, DXGI_FORMAT_UNKNOWN);
+		pso_desc.DSVFormat = desc.dsv_format;
 	
 		pso_desc.SampleDesc.Count = 1;
 		pso_desc.SampleDesc.Quality = 0;
@@ -1184,10 +1211,33 @@ namespace gfx
 	}
 	
 	void
-	destroy_pipeline_state(PipelineState* pipeline)
+	destroy_graphics_pipeline(GraphicsPSO* pipeline)
 	{
 		COM_RELEASE(pipeline->d3d12_pso);
-		zero_memory(pipeline, sizeof(PipelineState));
+		zero_memory(pipeline, sizeof(GraphicsPSO));
+	}
+
+	ComputePSO
+	init_compute_pipeline(const GraphicsDevice* device, GpuShader compute_shader, const wchar_t* name)
+	{
+		ComputePSO ret;
+		D3D12_COMPUTE_PIPELINE_STATE_DESC desc;
+		desc.pRootSignature = g_root_signature;
+		desc.CS = CD3DX12_SHADER_BYTECODE(compute_shader.d3d12_shader);
+		desc.NodeMask = 0;
+		desc.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
+		desc.CachedPSO.pCachedBlob = nullptr;
+		desc.CachedPSO.CachedBlobSizeInBytes = 0;
+		HASSERT(device->d3d12->CreateComputePipelineState(&desc, IID_PPV_ARGS(&ret.d3d12_pso)));
+
+		return ret;
+	}
+
+	void
+	destroy_compute_pipeline(ComputePSO* pipeline)
+	{
+		COM_RELEASE(pipeline->d3d12_pso);
+		zero_memory(pipeline, sizeof(ComputePSO));
 	}
 	
 	static void
@@ -1222,6 +1272,7 @@ namespace gfx
 		ret.height = client_rect.bottom - client_rect.top;
 		ret.format = DXGI_FORMAT_R8G8B8A8_UNORM;
 		ret.tearing_supported = check_tearing_support(factory);
+		ret.vsync = true;
 	
 	
 		DXGI_SWAP_CHAIN_DESC1 swap_chain_desc = { 0 };
@@ -1235,7 +1286,7 @@ namespace gfx
 		swap_chain_desc.Scaling = DXGI_SCALING_STRETCH;
 		swap_chain_desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
 		swap_chain_desc.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
-		swap_chain_desc.Flags = ret.tearing_supported ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0;
+		swap_chain_desc.Flags = 0;  //ret.tearing_supported ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0;
 	
 		IDXGISwapChain1* swap_chain1 = nullptr;
 		HASSERT(factory->CreateSwapChainForHwnd(device->graphics_queue.d3d12_queue,
@@ -1411,11 +1462,11 @@ namespace gfx
 			*array_add(&d3d12_heaps) = heaps[i]->d3d12_heap;
 		}
 	
-		cmd->d3d12_list->SetDescriptorHeaps(heaps.size, &d3d12_heaps[0]);
+		cmd->d3d12_list->SetDescriptorHeaps(static_cast<u32>(heaps.size), &d3d12_heaps[0]);
 	}
 	
 	void
-	cmd_set_pipeline(CmdList* cmd, const PipelineState* pipeline)
+	cmd_set_pipeline(CmdList* cmd, const GraphicsPSO* pipeline)
 	{
 		cmd->d3d12_list->SetPipelineState(pipeline->d3d12_pso);
 	}
@@ -1425,6 +1476,13 @@ namespace gfx
 	{
 		ASSERT(g_root_signature != nullptr);
 		cmd->d3d12_list->SetGraphicsRootSignature(g_root_signature);
+	}
+
+	void
+	cmd_set_compute_root_signature(CmdList* cmd)
+	{
+		ASSERT(g_root_signature != nullptr);
+		cmd->d3d12_list->SetComputeRootSignature(g_root_signature);
 	}
 	
 	void
@@ -1463,11 +1521,10 @@ namespace gfx
 	}
 	
 	void
-	init_imgui_ctx(MEMORY_ARENA_PARAM,
-								const GraphicsDevice* device,
-								const SwapChain* swap_chain,
-								HWND window,
-								DescriptorPool* cbv_srv_uav_heap)
+	init_imgui_ctx(const GraphicsDevice* device,
+								 const SwapChain* swap_chain,
+								 HWND window,
+								 DescriptorLinearAllocator* cbv_srv_uav_heap)
 	{
 		ASSERT(cbv_srv_uav_heap->type == kDescriptorHeapTypeCbvSrvUav);
 	

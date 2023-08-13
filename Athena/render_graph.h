@@ -20,7 +20,7 @@ namespace gfx::render
 		kResourceTypeImage,
 		kResourceTypeBuffer,
 		kResourceTypeShader,
-		kResourceTypePipelineState,
+		kResourceTypeGraphicsPSO,
 		kResourceTypeSampler,
 
 		kResourceTypeCount,
@@ -33,7 +33,7 @@ namespace gfx::render
 			const GpuImage* image;
 			const GpuBuffer* buffer;
 			const GpuShader* shader;
-			const PipelineState* pipeline;
+			const GraphicsPSO* graphics_pso;
 		};
 		ResourceType type = kResourceTypeImage;
 		D3D12_RESOURCE_STATES state = D3D12_RESOURCE_STATE_COMMON;
@@ -82,9 +82,8 @@ namespace gfx::render
 
 	RESOURCE_TEMPLATE_TYPE(GpuImage, kResourceTypeImage);
 	RESOURCE_TEMPLATE_TYPE(GpuBuffer, kResourceTypeBuffer);
-	RESOURCE_TEMPLATE_TYPE(GpuShader, kResourceTypeShader);
 	RESOURCE_TEMPLATE_TYPE(Sampler, kResourceTypeSampler);
-	RESOURCE_TEMPLATE_TYPE(PipelineState, kResourceTypePipelineState);
+	RESOURCE_TEMPLATE_TYPE(GraphicsPSO, kResourceTypeGraphicsPSO);
 
 	template <typename T>
 	struct Handle
@@ -108,6 +107,7 @@ namespace gfx::render
 		DescriptorLinearAllocator dsv_allocators[kFramesInFlight];
 		DescriptorLinearAllocator sampler_allocators[kFramesInFlight];
 		Array<ID3D12Resource*> last_frame_resources[kFramesInFlight];
+		HashTable<u64, GraphicsPSO> pso_cache;
 //		DescriptorHeap sampler_heaps[kFramesInFlight];
 	};
 
@@ -115,7 +115,8 @@ namespace gfx::render
 
 	enum struct RenderGraphCmdType : u8
 	{
-		kBindShaderResources,
+		kGraphicsBindShaderResources,
+		kComputeBindShaderResources,
 		kDrawInstanced,
 		kDrawIndexedInstanced,
 		kDispatch,
@@ -129,7 +130,8 @@ namespace gfx::render
 		kRSSetScissorRects,
 		kOMSetBlendFactor,
 		kOMSetStencilRef,
-		kSetPipelineState,
+		kSetGraphicsPSO,
+		kSetComputePSO,
 //		RESOURCE_BARRIER,
 //		EXECUTE_BUNDLE,
 //		SET_DESCRIPTOR_HEAPS,
@@ -153,6 +155,9 @@ namespace gfx::render
 		kOMSetRenderTargets,
 		kClearDepthStencilView,
 		kClearRenderTargetView,
+
+		kClearUnorderedAccessViewUint,
+		kClearUnorderedAccessViewFloat,
 //		CLEAR_UNORDERED_ACCESS_VIEW_UINT,
 //		CLEAR_UNORDERED_ACCESS_VIEW_FLOAT,
 //		DISCARD_RESOURCE,
@@ -164,6 +169,8 @@ namespace gfx::render
 //		BEGIN_EVENT,
 //		END_EVENT,
 //		EXECUTE_INDIRECT,
+
+		kDrawImGuiOnTop,
 	};
 
 	struct ShaderResource
@@ -278,10 +285,15 @@ namespace gfx::render
 	{
 		union
 		{
-			struct BindShaderResourcesArgs
+			struct GraphicsBindShaderResourcesArgs
 			{
 				Array<ShaderResource> resources;
-			} bind_shader_resources;
+			} graphics_bind_shader_resources;
+
+			struct ComputeBindShaderResourcesArgs
+			{
+				Array<ShaderResource> resources;
+			} compute_bind_shader_resources;
 
 			struct DrawInstancedArgs
 			{
@@ -332,10 +344,15 @@ namespace gfx::render
 				u32 stencil_ref = 0;
 			} om_set_stencil_ref;
 
-			struct SetPipelineState
+			struct SetGraphicsPSO
 			{
-				const PipelineState* pipeline;
-			} set_pipeline_state;
+				const GraphicsPSO* graphics_pso = nullptr;
+			} set_graphics_pso;
+
+			struct SetComputePSO
+			{
+				const ComputePSO* compute_pso = nullptr;
+			} set_compute_pso;
 
 			struct IASetIndexBufferArgs
 			{
@@ -362,6 +379,23 @@ namespace gfx::render
 				f32 depth = 0.0f;
 				u8 stencil = 0;
 			} clear_depth_stencil_view;
+
+			struct ClearUnorderedAccessViewUint
+			{
+				ShaderResource uav;
+				Array<u32, 4> values;
+			} clear_unordered_access_view_uint;
+
+			struct ClearUnorderedAccessViewFloat
+			{
+				ShaderResource uav;
+				Array<f32, 4> values;
+			} clear_unordered_access_view_float;
+
+			struct DrawImGuiOnTopArgs
+			{
+				const DescriptorLinearAllocator* descriptor_linear_allocator;
+			} draw_imgui_on_top_args;
 		};
 
 		RenderGraphCmdType type = RenderGraphCmdType::kDrawInstanced;
@@ -387,6 +421,7 @@ namespace gfx::render
 		u64 queue_execution_index = 0;
 
 		Array<RenderPassId> synchronization_index;
+		const wchar_t* name = L"Unnamed";
 	};
 
 	struct RenderGraph
@@ -449,18 +484,30 @@ namespace gfx::render
 	Handle<GpuImage>      import_image(RenderGraph* graph, const GpuImage* image);
 	Handle<GpuBuffer>     import_buffer(RenderGraph* graph, const GpuBuffer* buffer);
 	Handle<GpuShader>     import_shader(RenderGraph* graph, const GpuShader* shader);
-	Handle<PipelineState> import_pipeline(RenderGraph* graph, const PipelineState* pipeline);
+//	Handle<GraphicsPSO>   import_graphics_pso(RenderGraph* graph, const GraphicsPSO* pipeline);
 
-	void cmd_bind_shader_resources(RenderPass* render_pass, Span<ShaderResource> resources);
+	void cmd_graphics_bind_shader_resources(RenderPass* render_pass, Span<ShaderResource> resources);
 
 	template <typename T>
-	void cmd_bind_shader_resources(RenderPass* render_pass, const T& resources)
+	void cmd_graphics_bind_shader_resources(RenderPass* render_pass, const T& resources)
 	{
 		static_assert(sizeof(T) % sizeof(ShaderResource) == 0, "Invalid resource struct!");
 
 		const auto* shader_resources = reinterpret_cast<const ShaderResource*>(&resources);
 		u32 num_resources = sizeof(T) / sizeof(ShaderResource);
-		cmd_bind_shader_resources(render_pass, Span(shader_resources, num_resources));
+		cmd_graphics_bind_shader_resources(render_pass, Span(shader_resources, num_resources));
+	}
+
+	void cmd_compute_bind_shader_resources(RenderPass* render_pass, Span<ShaderResource> resources);
+
+	template <typename T>
+	void cmd_compute_bind_shader_resources(RenderPass* render_pass, const T& resources)
+	{
+		static_assert(sizeof(T) % sizeof(ShaderResource) == 0, "Invalid resource struct!");
+
+		const auto* shader_resources = reinterpret_cast<const ShaderResource*>(&resources);
+		u32 num_resources = sizeof(T) / sizeof(ShaderResource);
+		cmd_compute_bind_shader_resources(render_pass, Span(shader_resources, num_resources));
 	}
 
 	void cmd_draw_instanced(RenderPass* render_pass,
@@ -491,11 +538,13 @@ namespace gfx::render
 
 	void cmd_om_set_stencil_ref(RenderPass* render_pass, u32 stencil_ref);
 
-	void cmd_set_pipeline_state(RenderPass* render_pass, const PipelineState* pipeline);
+	void cmd_set_graphics_pso(RenderPass* render_pass, const GraphicsPSO* pipeline);
+
+	void cmd_set_compute_pso(RenderPass* render_pass, const ComputePSO* compute_pso);
 
 	void cmd_ia_set_index_buffer(RenderPass* render_pass,
 	                             const GpuBuffer* index_buffer,
-	                             DXGI_FORMAT format);
+	                             DXGI_FORMAT format = DXGI_FORMAT_R16_UINT);
 
 	void cmd_om_set_render_targets(RenderPass* render_pass, 
 	                               Span<Handle<GpuImage>> render_targets,
@@ -510,5 +559,23 @@ namespace gfx::render
 	                                  D3D12_CLEAR_FLAGS clear_flags,
 	                                  f32 depth,
 	                                  u8 stencil);
+	
+//	void cmd_clear_unordered_access_view_uint(RenderPass* render_pass,
+//	                                          Handle<GpuImage>* uav,
+//	                                          Span<u32> values);
+//
+//	void cmd_clear_unordered_access_view_uint(RenderPass* render_pass,
+//	                                          Handle<GpuBuffer>* uav,
+//	                                          const u32* values);
+	
+//	void cmd_clear_unordered_access_view_float(RenderPass* render_pass,
+//	                                           Handle<GpuImage>* uav,
+//	                                           Span<f32> values);
+//
+//	void cmd_clear_unordered_access_view_float(RenderPass* render_pass,
+//	                                           Handle<GpuBuffer>* uav,
+//	                                           const f32* values);
+
+	void cmd_draw_imgui_on_top(RenderPass* render_pass, const DescriptorLinearAllocator* descriptor_linear_allocator);
 }
 

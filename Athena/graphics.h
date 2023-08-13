@@ -47,6 +47,7 @@ namespace gfx
 		FenceValue value = 0;
 		FenceValue last_completed_value = 0;
 		HANDLE cpu_event = nullptr;
+		bool already_waiting = false;
 	};
 	
 	Fence init_fence(const GraphicsDevice* device);
@@ -171,7 +172,15 @@ namespace gfx
 		D3D12_RESOURCE_STATES initial_state = D3D12_RESOURCE_STATE_COMMON;
 	
 		D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE;
-		Option<D3D12_CLEAR_VALUE> clear_value = None;
+		union
+		{
+			Vec4 color_clear_value;
+			struct
+			{
+				f32 depth_clear_value;
+				s8 stencil_clear_value;
+			};
+		};
 	};
 	
 	struct GpuImage
@@ -190,6 +199,8 @@ namespace gfx
 															GpuLinearAllocator* allocator,
 															GpuImageDesc desc,
 															const wchar_t* name);
+
+	bool is_depth_format(DXGI_FORMAT format);
 	
 	struct GpuBufferDesc
 	{
@@ -239,13 +250,13 @@ namespace gfx
 																						const GraphicsDevice* device,
 																						u64 size);
 	void free_gpu_ring_buffer(GpuUploadRingBuffer* gpu_upload_ring_buffer);
-	FenceValue block_gpu_upload_buffer(CmdListAllocator* cmd_allocator,
-																		GpuUploadRingBuffer* ring_buffer,
-																		GpuBuffer* dst,
-																		u64 dst_offset,
-																		const void* src,
-																		u64 size,
-																		u64 alignment);
+	FenceValue yield_gpu_upload_buffer(CmdListAllocator* cmd_allocator,
+																		 GpuUploadRingBuffer* ring_buffer,
+																		 GpuBuffer* dst,
+																		 u64 dst_offset,
+																		 const void* src,
+																		 u64 size,
+																		 u64 alignment = 1);
 	
 	enum DescriptorType : u8
 	{
@@ -359,21 +370,42 @@ namespace gfx
 	struct GraphicsPipelineDesc
 	{
 		GpuShader vertex_shader;
-		Option<GpuShader> pixel_shader = None;
-		Option<D3D12_COMPARISON_FUNC> comparison_func = None;
+		GpuShader pixel_shader;
 		Array<DXGI_FORMAT, 8> rtv_formats;
-		Option<DXGI_FORMAT> dsv_format = None;
-		bool stencil_enable;
+		DXGI_FORMAT dsv_format = DXGI_FORMAT_UNKNOWN;
+		D3D12_COMPARISON_FUNC comparison_func = D3D12_COMPARISON_FUNC_GREATER;
+		bool stencil_enable = false;
+		u8 __padding__[3]{0};
+
+		auto operator<=>(const GraphicsPipelineDesc& rhs) const = default;
 	};
+	static_assert(offsetof(GraphicsPipelineDesc, vertex_shader)   == 0);
+	static_assert(offsetof(GraphicsPipelineDesc, pixel_shader)    == 8);
+	static_assert(sizeof(DXGI_FORMAT) == 4);
+	static_assert(offsetof(GraphicsPipelineDesc, rtv_formats)     == 16);
+	static_assert(sizeof(Array<DXGI_FORMAT, 8>) == 48);
+	static_assert(offsetof(GraphicsPipelineDesc, dsv_format)      == 64);
+	static_assert(offsetof(GraphicsPipelineDesc, comparison_func) == 68);
+	static_assert(offsetof(GraphicsPipelineDesc, stencil_enable)  == 72);
+	static_assert(sizeof(GraphicsPipelineDesc) == 80);
 	
-	struct PipelineState
+	struct GraphicsPSO
 	{
 		ID3D12PipelineState* d3d12_pso = nullptr;
 	};
-	PipelineState init_graphics_pipeline(const GraphicsDevice* device,
-																			 GraphicsPipelineDesc desc,
-																			 const wchar_t* name);
-	void destroy_pipeline_state(PipelineState* pipeline);
+	GraphicsPSO init_graphics_pipeline(const GraphicsDevice* device,
+																		 GraphicsPipelineDesc desc,
+																		 const wchar_t* name);
+	void destroy_graphics_pipeline(GraphicsPSO* pipeline);
+
+
+	struct ComputePSO
+	{
+		ID3D12PipelineState* d3d12_pso = nullptr;
+	};
+
+	ComputePSO init_compute_pipeline(const GraphicsDevice* device, GpuShader compute_shader, const wchar_t* name);
+	void destroy_compute_pipeline(ComputePSO* pipeline);
 	
 	struct SwapChain
 	{
@@ -425,19 +457,19 @@ namespace gfx
 	void cmd_set_render_targets(CmdList* cmd, Span<Descriptor> render_targets, Option<Descriptor> dsv);
 	void cmd_set_descriptor_heaps(CmdList* cmd, const DescriptorPool* heaps, u32 num_heaps);
 	void cmd_set_descriptor_heaps(CmdList* cmd, Span<const DescriptorLinearAllocator*> heaps);
-	void cmd_set_pipeline(CmdList* cmd, const PipelineState* pipeline);
+	void cmd_set_pipeline(CmdList* cmd, const GraphicsPSO* pipeline);
 	void cmd_set_index_buffer(CmdList* cmd, const GpuBuffer* buffer, u32 start_index, u32 num_indices);
 	void cmd_set_primitive_topology(CmdList* cmd);
 	void cmd_set_graphics_root_signature(CmdList* cmd);
 	void cmd_set_graphics_32bit_constants(CmdList* cmd, const void* data);
+	void cmd_set_compute_root_signature(CmdList* cmd);
 	void cmd_draw_indexed(CmdList* cmd, u32 num_indices);
 	void cmd_draw(CmdList* cmd, u32 num_vertices);
 	
-	void init_imgui_ctx(MEMORY_ARENA_PARAM,
-											const GraphicsDevice* device,
+	void init_imgui_ctx(const GraphicsDevice* device,
 											const SwapChain* swap_chain,
 											HWND window,
-											DescriptorPool* cbv_srv_uav_heap);
+											DescriptorLinearAllocator* cbv_srv_uav_heap);
 	void destroy_imgui_ctx();
 	void imgui_begin_frame();
 	void imgui_end_frame();

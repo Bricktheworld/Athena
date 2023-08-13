@@ -151,7 +151,7 @@ double_ended_pop(DoubleEndedStack* s, DoubleEndedStackLocation location, uintptr
 //};
 
 // We'll just allocate a gig of memory LOL
-static constexpr size_t HEAP_SIZE = GiB(1);
+static constexpr size_t HEAP_SIZE = GiB(2);
 
 static DoubleEndedStack g_game_stack = {0};
 
@@ -159,8 +159,9 @@ void
 init_application_memory()
 {
 	ASSERT(g_memory_start == NULL);
-	g_memory_start = VirtualAlloc((void*)0x10000000, HEAP_SIZE, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-	g_game_stack = init_double_ended(g_memory_start, GiB(1));
+	g_memory_start = VirtualAlloc(0, HEAP_SIZE, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+	ASSERT(g_memory_start != nullptr);
+	g_game_stack = init_double_ended(g_memory_start, GiB(2));
 }
 
 void
@@ -193,7 +194,7 @@ reset_memory_arena(MEMORY_ARENA_PARAM)
 	uintptr_t* pos = memory_arena_pos_ptr(MEMORY_ARENA_FWD);
 	ASSERT(*pos >= memory_arena->start);
 	*pos = memory_arena->start;
-	zero_memory(reinterpret_cast<void*>(memory_arena->start), memory_arena->size);
+//	zero_memory(reinterpret_cast<void*>(memory_arena->start), memory_arena->size);
 }
 
 uintptr_t*
@@ -216,7 +217,7 @@ push_memory_arena_aligned(MEMORY_ARENA_PARAM, size_t size, size_t alignment)
 	*pos = new_pos;
 
 	void* ret = reinterpret_cast<void*>(memory_start);
-	zero_memory(ret, size);
+//	zero_memory(ret, size);
 
 	return ret;
 }

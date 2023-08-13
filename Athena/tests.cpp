@@ -341,9 +341,43 @@ test_hash_table()
 	ASSERT(*unwrap(hash_table_find(&custom_table, custom_key)) == 100);
 }
 
+// Define a small tolerance value to account for floating-point precision errors
+const f32 kF32Tolerance = 1e-6;
+
+// Helper function to compare floating-point values with tolerance
+static bool
+is_close(f32 a, f32 b)
+{
+	return abs(a - b) < kF32Tolerance;
+}
+
+static void
+test_quaternions()
+{
+	Quat q1(1.0f, 0.0f, 0.0f, 0.0f);
+	Quat q2(0.0f, 1.0f, 0.0f, 0.0f);
+	Quat result = quat_mul(q1, q2);
+	Quat expected_result(0.0f, 1.0f, 0.0f, 0.0f);
+	ASSERT(result.w == expected_result.w);
+	ASSERT(result.x == expected_result.x);
+	ASSERT(result.y == expected_result.y);
+	ASSERT(result.z == expected_result.z);
+
+	// Test case 2
+	q1 = Quat(1.0f, 2.0f, 3.0f, 4.0f);
+	q2 = Quat(5.0f, 6.0f, 7.0f, 8.0f);
+	result = quat_mul(q1, q2);
+	expected_result = Quat(-60.0f, 12.0f, 30.0f, 24.0f);
+	ASSERT(result.w == expected_result.w);
+	ASSERT(result.x == expected_result.x);
+	ASSERT(result.y == expected_result.y);
+	ASSERT(result.z == expected_result.z);
+}
+
 void
 run_all_tests()
 {
+	test_quaternions();
 	test_vector_operators();
 	test_ring_buffer();
 	test_pool_allocator();

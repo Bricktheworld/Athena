@@ -106,6 +106,7 @@
 
 // -- Configuration
 
+#define UFBX_REAL_IS_FLOAT
 #if defined(UFBX_REAL_IS_FLOAT)
 	typedef float ufbx_real;
 #else
@@ -4464,8 +4465,8 @@ ufbx_abi void ufbx_retain_line_curve(ufbx_line_curve *curve);
 
 // Mesh Topology
 
-ufbx_abi uint32_t ufbx_catch_triangulate_face(ufbx_panic *panic, uint32_t *indices, size_t num_indices, const ufbx_mesh *mesh, ufbx_face face);
-ufbx_inline uint32_t ufbx_triangulate_face(uint32_t *indices, size_t num_indices, const ufbx_mesh *mesh, ufbx_face face) {
+ufbx_abi uint32_t ufbx_catch_triangulate_face(ufbx_panic *panic, uint16_t *indices, size_t num_indices, const ufbx_mesh *mesh, ufbx_face face);
+ufbx_inline uint32_t ufbx_triangulate_face(uint16_t *indices, size_t num_indices, const ufbx_mesh *mesh, ufbx_face face) {
 	return ufbx_catch_triangulate_face(NULL, indices, num_indices, mesh, face);
 }
 
@@ -4536,7 +4537,7 @@ ufbx_inline ufbx_dom_node *ufbx_dom_find(const ufbx_dom_node *parent, const char
 
 // Utility
 
-ufbx_abi size_t ufbx_generate_indices(const ufbx_vertex_stream *streams, size_t num_streams, uint32_t *indices, size_t num_indices, const ufbx_allocator_opts *allocator, ufbx_error *error);
+ufbx_abi size_t ufbx_generate_indices(const ufbx_vertex_stream *streams, size_t num_streams, uint16_t *indices, size_t num_indices, const ufbx_allocator_opts *allocator, ufbx_error *error);
 
 // -- Inline API
 
@@ -4628,7 +4629,7 @@ ufbx_abi void ufbx_ffi_evaluate_nurbs_curve(ufbx_curve_point *retval, const ufbx
 ufbx_abi void ufbx_ffi_evaluate_nurbs_surface(ufbx_surface_point *retval, const ufbx_nurbs_surface *surface, ufbx_real u, ufbx_real v);
 ufbx_abi void ufbx_ffi_get_weighted_face_normal(ufbx_vec3 *retval, const ufbx_vertex_vec3 *positions, const ufbx_face *face);
 ufbx_abi size_t ufbx_ffi_get_triangulate_face_num_indices(const ufbx_face *face);
-ufbx_abi uint32_t ufbx_ffi_triangulate_face(uint32_t *indices, size_t num_indices, const ufbx_mesh *mesh, const ufbx_face *face);
+ufbx_abi uint32_t ufbx_ffi_triangulate_face(uint16_t *indices, size_t num_indices, const ufbx_mesh *mesh, const ufbx_face *face);
 
 #ifdef __cplusplus
 }

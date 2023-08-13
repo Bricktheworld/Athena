@@ -2,6 +2,8 @@
 #include "context.h"
 #include <windows.h>
 #include "vendor/d3dx12.h"
+#include "vendor/imgui/imgui_impl_dx12.h"
+#include "pix3.h"
 
 namespace gfx::render
 {
@@ -29,7 +31,7 @@ namespace gfx::render
 	init_transient_resource_cache(MEMORY_ARENA_PARAM, const GraphicsDevice* device)
 	{
 		TransientResourceCache ret = {0};
-		ret.local_heap = init_gpu_linear_allocator(device, MiB(64), kGpuHeapTypeLocal);
+		ret.local_heap = init_gpu_linear_allocator(device, MiB(300), kGpuHeapTypeLocal);
 		for (u8 i = 0; i < kFramesInFlight; i++)
 		{
 			ret.upload_heaps[i] = init_gpu_linear_allocator(device, MiB(1), kGpuHeapTypeUpload);
@@ -85,7 +87,7 @@ namespace gfx::render
 	{
 		RenderPass* ret = array_add(&graph->render_passes);
 
-		ret->allocator = sub_alloc_memory_arena(MEMORY_ARENA_FWD, KiB(1));
+		ret->allocator = sub_alloc_memory_arena(MEMORY_ARENA_FWD, KiB(16));
 
 		ret->cmd_buffer = init_array<RenderGraphCmd>(MEMORY_ARENA_FWD, 1024);
 		ret->read_resources = init_array<ResourceHandle>(MEMORY_ARENA_FWD, 16);
@@ -99,6 +101,7 @@ namespace gfx::render
 		// to save on memory.
 		ret->passes_to_sync_with = init_array<RenderPassId>(MEMORY_ARENA_FWD, 64);
 		ret->synchronization_index = init_array<RenderPassId>(MEMORY_ARENA_FWD, 64);
+		ret->name = name;
 
 		return ret;
 	}
@@ -221,7 +224,10 @@ namespace gfx::render
 		ASSERT((state & D3D12_RESOURCE_STATE_GENERIC_READ) == state);
 		ASSERT(!array_find(&render_pass->write_resources, *it == resource));
 
-		*array_add(&render_pass->read_resources) = resource;
+		if (!array_find(&render_pass->read_resources, *it == resource))
+		{
+			*array_add(&render_pass->read_resources) = resource;
+		}
 
 		D3D12_RESOURCE_STATES* resource_state = unwrap_or(hash_table_find(&render_pass->resource_states, resource), nullptr);
 		if (!resource_state)
@@ -460,7 +466,7 @@ namespace gfx::render
 			case kResourceTypeBuffer:           return resource->buffer->d3d12_buffer;
 			// TODO(Brandon): Implement these resources
 			case kResourceTypeShader:           UNREACHABLE;
-			case kResourceTypePipelineState:    UNREACHABLE;	
+			case kResourceTypeGraphicsPSO:      UNREACHABLE;	
 			default: UNREACHABLE;
 		}
 	}
@@ -570,9 +576,10 @@ namespace gfx::render
 	{
 		switch(cmd.type)
 		{
-			case RenderGraphCmdType::kBindShaderResources:
+			case RenderGraphCmdType::kGraphicsBindShaderResources:
+			case RenderGraphCmdType::kComputeBindShaderResources:
 			{
-				const auto& args = cmd.bind_shader_resources;
+				const auto& args = cmd.graphics_bind_shader_resources;
 				USE_SCRATCH_ARENA();
 				auto root_consts = init_array<u32>(SCRATCH_ARENA_PASS, args.resources.size);
 
@@ -587,7 +594,15 @@ namespace gfx::render
 					*array_add(&root_consts) = descriptor->index;
 				}
 
-				list->d3d12_list->SetGraphicsRoot32BitConstants(0, u32(root_consts.size), root_consts.memory, 0);
+				if (cmd.type == RenderGraphCmdType::kGraphicsBindShaderResources)
+				{
+					list->d3d12_list->SetGraphicsRoot32BitConstants(0, u32(root_consts.size), root_consts.memory, 0);
+				}
+				else if (cmd.type == RenderGraphCmdType::kComputeBindShaderResources)
+				{
+					list->d3d12_list->SetComputeRoot32BitConstants(0, u32(root_consts.size), root_consts.memory, 0);
+				}
+				else { UNREACHABLE; }
 			} break;
 			case RenderGraphCmdType::kDrawInstanced:
 			{
@@ -604,7 +619,7 @@ namespace gfx::render
 				                                       args.instance_count,
 				                                       args.start_index_location,
 				                                       args.base_vertex_location,
-				                                       args.start_index_location);
+				                                       args.start_instance_location);
 			} break;
 			case RenderGraphCmdType::kDispatch:
 			{
@@ -643,10 +658,15 @@ namespace gfx::render
 				list->d3d12_list->OMSetStencilRef(args.stencil_ref);
 
 			} break;
-			case RenderGraphCmdType::kSetPipelineState:
+			case RenderGraphCmdType::kSetGraphicsPSO:
 			{
-				const auto& args = cmd.set_pipeline_state;
-				list->d3d12_list->SetPipelineState(args.pipeline->d3d12_pso);
+				const auto& args = cmd.set_graphics_pso;
+				list->d3d12_list->SetPipelineState(args.graphics_pso->d3d12_pso);
+			} break;
+			case RenderGraphCmdType::kSetComputePSO:
+			{
+				const auto& args = cmd.set_compute_pso;
+				list->d3d12_list->SetPipelineState(args.compute_pso->d3d12_pso);
 			} break;
 			case RenderGraphCmdType::kIASetIndexBuffer:
 			{
@@ -712,6 +732,49 @@ namespace gfx::render
 
 				list->d3d12_list->ClearRenderTargetView(rtv->cpu_handle, (f32*)&args.clear_color, 0, nullptr);
 			} break;
+			case RenderGraphCmdType::kClearUnorderedAccessViewUint:
+			{
+				const auto& args = cmd.clear_unordered_access_view_uint;
+
+				auto resource = static_cast<ResourceHandle>(args.uav);
+				PhysicalResource* physical = deref_resource(resource, compiled_map);
+				Descriptor* descriptor = get_descriptor(device,
+																								resource,
+																								args.uav.descriptor_type,
+																								compiled_map,
+																								args.uav.stride);
+				list->d3d12_list->ClearUnorderedAccessViewUint(unwrap(descriptor->gpu_handle),
+				                                               descriptor->cpu_handle,
+				                                               physical->image->d3d12_image,
+				                                               args.values.memory,
+				                                               0, nullptr);
+			} break;
+			case RenderGraphCmdType::kClearUnorderedAccessViewFloat:
+			{
+				const auto& args = cmd.clear_unordered_access_view_float;
+
+				auto resource = static_cast<ResourceHandle>(args.uav);
+				PhysicalResource* physical = deref_resource(resource, compiled_map);
+				Descriptor* descriptor = get_descriptor(device,
+																								resource,
+																								args.uav.descriptor_type,
+																								compiled_map,
+																								args.uav.stride);
+				list->d3d12_list->ClearUnorderedAccessViewFloat(unwrap(descriptor->gpu_handle),
+				                                                descriptor->cpu_handle,
+				                                                physical->image->d3d12_image,
+				                                                args.values.memory,
+				                                                0, nullptr);
+			} break;
+			case RenderGraphCmdType::kDrawImGuiOnTop:
+			{
+				const auto& args = cmd.draw_imgui_on_top_args;
+				cmd_set_descriptor_heaps(list, {args.descriptor_linear_allocator});
+				ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), list->d3d12_list);
+
+				cmd_set_descriptor_heaps(list, {compiled_map->cbv_srv_uav_descriptor_allocator,
+																				compiled_map->sampler_allocator});
+			} break;
 			default: UNREACHABLE;
 		}
 	}
@@ -726,9 +789,12 @@ namespace gfx::render
 		ID3D12Resource* d3d12_resource = get_d3d12_resource(physical);
 		D3D12_RESOURCE_STATES next_state = *unwrap(hash_table_find(&pass.resource_states, resource));
 
-		auto transition = CD3DX12_RESOURCE_BARRIER::Transition(d3d12_resource, physical->state, next_state);
-		physical->state = next_state;
-		cmd_list->d3d12_list->ResourceBarrier(1, &transition);
+		if (physical->state != next_state)
+		{
+			auto transition = CD3DX12_RESOURCE_BARRIER::Transition(d3d12_resource, physical->state, next_state);
+			physical->state = next_state;
+			cmd_list->d3d12_list->ResourceBarrier(1, &transition);
+		}
 
 		if (physical->needs_initialization)
 		{
@@ -907,12 +973,16 @@ namespace gfx::render
 			}
 		}
 
+		const u32 kPIXTransitionColor = PIX_COLOR(0, 0, 255);
+		const u32 kPIXRenderPassColor = PIX_COLOR(255, 0, 0);
+
 		for (DependencyLevel& dependency_level : dependency_levels)
 		{
 			{
 				CmdListAllocator* allocator = get_cmd_list_allocator(cache, kCmdQueueTypeGraphics);
 				CmdList cmd_list = alloc_cmd_list(allocator);
 
+				PIXBeginEvent(cmd_list.d3d12_list, kPIXTransitionColor, L"Transition Barrier");
 				for (RenderPassId pass_id : dependency_level.passes)
 				{
 					const RenderPass& pass = graph->render_passes[pass_id];
@@ -926,6 +996,7 @@ namespace gfx::render
 						execute_d3d12_transition(&cmd_list, resource, &compiled_map, pass);
 					}
 				}
+				PIXEndEvent(cmd_list.d3d12_list);
 
 				submit_cmd_lists(allocator, { cmd_list });
 			}
@@ -943,16 +1014,26 @@ namespace gfx::render
 					CmdListAllocator* allocator = get_cmd_list_allocator(cache, pass.queue);
 	
 					CmdList list = alloc_cmd_list(allocator);
+					PIXBeginEvent(list.d3d12_list, kPIXRenderPassColor, L"Render Pass %ls", pass.name);
 	
 					cmd_set_descriptor_heaps(&list, {compiled_map.cbv_srv_uav_descriptor_allocator,
 					                                 compiled_map.sampler_allocator});
-					cmd_set_primitive_topology(&list);
-					cmd_set_graphics_root_signature(&list);
+					if (pass.queue == kCmdQueueTypeGraphics)
+					{
+						cmd_set_primitive_topology(&list);
+						cmd_set_graphics_root_signature(&list);
+						cmd_set_compute_root_signature(&list);
+					}
+					else if (pass.queue == kCmdQueueTypeCompute)
+					{
+						cmd_set_compute_root_signature(&list);
+					}
 	
 					for (const RenderGraphCmd& cmd : pass.cmd_buffer)
 					{
 						execute_d3d12_cmd(device, &list, cmd, &compiled_map);
 					}
+					PIXEndEvent(list.d3d12_list);
 	
 					*array_add(&cmd_lists[pass.queue]) = list;
 				}
@@ -976,10 +1057,12 @@ namespace gfx::render
 			{
 				CmdListAllocator* allocator = get_cmd_list_allocator(cache, kCmdQueueTypeGraphics);
 				CmdList cmd_list = alloc_cmd_list(allocator);
+				PIXBeginEvent(cmd_list.d3d12_list, kPIXTransitionColor, L"Back Buffer Transition");
 				auto barrier = CD3DX12_RESOURCE_BARRIER::Transition(physical->image->d3d12_image,
 																														physical->state,
 																														next_state);
 				cmd_list.d3d12_list->ResourceBarrier(1, &barrier);
+				PIXEndEvent(cmd_list.d3d12_list);
 				submit_cmd_lists(allocator, { cmd_list });
 			}
 
@@ -1002,12 +1085,21 @@ namespace gfx::render
 		memcpy(array_add(&render_pass->cmd_buffer), &cmd, sizeof(cmd));
 	}
 
-	void
-	cmd_bind_shader_resources(RenderPass* render_pass, Span<ShaderResource> resources)
+	static void
+	common_bind_shader_resources(RenderPass* render_pass, Span<ShaderResource> resources, CmdQueueType type)
 	{
 		RenderGraphCmd cmd;
-		cmd.type = RenderGraphCmdType::kBindShaderResources;
-		cmd.bind_shader_resources.resources = init_array<ShaderResource>(&render_pass->allocator, resources);
+		if (type == kCmdQueueTypeGraphics)
+		{
+			cmd.type = RenderGraphCmdType::kGraphicsBindShaderResources;
+			cmd.graphics_bind_shader_resources.resources = init_array<ShaderResource>(&render_pass->allocator, resources);
+		}
+		else if (type == kCmdQueueTypeCompute)
+		{
+			cmd.type = RenderGraphCmdType::kComputeBindShaderResources;
+			cmd.compute_bind_shader_resources.resources = init_array<ShaderResource>(&render_pass->allocator, resources);
+		} else { UNREACHABLE; }
+
 		for (const ShaderResource& shader_resource : resources)
 		{
 			auto resource = static_cast<ResourceHandle>(shader_resource);
@@ -1021,6 +1113,18 @@ namespace gfx::render
 			}
 		}
 		push_cmd(render_pass, cmd);
+	}
+
+	void
+	cmd_graphics_bind_shader_resources(RenderPass* render_pass, Span<ShaderResource> resources)
+	{
+		common_bind_shader_resources(render_pass, resources, kCmdQueueTypeGraphics);
+	}
+
+	void
+	cmd_compute_bind_shader_resources(RenderPass* render_pass, Span<ShaderResource> resources)
+	{
+		common_bind_shader_resources(render_pass, resources, kCmdQueueTypeCompute);
 	}
 
 	void
@@ -1122,11 +1226,20 @@ namespace gfx::render
 	}
 
 	void
-	cmd_set_pipeline_state(RenderPass* render_pass, const PipelineState* pipeline)
+	cmd_set_graphics_pso(RenderPass* render_pass, const GraphicsPSO* graphics_pso)
 	{
 		RenderGraphCmd cmd;
-		cmd.type = RenderGraphCmdType::kSetPipelineState;
-		cmd.set_pipeline_state.pipeline = pipeline;
+		cmd.type = RenderGraphCmdType::kSetGraphicsPSO;
+		cmd.set_graphics_pso.graphics_pso = graphics_pso;
+		push_cmd(render_pass, cmd);
+	}
+
+	void
+	cmd_set_compute_pso(RenderPass* render_pass, const ComputePSO* compute_pso)
+	{
+		RenderGraphCmd cmd;
+		cmd.type = RenderGraphCmdType::kSetComputePSO;
+		cmd.set_compute_pso.compute_pso = compute_pso;
 		push_cmd(render_pass, cmd);
 	}
 
@@ -1196,4 +1309,48 @@ namespace gfx::render
 		push_cmd(render_pass, cmd);
 	}
 
+	void cmd_clear_unordered_access_view_uint(RenderPass* render_pass,
+	                                          Handle<GpuImage>* uav,
+	                                          Span<u32> values)
+	{
+		ASSERT(values.size == 4);
+		render_pass_write(render_pass, *uav, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+		RenderGraphCmd cmd;
+		cmd.type = RenderGraphCmdType::kClearUnorderedAccessViewUint;
+		cmd.clear_unordered_access_view_uint.uav.id = uav->id;
+		cmd.clear_unordered_access_view_uint.uav.type = kResourceTypeImage;
+		cmd.clear_unordered_access_view_uint.uav.lifetime = uav->lifetime;
+		cmd.clear_unordered_access_view_uint.uav.descriptor_type = kDescriptorTypeUav;
+		cmd.clear_unordered_access_view_uint.uav.stride = 0;
+		array_copy(&cmd.clear_unordered_access_view_uint.values, values);
+		push_cmd(render_pass, cmd);
+	}
+	
+	void cmd_clear_unordered_access_view_float(RenderPass* render_pass,
+	                                           Handle<GpuImage>* uav,
+	                                           Span<f32> values)
+	{
+		ASSERT(values.size == 4);
+		render_pass_write(render_pass, *uav, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+		RenderGraphCmd cmd;
+		cmd.type = RenderGraphCmdType::kClearUnorderedAccessViewFloat;
+		cmd.clear_unordered_access_view_float.uav.id = uav->id;
+		cmd.clear_unordered_access_view_float.uav.type = kResourceTypeImage;
+		cmd.clear_unordered_access_view_float.uav.lifetime = uav->lifetime;
+		cmd.clear_unordered_access_view_float.uav.descriptor_type = kDescriptorTypeUav;
+		cmd.clear_unordered_access_view_float.uav.stride = 0;
+		array_copy(&cmd.clear_unordered_access_view_float.values, values);
+		push_cmd(render_pass, cmd);
+	}
+
+	void
+	cmd_draw_imgui_on_top(RenderPass* render_pass, const DescriptorLinearAllocator* descriptor_linear_allocator)
+	{
+		RenderGraphCmd cmd;
+		cmd.type = RenderGraphCmdType::kDrawImGuiOnTop;
+		cmd.draw_imgui_on_top_args.descriptor_linear_allocator = descriptor_linear_allocator;
+		push_cmd(render_pass, cmd);
+	}
 }

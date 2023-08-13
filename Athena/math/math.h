@@ -3,7 +3,7 @@
 #include "../memory/memory.h"
 #include <cmath>
 
-static constexpr f32 PI = 3.14159265358979323846;
+static constexpr f32 kPI = 3.14159265358979323846;
 
 inline f32x4 pass_by_register 
 operator+(f32x4 a, f32x4 b)
@@ -648,10 +648,36 @@ inline Mat4 pass_by_register look_at_lh(Vec3 eye, Vec3 dir, Vec3 up)
 	                     Vec4(-dot_f32(x, eye), -dot_f32(y, eye), -dot_f32(z, eye), 1.0f));
 }
 
+inline Mat4 transform_inverse_no_scale(Mat4 in)
+{
+	Mat4 ret;
+	f32x4 t0 = _mm_movelh_ps(in.cols[0], in.cols[1]);
+	f32x4 t1 = _mm_movehl_ps(in.cols[1], in.cols[0]);
+#define MAKE_SHUFFLE_MASK(x,y,z,w)           (x | (y<<2) | (z<<4) | (w<<6))
+#define VEC_SHUFFLE(vec1, vec2, x,y,z,w)    _mm_shuffle_ps(vec1, vec2, MAKE_SHUFFLE_MASK(x,y,z,w))
+
+	ret.cols[0] = VEC_SHUFFLE(t0, in.cols[2], 0, 2, 0, 3);
+	ret.cols[1] = VEC_SHUFFLE(t0, in.cols[2], 1, 3, 1, 3);
+	ret.cols[2] = VEC_SHUFFLE(t0, in.cols[2], 0, 2, 2, 3);
+
+#define VEC_SWIZZLE_MASK(vec, mask)          _mm_castsi128_ps(_mm_shuffle_epi32(_mm_castps_si128(vec), mask))
+#define VEC_SWIZZLE(vec, x, y, z, w)        VEC_SWIZZLE_MASK(vec, MAKE_SHUFFLE_MASK(x,y,z,w))
+#define VEC_SWIZZLE_1(vec, x)                VEC_SWIZZLE_MASK(vec, MAKE_SHUFFLE_MASK(x,x,x,x))
+
+	ret.cols[3] = hadamard_f32(ret.cols[0], VEC_SWIZZLE_1(in.cols[3], 0));
+	ret.cols[3] += hadamard_f32(ret.cols[1], VEC_SWIZZLE_1(in.cols[3], 1));
+	ret.cols[3] += hadamard_f32(ret.cols[2], VEC_SWIZZLE_1(in.cols[3], 2));
+	ret.cols[3] = _mm_setr_ps(0.0f, 0.0f, 0.0f, 1.0f) - ret.cols[3];
+
+	return ret;
+}
+
 struct alignas(16) Quat
 {
 	Quat() : avx(_mm_set_ps(1.0f, 0.0f, 0.0f, 0.0f)) {}
+	Quat(f32 w, f32 x, f32 y, f32 z) : avx(_mm_set_ps(z, y, x, w)) {}
 	Quat(f32x4 q) : avx(q) {}
+
 	operator f32x4() const
 	{
 		return avx;
@@ -661,12 +687,85 @@ struct alignas(16) Quat
 	{
 		struct
 		{
+			f32 w;
 			f32 x;
 			f32 y;
 			f32 z;
-			f32 w;
 		};
 		f32x4 avx;
 	};
 };
 
+inline Quat
+quat_from_rotation_x(f32 x)
+{
+	f32 s = sinf(x * 0.5f);
+	f32 c = cosf(x * 0.5f);
+	return Quat(c, s, 0, 0);
+}
+
+inline Quat
+quat_from_rotation_y(f32 y)
+{
+	f32 s = sinf(y * 0.5f);
+	f32 c = cosf(y * 0.5f);
+	return Quat(c, 0, s, 0);
+}
+
+inline Quat
+quat_from_rotation_z(f32 z)
+{
+	f32 s = sinf(z * 0.5f);
+	f32 c = cosf(z * 0.5f);
+	return Quat(c, 0, 0, s);
+}
+
+inline Quat pass_by_register
+quat_mul(Quat lhs, Quat rhs)
+{
+	return Quat((lhs.w, rhs.w) - (lhs.x * rhs.x) - (lhs.y * rhs.y) - (lhs.z * rhs.z),
+	            (lhs.w * rhs.x) + (lhs.x * rhs.w) + (lhs.y * rhs.z) - (lhs.z * rhs.y),
+	            (lhs.w * rhs.y) - (lhs.x * rhs.z) + (lhs.y * rhs.w) + (lhs.z * rhs.x),
+	            (lhs.w * rhs.z) + (lhs.x * rhs.y) - (lhs.y * rhs.x) + (lhs.z * rhs.w));
+}
+
+inline Quat pass_by_register
+operator*(Quat lhs, Quat rhs)
+{
+	return quat_mul(lhs, rhs);
+}
+
+inline Quat& pass_by_register
+operator*=(Quat& lhs, Quat rhs)
+{
+	lhs = quat_mul(lhs, rhs);
+	return lhs;
+}
+
+inline Quat
+quat_from_euler_xyz(f32 x, f32 y, f32 z)
+{
+	return quat_from_rotation_x(x) * quat_from_rotation_y(y) * quat_from_rotation_z(z);
+}
+
+inline Quat
+quat_from_euler_yxz(f32 y, f32 x, f32 z)
+{
+	return quat_from_rotation_y(y) * quat_from_rotation_x(x) * quat_from_rotation_z(z);
+}
+
+inline Quat pass_by_register
+quat_conjugate(Quat quat)
+{
+	return Quat(quat.w, -quat.x, -quat.y, -quat.z);
+}
+
+inline Vec3 pass_by_register
+rotate_vec3_by_quat(Vec3 vec, Quat q)
+{
+	Quat p = Quat(0, vec.x, vec.y, vec.z);
+	Quat c = quat_conjugate(q);
+	Quat res = q * p * c;
+
+	return Vec3(res.x, res.y, res.z);
+}

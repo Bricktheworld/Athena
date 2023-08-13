@@ -22951,7 +22951,7 @@ typedef struct {
 	ufbx_vertex_vec3 positions;
 	ufbx_vec3 axes[3];
 	ufbxi_kd_node kd_nodes[1 << (UFBXI_KD_FAST_DEPTH + 1)];
-	uint32_t *kd_indices;
+	uint16_t *kd_indices;
 
 	// Temporary
 	ufbx_vec3 cur_axis_dir;
@@ -22998,14 +22998,14 @@ ufbxi_noinline static bool ufbxi_kd_check_slow(ufbxi_ngon_context *nc, const ufb
 		(ufbxi_ngon_context *nc, const ufbxi_kd_triangle *tri, uint32_t begin, uint32_t count, uint32_t axis))
 {
 	ufbx_vertex_vec3 pos = nc->positions;
-	uint32_t *kd_indices = nc->kd_indices;
+	uint16_t *kd_indices = nc->kd_indices;
 
 	while (count > 0) {
 		uint32_t num_left = count / 2;
 		uint32_t begin_right = begin + num_left + 1;
 		uint32_t num_right = count - (num_left + 1);
 
-		uint32_t index = kd_indices[begin + num_left];
+		uint16_t index = kd_indices[begin + num_left];
 		ufbx_vec3 point = pos.values.data[pos.indices.data[nc->face.index_begin + index]];
 		ufbx_real split = ufbxi_dot3(point, nc->axes[axis]);
 		bool hit_left = tri->min_t[axis] <= split;
@@ -23094,7 +23094,7 @@ ufbxi_noinline static bool ufbxi_kd_index_less(void *user, const void *va, const
 }
 
 // Recursion limited by 32-bit indices in input
-ufbxi_noinline static void ufbxi_kd_build(ufbxi_ngon_context *nc, uint32_t *indices, uint32_t *tmp, uint32_t num, uint32_t axis, uint32_t fast_index, uint32_t depth)
+ufbxi_noinline static void ufbxi_kd_build(ufbxi_ngon_context *nc, uint16_t *indices, uint16_t *tmp, uint32_t num, uint32_t axis, uint32_t fast_index, uint32_t depth)
 	ufbxi_recursive_function_void(ufbxi_kd_build, (nc, indices, tmp, num, axis, fast_index, depth), 32,
 		(ufbxi_ngon_context *nc, uint32_t *indices, uint32_t *tmp, uint32_t num, uint32_t axis, uint32_t fast_index, uint32_t depth))
 {
@@ -23149,7 +23149,7 @@ ufbxi_noinline static void ufbxi_kd_build(ufbxi_ngon_context *nc, uint32_t *indi
 
 #if UFBXI_FEATURE_TRIANGULATION
 
-ufbxi_noinline static uint32_t ufbxi_triangulate_ngon(ufbxi_ngon_context *nc, uint32_t *indices, uint32_t num_indices)
+ufbxi_noinline static uint32_t ufbxi_triangulate_ngon(ufbxi_ngon_context *nc, uint16_t *indices, uint32_t num_indices)
 {
 	ufbx_face face = nc->face;
 
@@ -23178,10 +23178,10 @@ ufbxi_noinline static uint32_t ufbxi_triangulate_ngon(ufbxi_ngon_context *nc, ui
 	nc->axes[1] = ufbxi_slow_normalized_cross3(&normal, &nc->axes[0]);
 	nc->axes[2] = normal;
 
-	uint32_t *kd_indices = indices;
+	uint16_t *kd_indices = indices;
 	nc->kd_indices = kd_indices;
 
-	uint32_t *kd_tmp = indices + face.num_indices;
+	uint16_t *kd_tmp = indices + face.num_indices;
 	ufbx_vertex_vec3 pos = nc->positions;
 
 	// Collect all the reflex corners for intersection testing.
@@ -23209,7 +23209,7 @@ ufbxi_noinline static uint32_t ufbxi_triangulate_ngon(ufbxi_ngon_context *nc, ui
 	ufbx_assert(kd_slow_indices + face.num_indices * 2 <= num_indices);
 	ufbxi_kd_build(nc, kd_indices, kd_tmp, num_kd_indices, 0, 0, 0);
 
-	uint32_t *edges = indices + num_indices - face.num_indices * 2;
+	uint16_t *edges = indices + num_indices - face.num_indices * 2;
 
 	// Initialize `edges` to be a connectivity structure where:
 	//  `edges[2*i + 0]` is the previous vertex of `i`
@@ -23331,7 +23331,7 @@ ufbxi_noinline static uint32_t ufbxi_triangulate_ngon(ufbxi_ngon_context *nc, ui
 	// them to a stack buffer and copy them over in the end.
 	uint32_t max_triangles = face.num_indices - 2;
 	uint32_t num_triangles = 0, num_last_triangles = 0;
-	uint32_t last_triangles[4*3];
+	uint16_t last_triangles[4*3];
 
 	uint32_t index_begin = face.index_begin;
 	for (uint32_t ix = 0; ix < face.num_indices; ix++) {
@@ -23339,7 +23339,7 @@ ufbxi_noinline static uint32_t ufbxi_triangulate_ngon(ufbxi_ngon_context *nc, ui
 		uint32_t next = edges[ix*2 + 1];
 		if (!(prev & 0x80000000)) continue;
 
-		uint32_t *dst = indices + num_triangles * 3;
+		uint16_t *dst = indices + num_triangles * 3;
 		if (num_triangles + 4 >= max_triangles) {
 			dst = last_triangles + num_last_triangles * 3;
 			num_last_triangles++;
@@ -23353,7 +23353,7 @@ ufbxi_noinline static uint32_t ufbxi_triangulate_ngon(ufbxi_ngon_context *nc, ui
 
 	// Copy over the last triangles
 	ufbx_assert(num_triangles == max_triangles);
-	memcpy(indices + (max_triangles - num_last_triangles) * 3, last_triangles, num_last_triangles * 3 * sizeof(uint32_t));
+	memcpy(indices + (max_triangles - num_last_triangles) * 3, last_triangles, num_last_triangles * 3 * sizeof(uint16_t));
 
 	return num_triangles;
 }
@@ -24799,7 +24799,7 @@ typedef struct {
 	size_t packed_offset;
 } ufbxi_vertex_stream;
 
-static ufbxi_noinline size_t ufbxi_generate_indices(const ufbx_vertex_stream *user_streams, size_t num_streams, uint32_t *indices, size_t num_indices, const ufbx_allocator_opts *allocator, ufbx_error *error)
+static ufbxi_noinline size_t ufbxi_generate_indices(const ufbx_vertex_stream *user_streams, size_t num_streams, uint16_t *indices, size_t num_indices, const ufbx_allocator_opts *allocator, ufbx_error *error)
 {
 	bool fail = false;
 
@@ -24876,7 +24876,7 @@ static ufbxi_noinline size_t ufbxi_generate_indices(const ufbx_vertex_stream *us
 				}
 				memcpy(entry, packed_vertex, packed_size);
 			}
-			uint32_t index = (uint32_t)(ufbxi_to_size((char*)entry - (char*)map.items) / packed_size);
+			uint16_t index = (uint16_t)(ufbxi_to_size((char*)entry - (char*)map.items) / packed_size);
 			indices[i] = index;
 		}
 	}
@@ -26805,7 +26805,7 @@ ufbx_abi void ufbx_retain_line_curve(ufbx_line_curve *line_curve)
 	ufbxi_retain_ref(&imp->refcount);
 }
 
-ufbx_abi ufbxi_noinline uint32_t ufbx_catch_triangulate_face(ufbx_panic *panic, uint32_t *indices, size_t num_indices, const ufbx_mesh *mesh, ufbx_face face)
+ufbx_abi ufbxi_noinline uint32_t ufbx_catch_triangulate_face(ufbx_panic *panic, uint16_t *indices, size_t num_indices, const ufbx_mesh *mesh, ufbx_face face)
 {
 #if UFBXI_FEATURE_TRIANGULATION
 	if (face.num_indices < 3) return 0;
@@ -26875,10 +26875,10 @@ ufbx_abi ufbxi_noinline uint32_t ufbx_catch_triangulate_face(ufbx_panic *panic, 
 
 		uint32_t num_indices_u32 = num_indices < UINT32_MAX ? (uint32_t)num_indices : UINT32_MAX;
 
-		uint32_t local_indices[12];
+		uint16_t local_indices[12];
 		if (num_indices_u32 < 12) {
 			uint32_t num_tris = ufbxi_triangulate_ngon(&nc, local_indices, 12);
-			memcpy(indices, local_indices, num_tris * 3 * sizeof(uint32_t));
+			memcpy(indices, local_indices, num_tris * 3 * sizeof(uint16_t));
 			return num_tris;
 		} else {
 			return ufbxi_triangulate_ngon(&nc, indices, num_indices_u32);
@@ -27412,7 +27412,7 @@ ufbx_abi ufbx_dom_node *ufbx_dom_find_len(const ufbx_dom_node *parent, const cha
 	return NULL;
 }
 
-ufbx_abi size_t ufbx_generate_indices(const ufbx_vertex_stream *streams, size_t num_streams, uint32_t *indices, size_t num_indices, const ufbx_allocator_opts *allocator, ufbx_error *error)
+ufbx_abi size_t ufbx_generate_indices(const ufbx_vertex_stream *streams, size_t num_streams, uint16_t *indices, size_t num_indices, const ufbx_allocator_opts *allocator, ufbx_error *error)
 {
 	ufbx_error local_error;
 	if (!error) {
@@ -27661,7 +27661,7 @@ ufbx_abi void ufbx_ffi_get_weighted_face_normal(ufbx_vec3 *retval, const ufbx_ve
 	*retval = ufbx_get_weighted_face_normal(positions, *face);
 }
 
-ufbx_abi uint32_t ufbx_ffi_triangulate_face(uint32_t *indices, size_t num_indices, const ufbx_mesh *mesh, const ufbx_face *face)
+ufbx_abi uint32_t ufbx_ffi_triangulate_face(uint16_t *indices, size_t num_indices, const ufbx_mesh *mesh, const ufbx_face *face)
 {
 	return ufbx_triangulate_face(indices, num_indices, mesh, *face);
 }

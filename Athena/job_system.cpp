@@ -1,5 +1,29 @@
 #include "job_system.h"
 #include "context.h"
+#include "profiling.h"
+
+static JobSystem* g_job_system = nullptr;
+
+thread_local u64 tls_worker_fiber_id = 0;
+thread_local u64 tls_job_fiber_id = 0;
+
+#if 0
+extern "C" void on_fiber_enter()
+{
+	if (tls_worker_fiber_id == 0)
+		return;
+
+	profiler::end_switch_to_fiber(tls_worker_fiber_id);
+}
+
+extern "C" void on_fiber_exit()
+{
+	if (tls_worker_fiber_id == 0 || tls_job_fiber_id == 0)
+		return;
+
+	profiler::begin_switch_to_fiber(tls_worker_fiber_id, tls_job_fiber_id);
+}
+#endif
 
 Fiber
 init_fiber(void* stack, size_t stack_size, void* proc, void* param)
@@ -145,6 +169,7 @@ wait_for_async_job(JobSystem* job_system, JobDesc* job_out)
 JobSystem*
 init_job_system(MEMORY_ARENA_PARAM, size_t job_queue_size)
 {
+	ASSERT(g_job_system == nullptr);
 	JobSystem* ret = push_memory_arena<JobSystem>(MEMORY_ARENA_FWD);
 	zero_memory(ret, sizeof(JobSystem));
 
@@ -155,12 +180,13 @@ init_job_system(MEMORY_ARENA_PARAM, size_t job_queue_size)
 	ret->job_stack_allocator = init_pool<JobStack>(MEMORY_ARENA_FWD, job_queue_size / 2);
 
 	ret->working_job_allocator = init_pool<WorkingJob>(MEMORY_ARENA_FWD, job_queue_size / 2);
-	ret->job_counters = init_hash_table<JobCounterID, JobCounter>(MEMORY_ARENA_FWD, 128);
+	ret->job_counters = init_hash_table<JobHandle, JobCounter>(MEMORY_ARENA_FWD, 128);
+
+	g_job_system = ret;
 
 	return ret;
 }
 
-thread_local JobSystem* tls_job_system = nullptr;
 thread_local Fiber* tls_fiber = nullptr;
 
 enum YieldParamType : u8
@@ -173,23 +199,24 @@ struct YieldParam
 	YieldParamType type = YIELD_PARAM_JOB_COUNTER;
 	union
 	{
-		JobCounterID job_counter;
+		JobHandle job_counter;
 	};
 };
 
 thread_local YieldParam tls_yield_param;
 
 void
-yield_to_counter(JobCounterID counter)
+yield_to_counter(JobHandle counter)
 {
 	ASSERT(tls_fiber != nullptr);
 	tls_yield_param.job_counter = counter;
 	tls_yield_param.type = YIELD_PARAM_JOB_COUNTER;
+
 	save_to_fiber(tls_fiber, tls_fiber->stack_high);
 }
 
 static void
-signal_job_counter(JobSystem* job_system, JobCounterID signal)
+signal_job_counter(JobSystem* job_system, JobHandle signal)
 {
 	Option<WorkingJobQueue> woken_jobs = ACQUIRE(&job_system->job_counters, auto* counters) -> Option<WorkingJobQueue>
 	{
@@ -221,7 +248,7 @@ signal_job_counter(JobSystem* job_system, JobCounterID signal)
 
 static void
 working_job_wait_for_counter(JobSystem* job_system,
-                             JobCounterID signal,
+                             JobHandle signal,
                              WorkingJob* working_job)
 {
 	bool res = ACQUIRE(&job_system->job_counters, auto* job_counters)
@@ -245,7 +272,7 @@ working_job_wait_for_counter(JobSystem* job_system,
 }
 
 static void
-finish_job(JobSystem* job_system, JobStack* job_stack, JobCounterID completion_signal)
+finish_job(JobSystem* job_system, JobStack* job_stack, JobHandle completion_signal)
 {
 	ACQUIRE(&job_system->job_stack_allocator, auto* allocator) {
 		pool_free(allocator, job_stack);
@@ -290,13 +317,29 @@ launch_job(JobSystem* job_system, JobDesc job, bool can_yield = true)
 	auto* stack_high_before = fiber.stack_high;
 	ASSERT(fiber.rip != nullptr);
 	push_context(ctx);
+
+	tls_job_fiber_id = job.completion_signal;
+
+#if 0
+	profiler::register_fiber(tls_job_fiber_id);
+	profiler::begin_switch_to_fiber(tls_worker_fiber_id, tls_job_fiber_id);
+#endif
+
 	launch_fiber(&fiber);
+
+#if 0
+	profiler::end_switch_to_fiber(tls_job_fiber_id);
+#endif
+
 	ctx = pop_context();
 	ASSERT(fiber.stack_high == stack_high_before);
 
 	// The job actually finished, means we can recycle everything.
 	if (!fiber.yielded)
 	{
+#if 0
+		profiler::unregister_fiber(job.completion_signal);
+#endif
 		finish_job(job_system, stack, job.completion_signal);
 		return;
 	}
@@ -321,7 +364,18 @@ resume_working_job(JobSystem* job_system, WorkingJob* working_job)
 {
 	push_context(working_job->ctx);
 	tls_fiber = &working_job->fiber;
+
+	tls_job_fiber_id = working_job->job.completion_signal;
+#if 0
+	profiler::begin_switch_to_fiber(tls_worker_fiber_id, tls_job_fiber_id);
+#endif
+
 	resume_fiber(&working_job->fiber, working_job->fiber.stack_high);
+
+#if 0
+	profiler::end_switch_to_fiber(tls_job_fiber_id);
+#endif
+
 	working_job->ctx = pop_context();
 
 	// The job actually finished, means we can recycle everything.
@@ -347,21 +401,25 @@ struct JobWorkerThreadParams
 static u32
 job_worker(void* param)
 {
-	JobSystem* job_system = tls_job_system = reinterpret_cast<JobSystem*>(param);
-	while (!job_system->should_exit)
+	tls_worker_fiber_id = (u64)param;
+#if 0
+	profiler::register_fiber(tls_worker_fiber_id);
+#endif
+
+	while (!g_job_system->should_exit)
 	{
 		JobDesc job = {0};
 		WorkingJob* working_job = nullptr;
-		JobType type = wait_for_next_job(job_system, &job, &working_job);
+		JobType type = wait_for_next_job(g_job_system, &job, &working_job);
 		switch(type)
 		{
 			case JOB_TYPE_LAUNCH:
 			{
-				launch_job(job_system, job);
+				launch_job(g_job_system, job);
 			} break;
 			case JOB_TYPE_WORKING:
 			{
-				resume_working_job(job_system, working_job);
+				resume_working_job(g_job_system, working_job);
 			} break;
 			case JOB_TYPE_INVALID:
 			{
@@ -377,18 +435,21 @@ job_worker(void* param)
 static u32
 async_worker(void* param)
 {
-	JobSystem* job_system = tls_job_system = reinterpret_cast<JobSystem*>(param);
-	while(!job_system->should_exit)
+	tls_worker_fiber_id = (u64)param;
+#if 0
+	profiler::register_fiber(tls_worker_fiber_id);
+#endif
+	while(!g_job_system->should_exit)
 	{
 		JobDesc job = {0};
-		JobType type = wait_for_async_job(job_system, &job);
+		JobType type = wait_for_async_job(g_job_system, &job);
 		if (type == JOB_TYPE_INVALID)
 			return 0;
 
 		// The async worker shouldn't really have any yields.
 		ASSERT(type == JOB_TYPE_LAUNCH);
 
-		launch_job(job_system, job, false);
+		launch_job(g_job_system, job, false);
 	}
 
 	return 0;
@@ -408,26 +469,46 @@ spawn_job_system_workers(MEMORY_ARENA_PARAM, JobSystem* job_system)
 
 	Array ret = init_array<Thread>(MEMORY_ARENA_FWD, worker_threads);
 
+	u64 fiber_id = -1;
+
 	for (u32 i = 0; i < worker_threads; i++)
 	{
 		MemoryArena thread_scratch_arena = sub_alloc_memory_arena(MEMORY_ARENA_FWD, DEFAULT_SCRATCH_SIZE);
-		Thread thread = create_thread(thread_scratch_arena, KiB(16), &job_worker, job_system, i);
+		Thread thread = create_thread(thread_scratch_arena, KiB(16), &job_worker, (void*)fiber_id, i);
 		swprintf_s(name, 128, L"JobSystem Worker %d", i);
 		set_thread_name(&thread, name);
 
 		*array_add(&ret) = thread;
+		fiber_id--;
 	}
 
 	u8 async_core_index = worker_threads;
 	for (u32 i = 0; i < async_threads; i++)
 	{
 		MemoryArena thread_scratch_arena = sub_alloc_memory_arena(MEMORY_ARENA_FWD, KiB(4));
-		Thread thread = create_thread(thread_scratch_arena, KiB(16), &async_worker, job_system, async_core_index);
+		Thread thread = create_thread(thread_scratch_arena, KiB(16), &async_worker, (void*)fiber_id, async_core_index);
 		swprintf_s(name, 128, L"JobSystem Async Worker %d", i);
 		set_thread_name(&thread, name);
+		fiber_id--;
 	}
 
 	return ret;
+}
+
+bool
+job_has_completed(JobHandle handle, JobSystem* job_system)
+{
+	if (job_system == nullptr)
+	{
+		job_system = g_job_system;
+	}
+
+	ASSERT(job_system != nullptr);
+
+	return ACQUIRE(&job_system->job_counters, auto* counters) -> bool
+	{
+		return !hash_table_find(counters, handle);
+	};
 }
 
 static JobQueue*
@@ -445,30 +526,24 @@ get_queue(JobSystem* job_system, JobPriority priority)
 	return ret;
 }
 
-static JobCounterID
+static JobHandle
 get_next_job_counter_id(JobSystem* job_system)
 {
 	return InterlockedIncrement(&job_system->current_job_counter_id);
 }
 
-JobCounterID
+JobHandle
 _kick_jobs(JobPriority priority,
           JobDesc* jobs,
           size_t count,
           JobDebugInfo debug_info,
-          JobSystem* job_system,
           Option<ThreadSignal*> thread_signal)
 {
-	if (job_system == nullptr)
-	{
-		job_system = tls_job_system;
-	}
+	ASSERT(g_job_system != nullptr);
 
-	ASSERT(job_system != nullptr);
-
-	JobCounterID ret = ACQUIRE(&job_system->job_counters, auto* job_counters)
+	JobHandle ret = ACQUIRE(&g_job_system->job_counters, auto* job_counters)
 	{
-		JobCounterID counter_id = get_next_job_counter_id(job_system);
+		JobHandle counter_id = get_next_job_counter_id(g_job_system);
 		JobCounter* counter = hash_table_insert(job_counters, counter_id);
 		counter->id = counter_id;
 		counter->value = count;
@@ -484,7 +559,7 @@ _kick_jobs(JobPriority priority,
 		jobs[i].debug_info = debug_info;
 	}
 
-	JobQueue* queue = get_queue(job_system, priority);
+	JobQueue* queue = get_queue(g_job_system, priority);
 
 	enqueue_jobs(queue, jobs, count);
 
@@ -494,8 +569,8 @@ _kick_jobs(JobPriority priority,
 JobSystem*
 get_job_system()
 {
-	ASSERT(tls_job_system != nullptr);
-	return tls_job_system;
+	ASSERT(g_job_system != nullptr);
+	return g_job_system;
 }
 
 void

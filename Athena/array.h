@@ -13,6 +13,9 @@ struct Span
 	Span(const T* memory, size_t size) : memory(memory), size(size) {}
 	Span(InitializerList<T> initializer_list) : memory(initializer_list.begin()), size(initializer_list.size()) {}
 
+	template <size_t input_size>
+	Span(const T(&arr)[input_size]) : memory(arr), size(input_size) {}
+
 	const T& operator[](size_t index) const
 	{
 		ASSERT(memory != nullptr && index < size);
@@ -30,6 +33,24 @@ struct Array
 	const size_t capacity = static_size;
 
 	Array() = default;
+
+	template <size_t input_size>
+	Array(const T(&arr)[input_size])
+	{
+		static_assert(input_size <= static_size);
+		size = input_size;
+		memcpy(memory, arr, sizeof(T) * input_size);
+	}
+
+	template <size_t input_size>
+	Array& operator=(const T(&arr)[input_size])
+	{
+		static_assert(input_size <= static_size);
+		size = input_size;
+		memcpy(memory, arr, sizeof(T) * input_size);
+		return *this;
+	}
+
 	Array(const Span<T>& span)
 	{ 
 		ASSERT(span.size <= capacity);
@@ -103,11 +124,12 @@ init_array(MEMORY_ARENA_PARAM, size_t capacity)
 	return ret;
 }
 
+
 template <typename T, size_t S>
 inline T*
 array_add(Array<T, S>* arr)
 {
-	ASSERT(arr->memory != nullptr && arr->size < arr->capacity);
+	ASSERT(arr->memory != nullptr && arr->size < MAX(arr->capacity, S));
 
 	T* ret =  &arr->memory[arr->size++];
 	zero_memory(ret, sizeof(T));
@@ -118,7 +140,7 @@ template <typename T, size_t S>
 inline T*
 array_insert(Array<T, S>* arr, size_t index)
 {
-	ASSERT(arr->memory != nullptr && arr->size < arr->capacity && index < arr->size);
+	ASSERT(arr->memory != nullptr && arr->size < MAX(arr->capacity, S) && index < arr->size);
 
 	memmove(arr->memory + index + 1, arr->memory + index, (arr->size - index) * sizeof(T));
 
@@ -143,7 +165,7 @@ template <typename T, size_t S>
 inline void
 array_remove(Array<T, S>* arr, size_t index)
 {
-	ASSERT(arr->memory != nullptr && arr->size < arr->capacity && index < arr->size);
+	ASSERT(arr->memory != nullptr && arr->size < MAX(arr->capacity, S) && index < arr->size);
 
 	arr->size--;
 	arr->memory[index] = arr->memory[arr->size];
@@ -191,7 +213,7 @@ array_copy(Array<T, S>* dst, const Array<T>& src)
 {
 	ASSERT(src.memory != nullptr && dst->memory != nullptr);
 	ASSERT(dst->size == 0);
-	ASSERT(dst->capacity >= src.size);
+	ASSERT(MAX(dst->capacity, S) >= src.size);
 
 	memcpy(dst->memory, src.memory, sizeof(T) * src.size);
 	dst->size = src.size;
@@ -203,7 +225,7 @@ array_copy(Array<T, S>* dst, const Span<T>& src)
 {
 	ASSERT(src.memory != nullptr && dst->memory != nullptr);
 	ASSERT(dst->size == 0);
-	ASSERT(dst->capacity >= src.size);
+	ASSERT(MAX(dst->capacity, S) >= src.size);
 
 	memcpy(dst->memory, src.memory, sizeof(T) * src.size);
 	dst->size = src.size;
@@ -227,7 +249,7 @@ inline void
 zero_array(Array<T, S>* arr, size_t size)
 {
 	ASSERT(arr->memory != nullptr);
-	ASSERT(size <= arr->capacity);
+	ASSERT(size <= MAX(arr->capacity, S));
 
 	arr->size = size;
 
@@ -243,7 +265,7 @@ clear_array(Array<T, S>* arr)
 {
 	ASSERT(arr->memory != nullptr);
 
-	zero_memory(arr->memory, sizeof(T) * arr->size);
+//	zero_memory(arr->memory, sizeof(T) * arr->size);
 	arr->size = 0;
 }
 
@@ -252,7 +274,7 @@ inline void
 zero_array(Array<T, S>* arr)
 {
 	ASSERT(arr->memory != nullptr);
-	zero_array(arr, arr->capacity);
+	zero_array(arr, MAX(arr->capacity, S));
 }
 
 template <typename T, size_t S>
@@ -260,7 +282,7 @@ inline void
 resize_array(Array<T, S>* arr, size_t size, const T& value)
 {
 	ASSERT(arr->memory != nullptr);
-	ASSERT(size <= arr->capacity);
+	ASSERT(size <= MAX(arr->capacity, S));
 	arr->size = size;
 
 	for (size_t i = 0; i < size; i++)
@@ -274,7 +296,7 @@ inline void
 resize_array(Array<T, S>* arr, const T& value)
 {
 	ASSERT(arr->memory != nullptr);
-	resize_array(arr, arr->capacity, value);
+	resize_array(arr, MAX(arr->capacity, S), value);
 }
 
 template <typename T, size_t S>

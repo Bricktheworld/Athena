@@ -12,9 +12,7 @@ ConstantBuffer<interlop::FullscreenRenderResources> render_resources : register(
 [RootSignature(BINDLESS_ROOT_SIGNATURE)]
 float4 main(PSInput IN) : SV_TARGET
 {
-	Texture2D<float4> input = ResourceDescriptorHeap[render_resources.input];
-	SamplerState sampler = ResourceDescriptorHeap[render_resources.input_sampler];
-	return input.Sample(sampler, IN.uv);
-
-//	return input.Sample(g_ClampSampler, IN.uv);
+	Texture2D<float4> input = ResourceDescriptorHeap[render_resources.texture];
+	return input.Sample(g_ClampSampler, IN.uv);
+//	return 0.1f / input.Sample(g_ClampSampler, IN.uv) * 0.0005f;
 }

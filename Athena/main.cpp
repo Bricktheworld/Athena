@@ -4,11 +4,15 @@
 #include "job_system.h"
 #include "threading.h"
 #include "context.h"
+#include "renderer.h"
 #include "vendor/imgui/imgui.h"
 #include "vendor/imgui/imgui_impl_win32.h"
 #include "vendor/imgui/imgui_impl_dx12.h"
 #include "render_graph.h"
 #include "shaders/interlop.hlsli"
+#include <Keyboard.h>
+#include <Mouse.h>
+#include "profiling.h"
 
 extern "C" { __declspec(dllexport) extern const UINT D3D12SDKVersion = 610;}
 extern "C" { __declspec(dllexport) extern const char* D3D12SDKPath = ".\\D3D12\\"; }
@@ -38,7 +42,40 @@ window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM lparam)
 		} break;
 		case WM_ACTIVATEAPP:
 		{
+			DirectX::Keyboard::ProcessMessage(msg, wparam, lparam);
+			DirectX::Mouse::ProcessMessage(msg, wparam, lparam);
 		} break;
+		case WM_ACTIVATE:
+		case WM_INPUT:
+		case WM_MOUSEMOVE:
+		case WM_LBUTTONDOWN:
+		case WM_LBUTTONUP:
+		case WM_RBUTTONDOWN:
+		case WM_RBUTTONUP:
+		case WM_MBUTTONDOWN:
+		case WM_MBUTTONUP:
+		case WM_MOUSEWHEEL:
+		case WM_XBUTTONDOWN:
+		case WM_XBUTTONUP:
+		case WM_MOUSEHOVER:
+		{
+			DirectX::Mouse::ProcessMessage(msg, wparam, lparam);
+		} break;
+		case WM_KEYDOWN:
+		case WM_KEYUP:
+		case WM_SYSKEYUP:
+		{
+			DirectX::Keyboard::ProcessMessage(msg, wparam, lparam);
+		} break;
+		case WM_SYSKEYDOWN:
+		{
+			DirectX::Keyboard::ProcessMessage(msg, wparam, lparam);
+		} break;
+		case WM_MOUSEACTIVATE:
+		{
+			// When you click activate the window, we want Mouse to ignore it.
+			return MA_ACTIVATEANDEAT;
+		}
 		default:
 		{
 			res = DefWindowProcW(window, msg, wparam, lparam);
@@ -56,92 +93,44 @@ static constexpr u64 INCREMENT_AMOUNT = 10000;
 using namespace gfx;
 
 static void
-uploader_job(const GraphicsDevice* device, GpuBuffer* dst, const void* src, u64 size)
+draw_debug(RenderOptions* out_render_options)
 {
-	USE_SCRATCH_ARENA();
-	GpuUploadRingBuffer upload_buffer = alloc_gpu_ring_buffer(SCRATCH_ARENA_PASS,
-	                                                          device,
-	                                                          KiB(64));
-	defer { free_gpu_ring_buffer(&upload_buffer); };
-	CmdListAllocator cmd_allocator = init_cmd_list_allocator(SCRATCH_ARENA_PASS,
-	                                                         device,
-	                                                         &device->copy_queue,
-	                                                         4);
-	defer { destroy_cmd_list_allocator(&cmd_allocator); };
+	// Start the Dear ImGui frame
+	ImGui_ImplDX12_NewFrame();
+	ImGui_ImplWin32_NewFrame();
+	ImGui::NewFrame();
+
+	bool show = true;
+	ImGui::ShowDemoWindow(&show);
+
+	ImGui::Begin("Rendering");
+
+	if (ImGui::BeginCombo("View", kDebugViewNames[out_render_options->debug_view]))
+	{
+		for (u32 i = 0; i < kDebugViewsCount; i++)
+		{
+			bool is_selected = out_render_options->debug_view == i;
+			if (ImGui::Selectable(kDebugViewNames[i], is_selected))
+			{
+				out_render_options->debug_view = (RendererDebugView)i;
+			}
 	
-	FenceValue fence_value = block_gpu_upload_buffer(&cmd_allocator,
-	                                                 &upload_buffer,
-	                                                 dst,
-	                                                 0, src,
-	                                                 size, 4);
-	dbgln("Waiting for upload to complete...");
-	block_for_fence_value(&upload_buffer.fence, fence_value);
-	dbgln("Successfully uploaded to buffer!");
-}
+			if (is_selected)
+			{
+				ImGui::SetItemDefaultFocus();
+			}
+		}
+	
+		ImGui::EndCombo();
+	}
 
-static void
-frame_entry(MEMORY_ARENA_PARAM,
-            const GraphicsDevice* device,
-            SwapChain* swap_chain,
-            render::TransientResourceCache* resource_cache,
-            const PipelineState* cube_pipeline,
-            const PipelineState* fullscreen_pipeline,
-            const GpuBuffer* vertex_buffer,
-            const GpuBuffer* index_buffer)
-{
-		const GpuImage* back_buffer = swap_chain_acquire(swap_chain);
-		u32 display_width = back_buffer->desc.width;
-		u32 display_height = back_buffer->desc.height;
-		render::RenderGraph graph = render::init_render_graph(MEMORY_ARENA_FWD);
+	ImGui::DragFloat("Aperture", &out_render_options->aperture, 0.0f, 50.0f);
+	ImGui::DragFloat("Focusing Distance", &out_render_options->focusing_dist, 0.0f, 50.0f);
+	ImGui::DragFloat("Focal Length", &out_render_options->focal_length, 0.0f, 50.0f);
 
+	ImGui::End();
 
-		render::RenderPass* cube_pass = render::add_render_pass(MEMORY_ARENA_FWD, &graph, kCmdQueueTypeGraphics, L"Cube Pass");
-
-		Mat4 proj = perspective_infinite_reverse_lh(PI / 4.0f, f32(display_width) / f32(display_height), 0.1f);
-		Mat4 view = look_at_lh(Vec3(0.0, 0.0, -10.0), Vec3(0.0, 0.0, 1.0), Vec3(0.0, 1.0, 0.0));
-		Mat4 view_proj = proj * view;
-		Mat4 model;
-		auto scene_buffer = render::create_buffer<interlop::SceneBuffer>(&graph, L"Scene Buffer", 
-			                                                               {.proj = proj,
-																																			.view = view,
-																																			.view_proj = view_proj});
-
-		auto transform_buffer = render::create_buffer<interlop::TransformBuffer>(&graph, L"Transform Buffer", { .model = model });
-		auto position_buffer = render::import_buffer(&graph, vertex_buffer);
-
-		render::Handle<GpuImage> color_buffer = render::create_image(&graph, L"Color Buffer",
-		                                                             {.width = display_width,
-																																  .height = display_height,
-																																  .format = DXGI_FORMAT_R8G8B8A8_UNORM });
-		render::Handle<GpuImage> depth_buffer = render::create_image(&graph, L"Depth Buffer", 
-		                                                             {.width = display_width,
-		                                                              .height = display_height,
-																																  .format = DXGI_FORMAT_D16_UNORM});
-
-		render::cmd_clear_render_target_view(cube_pass, &color_buffer, {0.0f, 0.0f, 0.0f, 1.0f});
-		render::cmd_clear_depth_stencil_view(cube_pass, &depth_buffer, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 0.0f, 0);
-		render::cmd_om_set_render_targets(cube_pass, {color_buffer}, depth_buffer);
-		render::cmd_set_pipeline_state(cube_pass, cube_pipeline);
-		
-		render::cmd_bind_shader_resources<interlop::CubeRenderResources>(cube_pass, {position_buffer, scene_buffer, transform_buffer});
-		render::cmd_ia_set_index_buffer(cube_pass, index_buffer, DXGI_FORMAT_R16_UINT);
-		render::cmd_draw_indexed_instanced(cube_pass, ARRAY_LENGTH(INDICES), 1, 0, 0, 0);
-
-		render::Handle<GpuImage> graph_back_buffer = render::import_back_buffer(&graph, back_buffer);
-
-		render::RenderPass* fullscreen_pass = render::add_render_pass(MEMORY_ARENA_FWD, &graph, kCmdQueueTypeGraphics, L"Fullscreen Pass");
-		render::cmd_clear_render_target_view(fullscreen_pass, &graph_back_buffer, {0.0f, 0.0f, 0.0f, 1.0f});
-
-		render::cmd_om_set_render_targets(fullscreen_pass, {graph_back_buffer}, None);
-		render::cmd_set_pipeline_state(fullscreen_pass, fullscreen_pipeline);
-
-		render::Handle<render::Sampler> sampler = render::create_sampler(&graph, L"Fullscreen sampler");
-		render::cmd_bind_shader_resources<interlop::FullscreenRenderResources>(fullscreen_pass, {color_buffer, sampler});
-		render::cmd_draw_instanced(fullscreen_pass, 3, 1, 0, 0);
-
-		render::execute_render_graph(MEMORY_ARENA_FWD, device, &graph, resource_cache, swap_chain->back_buffer_index);
-
-		swap_chain_submit(swap_chain, device, back_buffer);
+	ImGui::Render();
 }
 
 static void
@@ -181,79 +170,33 @@ application_entry(MEMORY_ARENA_PARAM, HINSTANCE instance, int show_code, JobSyst
 	defer { destroy_graphics_device(&graphics_device); };
 	SwapChain swap_chain = init_swap_chain(MEMORY_ARENA_FWD, window, &graphics_device);
 	defer { destroy_swap_chain(&swap_chain); };
+	init_global_upload_context(MEMORY_ARENA_FWD, &graphics_device);
+	defer { destroy_global_upload_context(); };
 
-	GpuShader fullscreen_vs = load_shader_from_file(&graphics_device, L"vertex/fullscreen_vs.hlsl.bin");
-	GpuShader fullscreen_ps = load_shader_from_file(&graphics_device, L"pixel/fullscreen_ps.hlsl.bin");
-	defer {
-		destroy_shader(&fullscreen_ps);
-		destroy_shader(&fullscreen_vs); 
-	};
-	GraphicsPipelineDesc pipeline_desc = {0};
-	pipeline_desc.vertex_shader = fullscreen_vs;
-	pipeline_desc.pixel_shader = fullscreen_ps;
-	pipeline_desc.comparison_func = D3D12_COMPARISON_FUNC_GREATER;
-	pipeline_desc.stencil_enable = false;
-	pipeline_desc.rtv_formats = {swap_chain.format};
-	pipeline_desc.dsv_format = None;
-	PipelineState fullscreen_pipeline = init_graphics_pipeline(&graphics_device, pipeline_desc, L"Fullscreen Pipeline");
-	defer { destroy_pipeline_state(&fullscreen_pipeline); };
+	ShaderManager shader_manager = init_shader_manager(&graphics_device);
+	defer { destroy_shader_manager(&shader_manager); };
 
-	GpuBufferDesc buffer_desc = {0};
-	buffer_desc.size = KiB(64);
+	Renderer renderer = init_renderer(MEMORY_ARENA_FWD, &graphics_device, &swap_chain, shader_manager, window);
+	defer { destroy_renderer(&renderer); };
 
-	GpuBuffer index_buffer = alloc_gpu_buffer_no_heap(&graphics_device,
-	                                                  buffer_desc,
-	                                                  kGpuHeapTypeLocal,
-	                                                  L"Test Index Buffer");
-	defer { free_gpu_buffer(&index_buffer); };
+	Scene scene       = init_scene(MEMORY_ARENA_FWD, &graphics_device);
+//	SceneObject* dragon = add_scene_object(&scene, shader_manager, "C:\\Users\\Brand\\Dev\\Athena\\Athena\\assets\\dragon.fbx", kVsBasic, kPsBasicNormalGloss);
+	SceneObject* dragon_scene = add_scene_object(&scene, shader_manager, "C:\\Users\\Brand\\Dev\\Athena\\Athena\\assets\\dragon_scene.fbx", kVsBasic, kPsBasicNormalGloss);
+//	SceneObject* cube2 = add_scene_object(&scene, shader_manager, "C:\\Users\\Brand\\Dev\\Athena\\Athena\\assets\\cube2.fbx", kVsBasic, kPsBasicNormalGloss);
+//	SceneObject* sponza = add_scene_object(&scene, shader_manager, "C:\\Users\\Brand\\Dev\\Athena\\Athena\\assets\\sponza.fbx", kVsBasic, kPsBasicNormalGloss);
 
-	GpuBuffer vertex_buffer = alloc_gpu_buffer_no_heap(&graphics_device,
-	                                                   buffer_desc,
-	                                                   kGpuHeapTypeLocal,
-	                                                   L"Test Vertex Buffer");
-	defer { free_gpu_buffer(&vertex_buffer); };
+	MemoryArena frame_arena = sub_alloc_memory_arena(MEMORY_ARENA_FWD, MiB(4));
 
-	blocking_kick_job(kJobPriorityLow,
-	                  job_system,
-	                  uploader_job(&graphics_device, &index_buffer, INDICES, sizeof(INDICES)));
-	blocking_kick_job(kJobPriorityLow,
-	                  job_system,
-	                  uploader_job(&graphics_device, &vertex_buffer, VERTICES, sizeof(VERTICES)));
+	DirectX::Keyboard d3d12_keyboard;
+	DirectX::Mouse d3d12_mouse;
+	d3d12_mouse.SetWindow(window);
 
-
-	interlop::TransformBuffer transform_buf;
-	transform_buf.model = Mat4();
-
-	GpuShader cube_vs = load_shader_from_file(&graphics_device, L"vertex/cube_vs.hlsl.bin");
-	GpuShader cube_ps = load_shader_from_file(&graphics_device, L"pixel/cube_ps.hlsl.bin");
-	defer {
-		destroy_shader(&cube_ps);
-		destroy_shader(&cube_vs); 
-	};
-	pipeline_desc.vertex_shader = cube_vs;
-	pipeline_desc.pixel_shader = cube_ps;
-	pipeline_desc.comparison_func = D3D12_COMPARISON_FUNC_GREATER;
-	pipeline_desc.stencil_enable = false;
-	pipeline_desc.rtv_formats = {swap_chain.format};
-	pipeline_desc.dsv_format = DXGI_FORMAT_D16_UNORM;
-
-	PipelineState cube_pipeline = init_graphics_pipeline(&graphics_device, pipeline_desc, L"Cube Pipeline");
-	defer { destroy_pipeline_state(&cube_pipeline); };
-
-//	DescriptorHeap cbv_srv_uav_heap = init_descriptor_heap(MEMORY_ARENA_FWD, &graphics_device, 1, kDescriptorHeapTypeCbvSrvUav);
-//	defer { destroy_descriptor_heap(&cbv_srv_uav_heap); };
-//
-//	init_imgui_ctx(MEMORY_ARENA_FWD, &graphics_device, &swap_chain, window, &cbv_srv_uav_heap);
-//	defer { destroy_imgui_ctx(); };
-	render::TransientResourceCache resource_cache = render::init_transient_resource_cache(MEMORY_ARENA_FWD, &graphics_device);
-	defer { render::destroy_transient_resource_cache(&resource_cache); };
-
-	MemoryArena frame_arena = sub_alloc_memory_arena(MEMORY_ARENA_FWD, MiB(1));
+	RenderOptions render_options;
 
 	bool done = false;
 	while (!done)
 	{
-		defer { reset_memory_arena(&frame_arena); };
+		reset_memory_arena(&frame_arena);
 
 		MSG message;
 		while (PeekMessageW(&message, 0, 0, 0, PM_REMOVE))
@@ -267,19 +210,66 @@ application_entry(MEMORY_ARENA_PARAM, HINSTANCE instance, int show_code, JobSyst
 			DispatchMessageW(&message);
 		}
 
+
+		auto keyboard = d3d12_keyboard.GetState();
+		if (keyboard.Escape)
+		{
+			done = true;
+		}
+
+		auto mouse = d3d12_mouse.GetState();
+
+		if (mouse.positionMode == DirectX::Mouse::MODE_RELATIVE)
+		{
+			Vec2 delta = Vec2(f32(mouse.x), f32(mouse.y)) * 0.001f;
+			scene.camera.pitch -= delta.y;
+			scene.camera.yaw   += delta.x;
+		}
+		d3d12_mouse.SetMode(mouse.rightButton ? DirectX::Mouse::MODE_RELATIVE : DirectX::Mouse::MODE_ABSOLUTE);
+
+		Vec3 move;
+		if (keyboard.W)
+		{
+			move.z += 1.0f;
+		}
+		if (keyboard.S)
+		{
+			move.z -= 1.0f;
+		}
+		if (keyboard.D)
+		{
+			move.x += 1.0f;
+		}
+		if (keyboard.A)
+		{
+			move.x -= 1.0f;
+		}
+		if (keyboard.E)
+		{
+			move.y += 1.0f;
+		}
+		if (keyboard.Q)
+		{
+			move.y -= 1.0f;
+		}
+		// TODO(Brandon): Something is completely fucked with my quaternion math...
+		Quat rot = quat_from_rotation_y(scene.camera.yaw); // * quat_from_rotation_x(-scene.camera.pitch);  //quat_from_euler_yxz(scene.camera.yaw, 0, 0);
+		move = rotate_vec3_by_quat(move, rot);
+		move *= 1.0f;
+
+		scene.camera.world_pos += move;
+
 		if (done)
 			break;
-		
-		blocking_kick_job(kJobPriorityMedium,
-		                  job_system,
-		                  frame_entry(&frame_arena,
-		                              &graphics_device,
-		                              &swap_chain,
-		                              &resource_cache,
-		                              &cube_pipeline,
-		                              &fullscreen_pipeline,
-		                              &vertex_buffer,
-		                              &index_buffer));
+
+		draw_debug(&render_options);
+
+		blocking_kick_closure_job(kJobPriorityMedium, [&]()
+		{
+			begin_renderer_recording(&frame_arena, &renderer);
+			submit_scene(scene, &renderer);
+			execute_render(&frame_arena, &renderer, &graphics_device, &swap_chain, &scene.camera, scene.vertex_uber_buffer, scene.index_uber_buffer, render_options);
+		});
 	}
 
 	kill_job_system(job_system);
@@ -289,6 +279,8 @@ int APIENTRY
 WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, int show_code)
 {
 	set_current_thread_name(L"Athena Main");
+
+	profiler::init();
 
 	init_application_memory();
 	defer { destroy_application_memory(); };
@@ -304,7 +296,7 @@ WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, int show_code
 	JobSystem* job_system = init_job_system(&arena, 512);
 	Array<Thread> threads = spawn_job_system_workers(&arena, job_system);
 
-	MemoryArena game_memory = alloc_memory_arena(MiB(128));
+	MemoryArena game_memory = alloc_memory_arena(GiB(1));
 
 	application_entry(&game_memory, instance, show_code, job_system);
 	join_threads(threads.memory, static_cast<u32>(threads.size));

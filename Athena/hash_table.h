@@ -126,6 +126,7 @@ init_hash_table(MEMORY_ARENA_PARAM, u64 capacity)
 	capacity = capacity * 4 / 3 + 15;
 	ret.groups_size = capacity / 16;
 	ret.groups      = push_memory_arena<typename HashTable<K, V>::Group>(MEMORY_ARENA_FWD, ret.groups_size);
+	zero_memory(ret.groups, ret.groups_size * sizeof(typename HashTable<K, V>::Group));
 	ret.values      = push_memory_arena<V>(MEMORY_ARENA_FWD, capacity);
 	ret.capacity    = capacity;
 	ret.used        = 0;

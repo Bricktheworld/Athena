@@ -64,9 +64,9 @@ struct JobStack
 	byte scratch_buf[DEFAULT_SCRATCH_SIZE];
 };
 
-typedef u64 JobCounterID;
+typedef u64 JobHandle;
 
-void yield_to_counter(JobCounterID counter);
+void yield_to_counter(JobHandle counter);
 
 struct JobDebugInfo 
 {
@@ -84,11 +84,11 @@ struct JobEntry
 
 struct JobDesc
 {
-	JobCounterID completion_signal = 0;
-
-	JobDebugInfo debug_info = {0};
+	JobHandle completion_signal = 0;
 
 	JobEntry entry = {0};
+
+	JobDebugInfo debug_info = {0};
 };
 
 struct WorkingJob
@@ -111,7 +111,7 @@ struct WorkingJobQueue
 struct JobCounter
 {
 	volatile u64 value = 0;
-	JobCounterID id = 0;
+	JobHandle id = 0;
 	WorkingJobQueue waiting_jobs = {0};
 	Option<ThreadSignal*> completion_signal = None;
 };
@@ -135,10 +135,10 @@ struct JobSystem
 
 	SpinLocked<Pool<WorkingJob>> working_job_allocator;
 
-	SpinLocked<HashTable<JobCounterID, JobCounter>> job_counters;
+	SpinLocked<HashTable<JobHandle, JobCounter>> job_counters;
 	SpinLocked<WorkingJobQueue> working_jobs_queue;
 
-	volatile JobCounterID current_job_counter_id = 1;
+	volatile JobHandle current_job_counter_id = 1;
 
 	bool should_exit = 0;
 };
@@ -160,42 +160,40 @@ void kill_job_system(JobSystem* job_system);
 
 Array<Thread> spawn_job_system_workers(MEMORY_ARENA_PARAM, JobSystem* job_system);
 
-JobCounterID _kick_jobs(JobPriority priority,
+bool job_has_completed(JobHandle handle, JobSystem* job_system = nullptr);
+
+JobHandle _kick_jobs(JobPriority priority,
                         JobDesc* jobs,
                         size_t count,
                         JobDebugInfo debug_info,
-                        JobSystem* job_system = nullptr,
                         Option<ThreadSignal*> thread_signal = None);
 
-inline JobCounterID
+inline JobHandle
 _kick_single_job(JobPriority priority,
                  JobDesc desc,
                  JobDebugInfo debug_info,
-                 JobSystem* job_system = nullptr,
                  Option<ThreadSignal*> thread_signal = None)
 {
-	return _kick_jobs(priority, &desc, 1, debug_info, job_system, thread_signal);
+	return _kick_jobs(priority, &desc, 1, debug_info, thread_signal);
 }
 
 inline void
 blocking_kick_job_descs(JobPriority priority,
                         JobDesc* jobs,
                         size_t count,
-                        JobDebugInfo debug_info,
-                        JobSystem* job_system)
+                        JobDebugInfo debug_info)
 {
 	ThreadSignal signal = init_thread_signal();
-	_kick_jobs(priority, jobs, count, debug_info, job_system, &signal);
+	_kick_jobs(priority, jobs, count, debug_info, &signal);
 	wait_for_thread_signal(&signal);
 }
 
 inline void
 _blocking_kick_single_job(JobPriority priority,
                           JobDesc desc,
-                          JobDebugInfo debug_info,
-                          JobSystem* job_system)
+                          JobDebugInfo debug_info)
 {
-	blocking_kick_job_descs(priority, &desc, 1, debug_info, job_system);
+	blocking_kick_job_descs(priority, &desc, 1, debug_info);
 }
 
 
@@ -222,13 +220,13 @@ init_job_desc_from_closure(F func)
 
 #define kick_job_descs(priority, job_descs, count, ...) _kick_jobs(priority, job_descs, count, JOB_DEBUG_INFO_STRUCT, __VA_ARGS__)
 #define kick_closure_job(priority, closure) _kick_single_job(priority, init_job_desc_from_closure(closure), JOB_DEBUG_INFO_STRUCT)
-#define kick_job(priority, function_call) kick_closure_job(priority, [&]() { function_call; })
-#define blocking_kick_closure_job(priority, job_system, closure) _blocking_kick_single_job(priority, init_job_desc_from_closure(closure), JOB_DEBUG_INFO_STRUCT, job_system)
-#define blocking_kick_job(priority, job_system, function_call) blocking_kick_closure_job(priority, job_system, [&]() { function_call; })
+#define kick_job(priority, function_call) kick_closure_job(priority, [=]() { function_call; })
+#define blocking_kick_closure_job(priority, closure) _blocking_kick_single_job(priority, init_job_desc_from_closure(closure), JOB_DEBUG_INFO_STRUCT)
+#define blocking_kick_job(priority, function_call) blocking_kick_closure_job(priority, [&]() { function_call; })
 
 template <typename F>
 void yield_async(F func)
 {
-	JobCounterID counter = kick_closure_job(kJobPriorityLow, func);
+	JobHandle counter = kick_closure_job(kJobPriorityLow, func);
 	yield_to_counter(counter);
 }
