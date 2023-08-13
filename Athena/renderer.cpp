@@ -214,6 +214,7 @@ execute_render(MEMORY_ARENA_PARAM,
 	cmd_dispatch(lighting_pass, work_groups_x, work_groups_y, 1);
 
 
+#if 0
 	// Do any post processing
 	Handle<GpuImage> output_buffer = create_image(&graph, L"Output Buffer", color_buffer_desc);
 	RenderPass* post_processing_pass = add_render_pass(MEMORY_ARENA_FWD, &graph, kCmdQueueTypeGraphics, L"Post Processing");
@@ -237,6 +238,7 @@ execute_render(MEMORY_ARENA_PARAM,
 	cmd_set_compute_pso(post_processing_pass, &renderer->dof_pipeline);
 	cmd_compute_bind_shader_resources(post_processing_pass, dof_resources);
 	cmd_dispatch(post_processing_pass, work_groups_x, work_groups_y, 1);
+#endif
 
 
 	Handle<GpuImage> debug_buffer = create_image(&graph, L"Debug Buffer", color_buffer_desc);
@@ -284,7 +286,7 @@ execute_render(MEMORY_ARENA_PARAM,
 	cmd_om_set_render_targets(output_pass, {graph_back_buffer}, None);
 	cmd_set_graphics_pso(output_pass, &renderer->fullscreen_pipeline);
 
-	cmd_graphics_bind_shader_resources<interlop::FullscreenRenderResources>(output_pass, {.texture = using_debug ? debug_buffer : output_buffer });
+	cmd_graphics_bind_shader_resources<interlop::FullscreenRenderResources>(output_pass, {.texture = using_debug ? debug_buffer : color_buffer });
 	cmd_draw_instanced(output_pass, 3, 1, 0, 0);
 	cmd_draw_imgui_on_top(output_pass, &renderer->imgui_descriptor_heap);
 
