@@ -52,7 +52,9 @@ init_renderer(MEMORY_ARENA_PARAM, const GraphicsDevice* device, const SwapChain*
 	ret.fullscreen_pipeline = init_graphics_pipeline(device, fullscreen_pipeline_desc, L"Fullscreen");
 
 	ret.standard_brdf_pipeline = init_compute_pipeline(device, shader_manager.shaders[kCsStandardBrdf], L"Standard BRDF");
-	ret.dof_pipeline           = init_compute_pipeline(device, shader_manager.shaders[kCsDof], L"Depth of Field");
+	ret.dof_coc_pipeline       = init_compute_pipeline(device, shader_manager.shaders[kCsDofCoC], L"CoC");
+	ret.dof_blur_horiz_pipeline = init_compute_pipeline(device, shader_manager.shaders[kCsDofBlurHoriz], L"DoF Blur Horiz");
+	ret.dof_blur_vert_pipeline  = init_compute_pipeline(device, shader_manager.shaders[kCsDofBlurVert], L"Dof Blur Vert");
 	ret.debug_gbuffer_pipeline = init_compute_pipeline(device, shader_manager.shaders[kCsDebugGBuffer], L"Debug GBuffer");
 
 	ret.imgui_descriptor_heap = init_descriptor_linear_allocator(device, 1, kDescriptorHeapTypeCbvSrvUav);
@@ -196,8 +198,8 @@ execute_render(MEMORY_ARENA_PARAM,
 
 	Handle<GpuImage> color_buffer = create_image(&graph, L"Color Buffer", color_buffer_desc);
 
-	u32 work_groups_x = (swap_chain->width + 15) / 16;
-	u32 work_groups_y = (swap_chain->height + 15) / 16;
+	u32 work_groups_x = (swap_chain->width + 7) / 8;
+	u32 work_groups_y = (swap_chain->height + 7) / 8;
 
 	interlop::StandardBRDFComputeResources standard_brdf_resources = 
 	{
@@ -213,32 +215,89 @@ execute_render(MEMORY_ARENA_PARAM,
 	cmd_compute_bind_shader_resources(lighting_pass, standard_brdf_resources);
 	cmd_dispatch(lighting_pass, work_groups_x, work_groups_y, 1);
 
-
-#if 0
-	// Do any post processing
-	Handle<GpuImage> output_buffer = create_image(&graph, L"Output Buffer", color_buffer_desc);
-	RenderPass* post_processing_pass = add_render_pass(MEMORY_ARENA_FWD, &graph, kCmdQueueTypeGraphics, L"Post Processing");
-
-	interlop::DofOptions dof_options = 
+	GpuImageDesc blurred_dof_buffer_desc =
 	{
-		.z_near = kZNear,
-		.aperture = render_options.aperture,
-		.focal_length = render_options.focal_length,
-		.focusing_dist = render_options.focusing_dist,
+		.width  = swap_chain->width,
+		.height = swap_chain->height,
+		.format = DXGI_FORMAT_R32G32B32A32_FLOAT,
+		.color_clear_value = Vec4(0, 0, 0, 1),
 	};
+	Handle<GpuImage> blurred_dof_buffer = create_image(&graph, L"Blurred DoF Buffer", blurred_dof_buffer_desc);
 
-	Handle<GpuBuffer> dof_options_buffer = create_buffer(&graph, L"Depth of Field Options", dof_options);
-	interlop::DofComputeResources dof_resources =
 	{
-		.options = dof_options_buffer,
-		.color_buffer = color_buffer,
-		.depth_buffer = gbuffer_depth,
-		.render_target = output_buffer,
-	};
-	cmd_set_compute_pso(post_processing_pass, &renderer->dof_pipeline);
-	cmd_compute_bind_shader_resources(post_processing_pass, dof_resources);
-	cmd_dispatch(post_processing_pass, work_groups_x, work_groups_y, 1);
-#endif
+		GpuImageDesc coc_buffer_desc =
+		{
+			.width = swap_chain->width,
+			.height = swap_chain->height,
+			.format = DXGI_FORMAT_R32G32B32A32_FLOAT,
+			.color_clear_value = Vec4(0, 0, 0, 1),
+		};
+		Handle<GpuImage> coc_buffer = create_image(&graph, L"CoC Buffer", coc_buffer_desc);
+
+		// Depth of field
+		interlop::DofOptions dof_options = 
+		{
+			.z_near = kZNear,
+			.aperture = render_options.aperture,
+			.focal_dist = render_options.focal_dist,
+			.focal_range = render_options.focal_range,
+		};
+	
+		Handle<GpuBuffer> dof_options_buffer = create_buffer(&graph, L"Depth of Field Options", dof_options);
+	
+		RenderPass* coc_pass = add_render_pass(MEMORY_ARENA_FWD, &graph, kCmdQueueTypeGraphics, L"CoC Generation");
+	
+		interlop::DofCocComputeResources dof_coc_resources =
+		{
+			.options = dof_options_buffer,
+			.color_buffer = color_buffer,
+			.depth_buffer = gbuffer_depth,
+			.render_target = coc_buffer,
+		};
+		cmd_set_compute_pso(coc_pass, &renderer->dof_coc_pipeline);
+		cmd_compute_bind_shader_resources(coc_pass, dof_coc_resources);
+		cmd_dispatch(coc_pass, work_groups_x, work_groups_y, 1);
+
+		GpuImageDesc real_im_buffer_desc = 
+		{
+			.width  = swap_chain->width,
+			.height = swap_chain->height,
+			.format = DXGI_FORMAT_R32G32B32A32_FLOAT,
+			.color_clear_value = Vec4(0, 0, 0, 1),
+		};
+		Handle<GpuImage> red_buffer       = create_image(&graph, L"Dof Red Buffer", real_im_buffer_desc);
+		Handle<GpuImage> green_buffer     = create_image(&graph, L"Dof Green Buffer", real_im_buffer_desc);
+		Handle<GpuImage> blue_buffer      = create_image(&graph, L"Dof Blue Buffer", real_im_buffer_desc);
+
+		RenderPass* horiz_pass = add_render_pass(MEMORY_ARENA_FWD, &graph, kCmdQueueTypeGraphics, L"Dof Blur Horizontal");
+		interlop::DofBlurHorizComputeResources dof_blur_horiz_resources = 
+		{
+			.color_buffer = color_buffer,
+			.coc_buffer   = coc_buffer,
+
+			.red_target   = red_buffer,
+			.green_target = green_buffer,
+			.blue_target  = blue_buffer,
+		};
+		cmd_set_compute_pso(horiz_pass, &renderer->dof_blur_horiz_pipeline);
+		cmd_compute_bind_shader_resources(horiz_pass, dof_blur_horiz_resources);
+		cmd_dispatch(horiz_pass, work_groups_x, work_groups_y, 1);
+
+		RenderPass* vert_pass = add_render_pass(MEMORY_ARENA_FWD, &graph, kCmdQueueTypeGraphics, L"Dof Blur Vertical");
+		interlop::DofBlurVertComputeResources dof_blur_vert_resources = 
+		{
+			.coc_buffer   = coc_buffer,
+
+			.red_buffer   = red_buffer,
+			.green_buffer = green_buffer,
+			.blue_buffer  = blue_buffer,
+
+			.blurred_target = blurred_dof_buffer,
+		};
+		cmd_set_compute_pso(vert_pass, &renderer->dof_blur_vert_pipeline);
+		cmd_compute_bind_shader_resources(vert_pass, dof_blur_vert_resources);
+		cmd_dispatch(vert_pass, work_groups_x, work_groups_y, 1);
+	}
 
 
 	Handle<GpuImage> debug_buffer = create_image(&graph, L"Debug Buffer", color_buffer_desc);
@@ -286,7 +345,7 @@ execute_render(MEMORY_ARENA_PARAM,
 	cmd_om_set_render_targets(output_pass, {graph_back_buffer}, None);
 	cmd_set_graphics_pso(output_pass, &renderer->fullscreen_pipeline);
 
-	cmd_graphics_bind_shader_resources<interlop::FullscreenRenderResources>(output_pass, {.texture = using_debug ? debug_buffer : color_buffer });
+	cmd_graphics_bind_shader_resources<interlop::FullscreenRenderResources>(output_pass, {.texture = using_debug ? debug_buffer : blurred_dof_buffer });
 	cmd_draw_instanced(output_pass, 3, 1, 0, 0);
 	cmd_draw_imgui_on_top(output_pass, &renderer->imgui_descriptor_heap);
 

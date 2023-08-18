@@ -102,17 +102,40 @@ namespace interlop
 	{
 		f32 z_near;
 		f32 aperture;
-		f32 focal_length;
-		f32 focusing_dist;
+		f32 focal_dist;
+		f32 focal_range;
+		// f32 focal_length;
+		// f32 focusing_dist;
 	};
 
-	struct DofComputeResources
+	struct DofCocComputeResources
 	{
 		CBV(DofOptions) options;
 		SRV(GpuImage)   color_buffer;
 		SRV(GpuImage)   depth_buffer;
 
 		UAV(GpuImage)   render_target;
+	};
+
+	struct DofBlurHorizComputeResources
+	{
+		SRV(GpuImage)   color_buffer;
+		SRV(GpuImage)   coc_buffer;
+
+		UAV(GpuImage)   red_target;
+		UAV(GpuImage)   green_target;
+		UAV(GpuImage)   blue_target;
+	};
+
+	struct DofBlurVertComputeResources
+	{
+		SRV(GpuImage)   coc_buffer;
+
+		SRV(GpuImage)   red_buffer;
+		SRV(GpuImage)   green_buffer;
+		SRV(GpuImage)   blue_buffer;
+
+		UAV(GpuImage)   blurred_target;
 	};
 
 	struct DebugGBufferOptions

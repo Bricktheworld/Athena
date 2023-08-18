@@ -4,7 +4,7 @@
 ConstantBuffer<interlop::DebugGBufferResources> render_resources : register(b0);
 
 [RootSignature(BINDLESS_ROOT_SIGNATURE)]
-[numthreads(16, 16, 1)]
+[numthreads(8, 8, 1)]
 void main( uint3 thread_id : SV_DispatchThreadID )
 {
 

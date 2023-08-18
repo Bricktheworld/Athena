@@ -125,8 +125,8 @@ draw_debug(RenderOptions* out_render_options)
 	}
 
 	ImGui::DragFloat("Aperture", &out_render_options->aperture, 0.0f, 50.0f);
-	ImGui::DragFloat("Focusing Distance", &out_render_options->focusing_dist, 0.0f, 50.0f);
-	ImGui::DragFloat("Focal Length", &out_render_options->focal_length, 0.0f, 50.0f);
+	ImGui::DragFloat("Focal Distance", &out_render_options->focal_dist, 0.0f, 1000.0f);
+	ImGui::DragFloat("Focal Range", &out_render_options->focal_range, 0.0f, 100.0f);
 
 	ImGui::End();
 
@@ -255,7 +255,7 @@ application_entry(MEMORY_ARENA_PARAM, HINSTANCE instance, int show_code, JobSyst
 		// TODO(Brandon): Something is completely fucked with my quaternion math...
 		Quat rot = quat_from_rotation_y(scene.camera.yaw); // * quat_from_rotation_x(-scene.camera.pitch);  //quat_from_euler_yxz(scene.camera.yaw, 0, 0);
 		move = rotate_vec3_by_quat(move, rot);
-		move *= 1.0f;
+		move *= 1.0f / 60.0f;
 
 		scene.camera.world_pos += move;
 

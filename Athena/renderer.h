@@ -59,7 +59,9 @@ enum ShaderIndex : u8
 	kPsFullscreen,
 
 	kCsStandardBrdf,
-	kCsDof,
+	kCsDofCoC,
+	kCsDofBlurHoriz,
+	kCsDofBlurVert,
 	kCsDebugGBuffer,
 
 	kShaderCount,
@@ -74,7 +76,9 @@ static const wchar_t* kShaderPaths[] =
 	L"pixel/fullscreen_ps.hlsl.bin",
 
 	L"compute/standard_brdf_cs.hlsl.bin",
-	L"compute/dof_cs.hlsl.bin",
+	L"compute/dof_coc_cs.hlsl.bin",
+	L"compute/dof_blur_horiz_cs.hlsl.bin",
+	L"compute/dof_blur_vert_cs.hlsl.bin",
 	L"compute/debug_gbuffer_cs.hlsl.bin",
 };
 
@@ -141,8 +145,8 @@ static_assert(ARRAY_LENGTH(kDebugViewNames) == kDebugViewsCount);
 struct RenderOptions
 {
 	f32 aperture = 5.6f;
-	f32 focusing_dist = 5.0f;
-	f32 focal_length = 0.5f;
+	f32 focal_dist = 10.0f;
+	f32 focal_range = 5.0f;
 	RendererDebugView debug_view = kDebugViewFullLighting;
 };
 
@@ -153,7 +157,9 @@ struct Renderer
 
 	gfx::ComputePSO standard_brdf_pipeline;
 
-	gfx::ComputePSO dof_pipeline;
+	gfx::ComputePSO dof_coc_pipeline;
+	gfx::ComputePSO dof_blur_horiz_pipeline;
+	gfx::ComputePSO dof_blur_vert_pipeline;
 
 	gfx::ComputePSO debug_gbuffer_pipeline;
 
@@ -174,7 +180,7 @@ void submit_mesh(Renderer* renderer, Mesh mesh);
 
 struct Camera
 {
-	Vec3 world_pos = Vec3(0, 0, -50);
+	Vec3 world_pos = Vec3(0, 0, -1);
 	f32 pitch = 0;
 	f32 yaw   = 0;
 };
