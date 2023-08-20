@@ -16,7 +16,7 @@ ShaderManager
 init_shader_manager(const gfx::GraphicsDevice* device)
 {
 	ShaderManager ret = {0};
-	for (u8 i = 0; i < kShaderCount; i++)
+	for (u32 i = 0; i < kShaderCount; i++)
 	{
 		const wchar_t* path = kShaderPaths[i];
 		ret.shaders[i] = load_shader_from_file(device, path);
@@ -28,7 +28,7 @@ init_shader_manager(const gfx::GraphicsDevice* device)
 void
 destroy_shader_manager(ShaderManager* shader_manager)
 {
-	for (u8 i = 0; i < kShaderCount; i++)
+	for (u32 i = 0; i < kShaderCount; i++)
 	{
 		destroy_shader(&shader_manager->shaders[i]);
 	}
@@ -49,13 +49,15 @@ init_renderer(MEMORY_ARENA_PARAM, const GraphicsDevice* device, const SwapChain*
 		.rtv_formats    = Span{swap_chain->format},
 	};
 
-	ret.fullscreen_pipeline = init_graphics_pipeline(device, fullscreen_pipeline_desc, L"Fullscreen");
+	ret.fullscreen_pipeline = init_graphics_pipeline(device, fullscreen_pipeline_desc, "Fullscreen");
 
-	ret.standard_brdf_pipeline = init_compute_pipeline(device, shader_manager.shaders[kCsStandardBrdf], L"Standard BRDF");
-	ret.dof_coc_pipeline       = init_compute_pipeline(device, shader_manager.shaders[kCsDofCoC], L"CoC");
-	ret.dof_blur_horiz_pipeline = init_compute_pipeline(device, shader_manager.shaders[kCsDofBlurHoriz], L"DoF Blur Horiz");
-	ret.dof_blur_vert_pipeline  = init_compute_pipeline(device, shader_manager.shaders[kCsDofBlurVert], L"Dof Blur Vert");
-	ret.debug_gbuffer_pipeline = init_compute_pipeline(device, shader_manager.shaders[kCsDebugGBuffer], L"Debug GBuffer");
+	ret.standard_brdf_pipeline = init_compute_pipeline(device, shader_manager.shaders[kCsStandardBrdf], "Standard BRDF");
+	ret.dof_coc_pipeline       = init_compute_pipeline(device, shader_manager.shaders[kCsDofCoC], "CoC");
+	ret.dof_coc_dilate_pipeline = init_compute_pipeline(device, shader_manager.shaders[kCsDofCoCDilate], "CoC Dilate");
+	ret.dof_blur_horiz_pipeline = init_compute_pipeline(device, shader_manager.shaders[kCsDofBlurHoriz], "DoF Blur Horiz");
+	ret.dof_blur_vert_pipeline  = init_compute_pipeline(device, shader_manager.shaders[kCsDofBlurVert], "DoF Blur Vert");
+	ret.dof_composite_pipeline  = init_compute_pipeline(device, shader_manager.shaders[kCsDofComposite], "DoF Composite");
+	ret.debug_gbuffer_pipeline = init_compute_pipeline(device, shader_manager.shaders[kCsDebugGBuffer], "Debug GBuffer");
 
 	ret.imgui_descriptor_heap = init_descriptor_linear_allocator(device, 1, kDescriptorHeapTypeCbvSrvUav);
 	init_imgui_ctx(device, swap_chain, window, &ret.imgui_descriptor_heap);
@@ -67,7 +69,7 @@ void
 destroy_renderer(Renderer* renderer)
 {
 	destroy_imgui_ctx();
-	destroy_compute_pipeline(&renderer->debug_gbuffer_pipeline);
+//	destroy_compute_pipeline(&renderer->debug_gbuffer_pipeline);
 	destroy_compute_pipeline(&renderer->standard_brdf_pipeline);
 	destroy_graphics_pipeline(&renderer->fullscreen_pipeline);
 	destroy_transient_resource_cache(&renderer->transient_resource_cache);
@@ -126,39 +128,37 @@ execute_render(MEMORY_ARENA_PARAM,
 {
 	RenderGraph graph = init_render_graph(MEMORY_ARENA_FWD);
 
-	// Render GBuffers
-	RenderPass* geometry_pass = add_render_pass(MEMORY_ARENA_FWD, &graph, kCmdQueueTypeGraphics, L"Geometry Pass");
+	Handle<GpuImage> render_buffers[RenderBuffers::kCount];
 
-	Handle<GpuImage> gbuffers[kGBufferRenderTargetCount];
-	for (u8 i = 0; i < kGBufferRenderTargetCount; i++)
+	for (u32 i = 0; i < RenderBuffers::kCount; i++)
 	{
-		GpuImageDesc desc = 
+		RenderBufferDesc desc = kRenderBufferDescs[i];
+		GpuImageDesc image_desc = {0};
+		image_desc.width = swap_chain->width;
+		image_desc.height = swap_chain->height;
+		image_desc.format = desc.format;
+		if (is_depth_format(desc.format))
 		{
-			.width = swap_chain->width,
-			.height = swap_chain->height,
-			.format = kGBufferRenderTargetFormats[i],
-			.color_clear_value = Vec4(0.0f, 0.0f, 0.0f, 0.0f),
-		};
-
-		gbuffers[i] = create_image(&graph, kGBufferRenderTargetNames[i], desc);
+			image_desc.depth_clear_value = desc.depth_clear_value;
+			image_desc.stencil_clear_value = desc.stencil_clear_value;
+		}
+		else
+		{
+			image_desc.color_clear_value = desc.color_clear_value;
+		}
+		render_buffers[i] = create_image(&graph, desc.debug_name, image_desc);
 	}
+#define RENDER_BUFFER(buf_id) render_buffers[RenderBuffers::##buf_id]
 
-	GpuImageDesc geometry_depth_desc = 
+	// Render GBuffers
+	RenderPass* geometry_pass = add_render_pass(MEMORY_ARENA_FWD, &graph, kCmdQueueTypeGraphics, "Geometry Pass");
+
+	for (u32 i = RenderBuffers::kGBufferMaterialId; i <= RenderBuffers::kGBufferNormalRGBRoughnessA; i++)
 	{
-		.width = swap_chain->width,
-		.height = swap_chain->height,
-		.format = kGBufferDepthFormat,
-		.depth_clear_value = 0.0f,
-	};
-
-	Handle<GpuImage> gbuffer_depth = create_image(&graph, L"Geometry Depth Buffer", geometry_depth_desc);
-
-	for (u8 i = 0; i < kGBufferRenderTargetCount; i++)
-	{
-		cmd_clear_render_target_view(geometry_pass, &gbuffers[i], Vec4(0.0f, 0.0f, 0.0f, 0.0f));
+		cmd_clear_render_target_view(geometry_pass, &render_buffers[i], Vec4(0.0f, 0.0f, 0.0f, 0.0f));
 	}
-	cmd_clear_depth_stencil_view(geometry_pass, &gbuffer_depth, D3D12_CLEAR_FLAG_DEPTH, 0.0f, 0);
-	cmd_om_set_render_targets(geometry_pass, gbuffers, gbuffer_depth);
+	cmd_clear_depth_stencil_view(geometry_pass, &RENDER_BUFFER(kGBufferDepth), D3D12_CLEAR_FLAG_DEPTH, 0.0f, 0);
+	cmd_om_set_render_targets(geometry_pass, Span(&render_buffers[RenderBuffers::kGBufferMaterialId], kGBufferRTCount), RENDER_BUFFER(kGBufferDepth));
 
 	interlop::Transform transform;
 	transform.model = Mat4::columns(Vec4(1, 0, 0, 0),
@@ -166,7 +166,7 @@ execute_render(MEMORY_ARENA_PARAM,
 	                                Vec4(0, 0, 1, 0),
 	                                Vec4(0, 0, 10, 1));
 	transform.model_inverse = transform_inverse_no_scale(transform.model);
-	Handle<GpuBuffer> transform_buffer = create_buffer(&graph, L"Transform Buffer", transform);
+	Handle<GpuBuffer> transform_buffer = create_buffer(&graph, "Transform Buffer", transform);
 
 	interlop::Scene scene;
 	scene.proj = perspective_infinite_reverse_lh(kPI / 4.0f, f32(swap_chain->width) / f32(swap_chain->height), kZNear);
@@ -174,7 +174,7 @@ execute_render(MEMORY_ARENA_PARAM,
 	scene.view_proj = scene.proj * scene.view;
 	scene.camera_world_pos = camera->world_pos;
 
-	Handle<GpuBuffer> scene_buffer = create_buffer(&graph, L"Scene Buffer", scene);
+	Handle<GpuBuffer> scene_buffer = create_buffer(&graph, "Scene Buffer", scene);
 
 	Handle<GpuBuffer> graph_vertex_buffer = import_buffer(&graph, &vertex_buffer);
 	cmd_ia_set_index_buffer(geometry_pass, &index_buffer);
@@ -186,17 +186,7 @@ execute_render(MEMORY_ARENA_PARAM,
 	}
 
 	// Lighting pass
-	RenderPass* lighting_pass = add_render_pass(MEMORY_ARENA_FWD, &graph, kCmdQueueTypeGraphics, L"Lighting Pass");
-
-	GpuImageDesc color_buffer_desc =
-	{
-		.width = swap_chain->width,
-		.height = swap_chain->height,
-		.format = kColorBufferFormat,
-		.color_clear_value = Vec4(0, 0, 0, 1),
-	};
-
-	Handle<GpuImage> color_buffer = create_image(&graph, L"Color Buffer", color_buffer_desc);
+	RenderPass* lighting_pass = add_render_pass(MEMORY_ARENA_FWD, &graph, kCmdQueueTypeGraphics, "Lighting Pass");
 
 	u32 work_groups_x = (swap_chain->width + 7) / 8;
 	u32 work_groups_y = (swap_chain->height + 7) / 8;
@@ -204,36 +194,18 @@ execute_render(MEMORY_ARENA_PARAM,
 	interlop::StandardBRDFComputeResources standard_brdf_resources = 
 	{
 		.scene                          = scene_buffer,
-		.gbuffer_material_ids           = gbuffers[kGBufferMaterialId],
-		.gbuffer_world_pos              = gbuffers[kGBufferWorldPos],
-		.gbuffer_diffuse_rgb_metallic_a = gbuffers[kGBufferDiffuseRGBMetallicA],
-		.gbuffer_normal_rgb_roughness_a = gbuffers[kGBufferNormalRGBRoughnessA],
-		.render_target                  = color_buffer,
+		.gbuffer_material_ids           = RENDER_BUFFER(kGBufferMaterialId),
+		.gbuffer_world_pos              = RENDER_BUFFER(kGBufferWorldPos),
+		.gbuffer_diffuse_rgb_metallic_a = RENDER_BUFFER(kGBufferDiffuseRGBMetallicA),
+		.gbuffer_normal_rgb_roughness_a = RENDER_BUFFER(kGBufferNormalRGBRoughnessA),
+		.render_target                  = RENDER_BUFFER(kHDRLighting),
 	};
 
 	cmd_set_compute_pso(lighting_pass, &renderer->standard_brdf_pipeline);
 	cmd_compute_bind_shader_resources(lighting_pass, standard_brdf_resources);
 	cmd_dispatch(lighting_pass, work_groups_x, work_groups_y, 1);
 
-	GpuImageDesc blurred_dof_buffer_desc =
 	{
-		.width  = swap_chain->width,
-		.height = swap_chain->height,
-		.format = DXGI_FORMAT_R32G32B32A32_FLOAT,
-		.color_clear_value = Vec4(0, 0, 0, 1),
-	};
-	Handle<GpuImage> blurred_dof_buffer = create_image(&graph, L"Blurred DoF Buffer", blurred_dof_buffer_desc);
-
-	{
-		GpuImageDesc coc_buffer_desc =
-		{
-			.width = swap_chain->width,
-			.height = swap_chain->height,
-			.format = DXGI_FORMAT_R32G32B32A32_FLOAT,
-			.color_clear_value = Vec4(0, 0, 0, 1),
-		};
-		Handle<GpuImage> coc_buffer = create_image(&graph, L"CoC Buffer", coc_buffer_desc);
-
 		// Depth of field
 		interlop::DofOptions dof_options = 
 		{
@@ -243,68 +215,94 @@ execute_render(MEMORY_ARENA_PARAM,
 			.focal_range = render_options.focal_range,
 		};
 	
-		Handle<GpuBuffer> dof_options_buffer = create_buffer(&graph, L"Depth of Field Options", dof_options);
+		Handle<GpuBuffer> dof_options_buffer = create_buffer(&graph, "Depth of Field Options", dof_options);
 	
-		RenderPass* coc_pass = add_render_pass(MEMORY_ARENA_FWD, &graph, kCmdQueueTypeGraphics, L"CoC Generation");
+		RenderPass* coc_pass = add_render_pass(MEMORY_ARENA_FWD, &graph, kCmdQueueTypeGraphics, "CoC Generation");
 	
 		interlop::DofCocComputeResources dof_coc_resources =
 		{
 			.options = dof_options_buffer,
-			.color_buffer = color_buffer,
-			.depth_buffer = gbuffer_depth,
-			.render_target = coc_buffer,
+			.color_buffer = RENDER_BUFFER(kHDRLighting),
+			.depth_buffer = RENDER_BUFFER(kGBufferDepth),
+			.render_target = RENDER_BUFFER(kDoFCoC),
 		};
 		cmd_set_compute_pso(coc_pass, &renderer->dof_coc_pipeline);
 		cmd_compute_bind_shader_resources(coc_pass, dof_coc_resources);
 		cmd_dispatch(coc_pass, work_groups_x, work_groups_y, 1);
 
-		GpuImageDesc real_im_buffer_desc = 
+		RenderPass* coc_dilate_pass = add_render_pass(MEMORY_ARENA_FWD, &graph, kCmdQueueTypeGraphics, "CoC Dilate");
+	
+		interlop::DofCocDilateComputeResources dof_coc_dilate_resources =
 		{
-			.width  = swap_chain->width,
-			.height = swap_chain->height,
-			.format = DXGI_FORMAT_R32G32B32A32_FLOAT,
-			.color_clear_value = Vec4(0, 0, 0, 1),
+			.coc_buffer    = RENDER_BUFFER(kDoFCoC),
+			.render_target = RENDER_BUFFER(kDoFDilatedCoC),
 		};
-		Handle<GpuImage> red_buffer       = create_image(&graph, L"Dof Red Buffer", real_im_buffer_desc);
-		Handle<GpuImage> green_buffer     = create_image(&graph, L"Dof Green Buffer", real_im_buffer_desc);
-		Handle<GpuImage> blue_buffer      = create_image(&graph, L"Dof Blue Buffer", real_im_buffer_desc);
+		cmd_set_compute_pso(coc_dilate_pass, &renderer->dof_coc_dilate_pipeline);
+		cmd_compute_bind_shader_resources(coc_dilate_pass, dof_coc_dilate_resources);
+		cmd_dispatch(coc_dilate_pass, work_groups_x, work_groups_y, 1);
 
-		RenderPass* horiz_pass = add_render_pass(MEMORY_ARENA_FWD, &graph, kCmdQueueTypeGraphics, L"Dof Blur Horizontal");
+		RenderPass* horiz_pass = add_render_pass(MEMORY_ARENA_FWD, &graph, kCmdQueueTypeGraphics, "Dof Blur Horizontal");
 		interlop::DofBlurHorizComputeResources dof_blur_horiz_resources = 
 		{
-			.color_buffer = color_buffer,
-			.coc_buffer   = coc_buffer,
+			.color_buffer = RENDER_BUFFER(kHDRLighting),
+			.coc_buffer   = RENDER_BUFFER(kDoFDilatedCoC),
 
-			.red_target   = red_buffer,
-			.green_target = green_buffer,
-			.blue_target  = blue_buffer,
+			.red_near_target   = RENDER_BUFFER(kDoFRedNear),
+			.green_near_target = RENDER_BUFFER(kDoFGreenNear),
+			.blue_near_target  = RENDER_BUFFER(kDoFBlueNear),
+
+			.red_far_target   = RENDER_BUFFER(kDoFRedFar),
+			.green_far_target = RENDER_BUFFER(kDoFGreenFar),
+			.blue_far_target  = RENDER_BUFFER(kDoFBlueFar),
 		};
 		cmd_set_compute_pso(horiz_pass, &renderer->dof_blur_horiz_pipeline);
 		cmd_compute_bind_shader_resources(horiz_pass, dof_blur_horiz_resources);
-		cmd_dispatch(horiz_pass, work_groups_x, work_groups_y, 1);
+		cmd_dispatch(horiz_pass, work_groups_x, work_groups_y, 2);
 
-		RenderPass* vert_pass = add_render_pass(MEMORY_ARENA_FWD, &graph, kCmdQueueTypeGraphics, L"Dof Blur Vertical");
+		RenderPass* vert_pass = add_render_pass(MEMORY_ARENA_FWD, &graph, kCmdQueueTypeGraphics, "Dof Blur Vertical");
 		interlop::DofBlurVertComputeResources dof_blur_vert_resources = 
 		{
-			.coc_buffer   = coc_buffer,
+			.coc_buffer   = RENDER_BUFFER(kDoFDilatedCoC),
 
-			.red_buffer   = red_buffer,
-			.green_buffer = green_buffer,
-			.blue_buffer  = blue_buffer,
+			.red_near_buffer   = RENDER_BUFFER(kDoFRedNear),
+			.green_near_buffer = RENDER_BUFFER(kDoFGreenNear),
+			.blue_near_buffer  = RENDER_BUFFER(kDoFBlueNear),
 
-			.blurred_target = blurred_dof_buffer,
+			.red_far_buffer   = RENDER_BUFFER(kDoFRedFar),
+			.green_far_buffer = RENDER_BUFFER(kDoFGreenFar),
+			.blue_far_buffer  = RENDER_BUFFER(kDoFBlueFar),
+
+			.blurred_near_target = RENDER_BUFFER(kDoFBlurredNear),
+			.blurred_far_target = RENDER_BUFFER(kDoFBlurredFar),
 		};
 		cmd_set_compute_pso(vert_pass, &renderer->dof_blur_vert_pipeline);
 		cmd_compute_bind_shader_resources(vert_pass, dof_blur_vert_resources);
-		cmd_dispatch(vert_pass, work_groups_x, work_groups_y, 1);
+		cmd_dispatch(vert_pass, work_groups_x, work_groups_y, 2);
+
+		RenderPass* composite_pass = add_render_pass(MEMORY_ARENA_FWD, &graph, kCmdQueueTypeGraphics, "Dof Composite");
+		interlop::DofCompositeComputeResources dof_composite_resources = 
+		{
+			.coc_buffer   = RENDER_BUFFER(kDoFDilatedCoC),
+
+			.color_buffer = RENDER_BUFFER(kHDRLighting),
+			.near_buffer  = RENDER_BUFFER(kDoFBlurredNear),
+			.far_buffer   = RENDER_BUFFER(kDoFBlurredFar),
+
+			.render_target = RENDER_BUFFER(kDoFComposite),
+		};
+		cmd_set_compute_pso(composite_pass, &renderer->dof_composite_pipeline);
+		cmd_compute_bind_shader_resources(composite_pass, dof_composite_resources);
+		cmd_dispatch(composite_pass, work_groups_x, work_groups_y, 1);
+
 	}
 
 
-	Handle<GpuImage> debug_buffer = create_image(&graph, L"Debug Buffer", color_buffer_desc);
+#if 0
+	Handle<GpuImage> debug_buffer = create_image(&graph, "Debug Buffer", color_buffer_desc);
 
 	// Debug passes will output to the output buffer separately and overwrite anything in it.
 	bool using_debug = false;
-	RenderPass* debug_pass = add_render_pass(MEMORY_ARENA_FWD, &graph, kCmdQueueTypeGraphics, L"Debug Pass");
+	RenderPass* debug_pass = add_render_pass(MEMORY_ARENA_FWD, &graph, kCmdQueueTypeGraphics, "Debug Pass");
 	switch(render_options.debug_view)
 	{
 		case kDebugViewGBufferMaterialID:
@@ -317,7 +315,7 @@ execute_render(MEMORY_ARENA_PARAM,
 		{
 			interlop::DebugGBufferOptions options;
 			options.gbuffer_target = u32(render_options.debug_view - kDebugViewGBufferMaterialID);
-			Handle<GpuBuffer> gbuffer_options = create_buffer(&graph, L"Debug GBuffer Options", options);
+			Handle<GpuBuffer> gbuffer_options = create_buffer(&graph, "Debug GBuffer Options", options);
 			interlop::DebugGBufferResources debug_gbuffer_resources =
 			{
 				.options                        = gbuffer_options,
@@ -335,17 +333,18 @@ execute_render(MEMORY_ARENA_PARAM,
 		} break;
 		default: break;
 	}
+#endif
 
 	// Render fullscreen triangle
 	const GpuImage* back_buffer = swap_chain_acquire(swap_chain);
 	Handle<GpuImage> graph_back_buffer = import_back_buffer(&graph, back_buffer);
 
-	RenderPass* output_pass = add_render_pass(MEMORY_ARENA_FWD, &graph, kCmdQueueTypeGraphics, L"Output Pass");
+	RenderPass* output_pass = add_render_pass(MEMORY_ARENA_FWD, &graph, kCmdQueueTypeGraphics, "Output Pass");
 	cmd_clear_render_target_view(output_pass, &graph_back_buffer, Vec4(0.0f, 0.0f, 0.0f, 1.0f));
 	cmd_om_set_render_targets(output_pass, {graph_back_buffer}, None);
 	cmd_set_graphics_pso(output_pass, &renderer->fullscreen_pipeline);
 
-	cmd_graphics_bind_shader_resources<interlop::FullscreenRenderResources>(output_pass, {.texture = using_debug ? debug_buffer : blurred_dof_buffer });
+	cmd_graphics_bind_shader_resources<interlop::FullscreenRenderResources>(output_pass, {.texture = RENDER_BUFFER(kDoFComposite) });
 	cmd_draw_instanced(output_pass, 3, 1, 0, 0);
 	cmd_draw_imgui_on_top(output_pass, &renderer->imgui_descriptor_heap);
 
@@ -368,12 +367,12 @@ init_scene(MEMORY_ARENA_PARAM, const gfx::GraphicsDevice* device)
 	GpuBufferDesc vertex_uber_desc = {0};
 	vertex_uber_desc.size = MiB(512);
 
-	ret.vertex_uber_buffer = alloc_gpu_buffer_no_heap(device, vertex_uber_desc, kGpuHeapTypeLocal, L"Vertex Buffer");
+	ret.vertex_uber_buffer = alloc_gpu_buffer_no_heap(device, vertex_uber_desc, kGpuHeapTypeLocal, "Vertex Buffer");
 
 	GpuBufferDesc index_uber_desc = {0};
 	index_uber_desc.size = MiB(256);
 
-	ret.index_uber_buffer = alloc_gpu_buffer_no_heap(device, index_uber_desc, kGpuHeapTypeLocal, L"Index Buffer");
+	ret.index_uber_buffer = alloc_gpu_buffer_no_heap(device, index_uber_desc, kGpuHeapTypeLocal, "Index Buffer");
 	return ret;
 }
 
@@ -385,7 +384,7 @@ init_global_upload_context(MEMORY_ARENA_PARAM, const gfx::GraphicsDevice* device
 	GpuBufferDesc staging_desc = {0};
 	staging_desc.size = MiB(32);
 
-	g_upload_context.staging_buffer = alloc_gpu_buffer_no_heap(device, staging_desc, kGpuHeapTypeUpload, L"Staging Buffer");
+	g_upload_context.staging_buffer = alloc_gpu_buffer_no_heap(device, staging_desc, kGpuHeapTypeUpload, "Staging Buffer");
 	g_upload_context.staging_offset = 0;
 	g_upload_context.cmd_list_allocator = init_cmd_list_allocator(MEMORY_ARENA_FWD, device, &device->copy_queue, 16);
 	g_upload_context.cmd_list = alloc_cmd_list(&g_upload_context.cmd_list_allocator);
@@ -559,11 +558,11 @@ load_mesh_from_file(MEMORY_ARENA_PARAM,
 		.vertex_shader = shader_manager.shaders[vertex_shader],
 		.pixel_shader = shader_manager.shaders[material_shader],
 		.rtv_formats = kGBufferRenderTargetFormats,
-		.dsv_format = kGBufferDepthFormat,
+		.dsv_format = kRenderBufferDescs[RenderBuffers::kGBufferDepth].format,
 		.comparison_func = kDepthComparison,
 		.stencil_enable = false,
 	};
-	GraphicsPSO pso = init_graphics_pipeline(g_upload_context.device, graphics_pipeline_desc, L"Mesh PSO");
+	GraphicsPSO pso = init_graphics_pipeline(g_upload_context.device, graphics_pipeline_desc, "Mesh PSO");
 	for (Mesh& mesh : ret)
 	{
 		mesh.vertex_shader = vertex_shader;

@@ -8,32 +8,48 @@ ConstantBuffer<interlop::DofBlurVertComputeResources> compute_resources : regist
 [numthreads(8, 8, 1)]
 void main( uint3 thread_id : SV_DispatchThreadID )
 {
-	Texture2D<float>  coc_buffer    = ResourceDescriptorHeap[compute_resources.coc_buffer];
+	Texture2D<half2>    coc_buffer    = ResourceDescriptorHeap[compute_resources.coc_buffer];
 
-	Texture2D<float4> red_buffer    = ResourceDescriptorHeap[compute_resources.red_buffer];
-	Texture2D<float4> blue_buffer   = ResourceDescriptorHeap[compute_resources.blue_buffer];
-	Texture2D<float4> green_buffer  = ResourceDescriptorHeap[compute_resources.green_buffer];
+	Texture2D<half4>    red_near_buffer    = ResourceDescriptorHeap[compute_resources.red_near_buffer];
+	Texture2D<half4>    blue_near_buffer   = ResourceDescriptorHeap[compute_resources.blue_near_buffer];
+	Texture2D<half4>    green_near_buffer  = ResourceDescriptorHeap[compute_resources.green_near_buffer];
 
-	RWTexture2D<float4> blurred_target = ResourceDescriptorHeap[compute_resources.blurred_target];
+	Texture2D<half4>    red_far_buffer    = ResourceDescriptorHeap[compute_resources.red_far_buffer];
+	Texture2D<half4>    blue_far_buffer   = ResourceDescriptorHeap[compute_resources.blue_far_buffer];
+	Texture2D<half4>    green_far_buffer  = ResourceDescriptorHeap[compute_resources.green_far_buffer];
+
+	RWTexture2D<float4> blurred_near_target = ResourceDescriptorHeap[compute_resources.blurred_near_target];
+	RWTexture2D<float4> blurred_far_target = ResourceDescriptorHeap[compute_resources.blurred_far_target];
 
 	float2 resolution;
-	blurred_target.GetDimensions(resolution.x, resolution.y);
+	blurred_near_target.GetDimensions(resolution.x, resolution.y);
 
 	float2 uv_step = float2(1.0f, 1.0f) / resolution;
 	float2 uv      = thread_id.xy       / resolution;
+ 
+	bool is_near = thread_id.z == 0;
+	half filter_radius = is_near ? coc_buffer[thread_id.xy].x : coc_buffer[thread_id.xy].y;
 
-	static const float kFilterRadius = 3.0f;
-
-	float4 red_component   = float4(0.0f, 0.0f, 0.0f, 0.0f);
-	float4 green_component = float4(0.0f, 0.0f, 0.0f, 0.0f);
-	float4 blue_component  = float4(0.0f, 0.0f, 0.0f, 0.0f);
+	half4 red_component   = half4(0.0h, 0.0h, 0.0h, 0.0h);
+	half4 green_component = half4(0.0h, 0.0h, 0.0h, 0.0h);
+	half4 blue_component  = half4(0.0h, 0.0h, 0.0h, 0.0h);
 	for (int i = -kKernelRadius; i <= kKernelRadius; i++)
 	{
-		float2 sample_uv  = uv + uv_step * float2(0.0f, (float)i) * kFilterRadius;
+		float2 sample_uv  = uv + uv_step * float2(0.0f, (float)i) * filter_radius;
 
-		float4 sample_red = red_buffer.Sample(g_ClampSampler, sample_uv);
-		float4 sample_green = green_buffer.Sample(g_ClampSampler, sample_uv);
-		float4 sample_blue = blue_buffer.Sample(g_ClampSampler, sample_uv);
+		half4 sample_red, sample_green, sample_blue;
+		if (is_near)
+		{
+			sample_red   = red_near_buffer.Sample(g_ClampSampler, sample_uv);
+			sample_green = green_near_buffer.Sample(g_ClampSampler, sample_uv);
+			sample_blue  = blue_near_buffer.Sample(g_ClampSampler, sample_uv);
+		}
+		else
+		{
+			sample_red   = red_far_buffer.Sample(g_ClampSampler, sample_uv);
+			sample_green = green_far_buffer.Sample(g_ClampSampler, sample_uv);
+			sample_blue  = blue_far_buffer.Sample(g_ClampSampler, sample_uv);
+		}
 
 		float2 c0 = kKernel0_RealX_ImY_RealZ_ImW[i + kKernelRadius].xy;
 		float2 c1 = kKernel1_RealX_ImY_RealZ_ImW[i + kKernelRadius].xy;
@@ -53,5 +69,12 @@ void main( uint3 thread_id : SV_DispatchThreadID )
 	output_color.g = dot(green_component.xy, kKernel0Weights_RealX_ImY) + dot(green_component.zw, kKernel1Weights_RealX_ImY);
 	output_color.b = dot(blue_component.xy, kKernel0Weights_RealX_ImY) + dot(blue_component.zw, kKernel1Weights_RealX_ImY);
 	output_color.a = 1.0f;
-	blurred_target[thread_id.xy] = output_color;
+	if (is_near)
+	{
+		blurred_near_target[thread_id.xy] = output_color;
+	}
+	else
+	{
+		blurred_far_target[thread_id.xy] = output_color;
+	}
 }

@@ -4,32 +4,6 @@
 #include "shaders/interlop.hlsli"
 
 constant D3D12_COMPARISON_FUNC kDepthComparison = D3D12_COMPARISON_FUNC_GREATER;
-constant DXGI_FORMAT kGBufferDepthFormat = DXGI_FORMAT_D32_FLOAT;
-constant DXGI_FORMAT kColorBufferFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
-enum GBufferRenderTargets
-{
-	kGBufferMaterialId,
-	kGBufferWorldPos,
-	kGBufferDiffuseRGBMetallicA,
-	kGBufferNormalRGBRoughnessA,
-
-	kGBufferRenderTargetCount,
-};
-constant DXGI_FORMAT kGBufferRenderTargetFormats[] = 
-{
-	DXGI_FORMAT_R32_UINT,            // Material ID
-	DXGI_FORMAT_R32G32B32A32_FLOAT,  // Position   32 bits to spare
-	DXGI_FORMAT_R8G8B8A8_UNORM,      // RGB -> Diffuse, A -> Metallic
-	DXGI_FORMAT_R8G8B8A8_UNORM,      // RGB -> Normal,  A -> Roughness
-};
-
-constant const wchar_t* kGBufferRenderTargetNames[]
-{
-	L"Material ID",
-	L"World Position",
-	L"RGB -> Diffuse, A -> Metallic",
-	L"RGB -> Normal, A -> Roughness",
-};
 
 constant f32 kZNear = 0.1f;
 
@@ -59,10 +33,15 @@ enum ShaderIndex : u8
 	kPsFullscreen,
 
 	kCsStandardBrdf,
+
 	kCsDofCoC,
+	kCsDofCoCDilate,
 	kCsDofBlurHoriz,
 	kCsDofBlurVert,
+	kCsDofComposite,
+
 	kCsDebugGBuffer,
+	kCsDebugCoC,
 
 	kShaderCount,
 };
@@ -76,11 +55,17 @@ static const wchar_t* kShaderPaths[] =
 	L"pixel/fullscreen_ps.hlsl.bin",
 
 	L"compute/standard_brdf_cs.hlsl.bin",
+
 	L"compute/dof_coc_cs.hlsl.bin",
+	L"compute/dof_coc_dilate_cs.hlsl.bin",
 	L"compute/dof_blur_horiz_cs.hlsl.bin",
 	L"compute/dof_blur_vert_cs.hlsl.bin",
+	L"compute/dof_composite_cs.hlsl.bin",
+
 	L"compute/debug_gbuffer_cs.hlsl.bin",
+	L"compute/debug_coc_cs.hlsl.bin",
 };
+static_assert(ARRAY_LENGTH(kShaderPaths) == kShaderCount);
 
 struct ShaderManager
 {
@@ -89,22 +74,6 @@ struct ShaderManager
 
 ShaderManager init_shader_manager(const gfx::GraphicsDevice* device);
 void destroy_shader_manager(ShaderManager* shader_manager);
-
-//struct GBufferPSOKey
-//{
-//	ShaderIndex vertex_shader;
-//	ShaderIndex material_shader;
-//};
-//
-//struct PSOManager
-//{
-//	HashTable<GBufferPSOKey, gfx::GraphicsPSO> gbuffer_pso_cache;
-//};
-//
-//PSOManager init_pso_manager(const gfx::GraphicsDevice* device);
-//void destroy_pso_manager(PSOManager* pso_manager);
-//
-//const gfx::GraphicsPSO* get_pso(const PSOManager& manager, ShaderIndex vertex, ShaderIndex material, )
 
 struct Mesh
 {
@@ -115,39 +84,110 @@ struct Mesh
 	ShaderIndex material_shader = kPsBasicNormalGloss;
 };
 
-enum RendererDebugView
+struct RenderBufferDesc
 {
-	kDebugViewFullLighting,
-	kDebugViewGBufferMaterialID,
-	kDebugViewGBufferWorldPosition,
-	kDebugViewGBufferDiffuse,
-	kDebugViewGBufferMetallic,
-	kDebugViewGBufferNormal,
-	kDebugViewGBufferRoughness,
-	kDebugViewGBufferDepth,
+	const char* debug_name = "Unknown Render Buffer";
+	DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
 
-	kDebugViewsCount,
+	union
+	{
+		Vec4 color_clear_value;
+		struct
+		{
+			f32 depth_clear_value;
+			s8 stencil_clear_value;
+		};
+	};
 };
 
-static const char* kDebugViewNames[] =
+#define DECLARE_RENDER_BUFFER_EX(name, dxgi_format, clear_value) {.debug_name = name, .format = dxgi_format, .color_clear_value = clear_value}
+#define DECLARE_RENDER_BUFFER(debug_name, format) DECLARE_RENDER_BUFFER_EX(debug_name, format, Vec4(0, 0, 0, 1))
+#define DECLARE_DEPTH_BUFFER_EX(name, dxgi_format, depth_clear, stencil_clear) {.debug_name = name, .format = dxgi_format, .depth_clear_value = depth_clear, .stencil_clear_value = stencil_clear}
+#define DECLARE_DEPTH_BUFFER(debug_name, format) DECLARE_DEPTH_BUFFER_EX(debug_name, format, 0.0f, 0)
+
+namespace RenderBuffers
 {
-	"Full Lighting",
-	"Material ID",
-	"World Position",
-	"Diffuse",
-	"Metallic",
-	"Normal",
-	"Roughness",
-	"Depth",
+	enum Entry
+	{
+		kGBufferMaterialId,
+		kGBufferWorldPos,
+		kGBufferDiffuseRGBMetallicA,
+		kGBufferNormalRGBRoughnessA,
+		kGBufferDepth,
+
+		kHDRLighting,
+
+		kDoFCoC,
+		kDoFDilatedCoC,
+
+		kDoFRedNear,
+		kDoFGreenNear,
+		kDoFBlueNear,
+
+		kDoFRedFar,
+		kDoFGreenFar,
+		kDoFBlueFar,
+
+		kDoFBlurredNear,
+		kDoFBlurredFar,
+
+		kDoFComposite,
+
+		kNone,
+		kCount = kNone,
+	};
+}
+
+enum
+{
+	kGBufferRTCount = RenderBuffers::kGBufferNormalRGBRoughnessA - RenderBuffers::kGBufferMaterialId + 1,
 };
-static_assert(ARRAY_LENGTH(kDebugViewNames) == kDebugViewsCount);
+
+static const DXGI_FORMAT kGBufferRenderTargetFormats[] = 
+{
+	DXGI_FORMAT_R32_UINT,            // Material ID
+	DXGI_FORMAT_R32G32B32A32_FLOAT,  // Position   32 bits to spare
+	DXGI_FORMAT_R8G8B8A8_UNORM,      // RGB -> Diffuse, A -> Metallic
+	DXGI_FORMAT_R8G8B8A8_UNORM,      // RGB -> Normal,  A -> Roughness
+};
+
+static const RenderBufferDesc kRenderBufferDescs[] =
+{
+	DECLARE_RENDER_BUFFER_EX("GBuffer Material ID", kGBufferRenderTargetFormats[RenderBuffers::kGBufferMaterialId], Vec4()),
+	DECLARE_RENDER_BUFFER_EX("GBuffer World Pos", kGBufferRenderTargetFormats[RenderBuffers::kGBufferWorldPos], Vec4()),
+	DECLARE_RENDER_BUFFER_EX("GBuffer Diffuse RGB Metallic A", kGBufferRenderTargetFormats[RenderBuffers::kGBufferDiffuseRGBMetallicA], Vec4()),
+	DECLARE_RENDER_BUFFER_EX("GBuffer Normal RGB Roughness A", kGBufferRenderTargetFormats[RenderBuffers::kGBufferNormalRGBRoughnessA], Vec4()),
+	DECLARE_DEPTH_BUFFER("GBuffer Depth", DXGI_FORMAT_D32_FLOAT),
+
+	DECLARE_RENDER_BUFFER("HDR Lighting", DXGI_FORMAT_R16G16B16A16_FLOAT),
+
+	// TODO(Brandon): Holy shit that's a lot of memory
+	DECLARE_RENDER_BUFFER("DoF CoC Near R Far G", DXGI_FORMAT_R16G16_FLOAT),
+	DECLARE_RENDER_BUFFER("DoF CoC Dilated Near R Far G", DXGI_FORMAT_R16G16_FLOAT),
+
+	DECLARE_RENDER_BUFFER("DoF Red Near", DXGI_FORMAT_R16G16B16A16_FLOAT),
+	DECLARE_RENDER_BUFFER("DoF Green Near", DXGI_FORMAT_R16G16B16A16_FLOAT),
+	DECLARE_RENDER_BUFFER("DoF Blue Near", DXGI_FORMAT_R16G16B16A16_FLOAT),
+
+	DECLARE_RENDER_BUFFER("DoF Red Far", DXGI_FORMAT_R16G16B16A16_FLOAT),
+	DECLARE_RENDER_BUFFER("DoF Green Far", DXGI_FORMAT_R16G16B16A16_FLOAT),
+	DECLARE_RENDER_BUFFER("DoF Blue Far", DXGI_FORMAT_R16G16B16A16_FLOAT),
+
+	DECLARE_RENDER_BUFFER("DoF Blurred Near", DXGI_FORMAT_R16G16B16A16_FLOAT),
+	DECLARE_RENDER_BUFFER("DoF Blurred Far", DXGI_FORMAT_R16G16B16A16_FLOAT),
+
+	DECLARE_RENDER_BUFFER("DoF Composite", DXGI_FORMAT_R16G16B16A16_FLOAT),
+};
+static_assert(ARRAY_LENGTH(kRenderBufferDescs) == RenderBuffers::kCount);
+
+#define GET_RENDER_BUFFER_NAME(entry) kRenderBufferDescs[entry].debug_name
 
 struct RenderOptions
 {
 	f32 aperture = 5.6f;
 	f32 focal_dist = 10.0f;
 	f32 focal_range = 5.0f;
-	RendererDebugView debug_view = kDebugViewFullLighting;
+	RenderBuffers::Entry debug_view = RenderBuffers::kDoFBlurredNear;
 };
 
 struct Renderer
@@ -158,8 +198,10 @@ struct Renderer
 	gfx::ComputePSO standard_brdf_pipeline;
 
 	gfx::ComputePSO dof_coc_pipeline;
+	gfx::ComputePSO dof_coc_dilate_pipeline;
 	gfx::ComputePSO dof_blur_horiz_pipeline;
 	gfx::ComputePSO dof_blur_vert_pipeline;
+	gfx::ComputePSO dof_composite_pipeline;
 
 	gfx::ComputePSO debug_gbuffer_pipeline;
 

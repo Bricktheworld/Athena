@@ -447,11 +447,16 @@ namespace gfx
 	}
 	
 	void
-	wait_for_device_idle(const GraphicsDevice* device)
+	wait_for_device_idle(GraphicsDevice* device)
 	{
-	//	yield_flush_queue(&device->graphics_queue);
-	//	yield_flush_queue(&device->compute_queue);
-	//	yield_flush_queue(&device->copy_queue);
+		FenceValue value = cmd_queue_signal(&device->graphics_queue, &device->graphics_cmd_allocator.fence);
+		block_for_fence_value(&device->graphics_cmd_allocator.fence, value);
+
+		value = cmd_queue_signal(&device->compute_queue, &device->compute_cmd_allocator.fence);
+		block_for_fence_value(&device->compute_cmd_allocator.fence, value);
+
+		value = cmd_queue_signal(&device->copy_queue, &device->copy_cmd_allocator.fence);
+		block_for_fence_value(&device->copy_cmd_allocator.fence, value);
 	}
 	
 	void
@@ -490,7 +495,7 @@ namespace gfx
 	}
 	
 	GpuImage
-	alloc_gpu_image_2D_no_heap(const GraphicsDevice* device, GpuImageDesc desc, const wchar_t* name)
+	alloc_gpu_image_2D_no_heap(const GraphicsDevice* device, GpuImageDesc desc, const char* name)
 	{
 		GpuImage ret = {0};
 		ret.desc = desc;
@@ -535,7 +540,8 @@ namespace gfx
 																									p_clear_value,
 																									IID_PPV_ARGS(&ret.d3d12_image)));
 	
-		ret.d3d12_image->SetName(name);
+//		ret.d3d12_image->SetName(name);
+		ret.d3d12_image->SetPrivateData(WKPDID_D3DDebugObjectName, (u32)strlen(name), name);
 		ret.state = desc.initial_state;
 	
 		return ret;
@@ -552,7 +558,7 @@ namespace gfx
 	alloc_gpu_image_2D(const GraphicsDevice* device,
 										GpuLinearAllocator* allocator,
 										GpuImageDesc desc,
-										const wchar_t* name)
+										const char* name)
 	{
 		GpuImage ret = {0};
 		ret.desc = desc;
@@ -602,7 +608,7 @@ namespace gfx
 																								p_clear_value,
 																								IID_PPV_ARGS(&ret.d3d12_image)));
 	
-		ret.d3d12_image->SetName(name);
+//		ret.d3d12_image->SetName(name);
 		ret.state = desc.initial_state;
 	
 		allocator->pos = new_pos;
@@ -614,7 +620,7 @@ namespace gfx
 	alloc_gpu_buffer_no_heap(const GraphicsDevice* device,
 													GpuBufferDesc desc,
 													GpuHeapType type,
-													const wchar_t* name)
+													const char* name)
 	{
 		GpuBuffer ret = {0};
 		ret.desc = desc;
@@ -628,7 +634,7 @@ namespace gfx
 																									D3D12_RESOURCE_STATE_COMMON,
 																									nullptr,
 																									IID_PPV_ARGS(&ret.d3d12_buffer)));
-		ret.d3d12_buffer->SetName(name);
+//		ret.d3d12_buffer->SetName(name);
 		ret.gpu_addr = ret.d3d12_buffer->GetGPUVirtualAddress();
 		if (type == kGpuHeapTypeUpload)
 		{
@@ -652,7 +658,7 @@ namespace gfx
 	alloc_gpu_buffer(const GraphicsDevice* device,
 									GpuLinearAllocator* allocator,
 									GpuBufferDesc desc,
-									const wchar_t* name)
+									const char* name)
 	{
 		// NOTE(Brandon): For simplicity's sake of CBVs, I just align all the sizes to 256.
 		desc.size = ALIGN_POW2(desc.size, 256);
@@ -675,7 +681,7 @@ namespace gfx
 																								nullptr,
 																								IID_PPV_ARGS(&ret.d3d12_buffer)));
 	
-		ret.d3d12_buffer->SetName(name);
+//		ret.d3d12_buffer->SetName(name);
 		ret.gpu_addr = ret.d3d12_buffer->GetGPUVirtualAddress();
 		if (allocator->heap.type == kGpuHeapTypeUpload)
 		{
@@ -704,7 +710,7 @@ namespace gfx
 		// TODO(Brandon): Maybe flag deny shader resource?
 		desc.flags = D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE;
 	
-		ret.gpu_buffer = alloc_gpu_buffer_no_heap(device, desc, kGpuHeapTypeUpload, L"GPU Upload Ring Buffer");
+		ret.gpu_buffer = alloc_gpu_buffer_no_heap(device, desc, kGpuHeapTypeUpload, "GPU Upload Ring Buffer");
 		ret.size = size;
 		ret.read = 0;
 		ret.write = 0;
@@ -1144,7 +1150,7 @@ namespace gfx
 	GraphicsPSO
 	init_graphics_pipeline(const GraphicsDevice* device,
 												GraphicsPipelineDesc desc,
-												const wchar_t* name)
+												const char* name)
 	{
 //		ASSERT(desc.rtv_formats.size <= 8);
 	
@@ -1205,7 +1211,7 @@ namespace gfx
 	
 		HASSERT(device->d3d12->CreateGraphicsPipelineState(&pso_desc, IID_PPV_ARGS(&ret.d3d12_pso)));
 	
-		ret.d3d12_pso->SetName(name);
+//		ret.d3d12_pso->SetName(name);
 	
 		return ret;
 	}
@@ -1218,7 +1224,7 @@ namespace gfx
 	}
 
 	ComputePSO
-	init_compute_pipeline(const GraphicsDevice* device, GpuShader compute_shader, const wchar_t* name)
+	init_compute_pipeline(const GraphicsDevice* device, GpuShader compute_shader, const char* name)
 	{
 		ComputePSO ret;
 		D3D12_COMPUTE_PIPELINE_STATE_DESC desc;

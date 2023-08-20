@@ -52,7 +52,7 @@ namespace gfx::render
 				u8 upload_data[256];
 			} buffer_desc;
 		};
-		const wchar_t* name = nullptr;
+		const char* name = nullptr;
 		ResourceType type = kResourceTypeImage;
 	};
 
@@ -421,7 +421,7 @@ namespace gfx::render
 		u64 queue_execution_index = 0;
 
 		Array<RenderPassId> synchronization_index;
-		const wchar_t* name = L"Unnamed";
+		const char* name = "Unnamed";
 	};
 
 	struct RenderGraph
@@ -446,7 +446,7 @@ namespace gfx::render
 	RenderPass* add_render_pass(MEMORY_ARENA_PARAM,
 	                            RenderGraph* graph,
 	                            CmdQueueType queue,
-	                            const wchar_t* name);
+	                            const char* name);
 
 	// Invalidates all render passes and submits them.
 	void execute_render_graph(MEMORY_ARENA_PARAM,
@@ -455,19 +455,19 @@ namespace gfx::render
 	                          TransientResourceCache* cache,
 	                          u32 frame_index);
 
-	Handle<GpuImage>  create_image(RenderGraph* graph, const wchar_t* name, GpuImageDesc desc);
-	Handle<Sampler>   create_sampler(RenderGraph* graph, const wchar_t* name);
+	Handle<GpuImage>  create_image(RenderGraph* graph, const char* name, GpuImageDesc desc);
+	Handle<Sampler>   create_sampler(RenderGraph* graph, const char* name);
 
 	// When creating transient buffers, if a src is provided, then it will implicitly
 	// be allocated on the upload heap. Thus, we restrict the size of `src` to < 256 bytes.
 	Handle<GpuBuffer> create_buffer(RenderGraph* graph,
-	                                       const wchar_t* name,
+	                                       const char* name,
 	                                       GpuBufferDesc desc,
 	                                       Option<const void*> src);
 
 	template <typename T>
 	Handle<GpuBuffer> create_buffer(RenderGraph* graph,
-	                                       const wchar_t* name,
+	                                       const char* name,
 	                                       const T& src)
 	{
 		static_assert(sizeof(T) <= 256, "Upload buffers in Render Graph cannot be >256 bytes");

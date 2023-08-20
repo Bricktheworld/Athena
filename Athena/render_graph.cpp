@@ -83,7 +83,7 @@ namespace gfx::render
 	}
 
 	RenderPass*
-	add_render_pass(MEMORY_ARENA_PARAM, RenderGraph* graph, CmdQueueType queue, const wchar_t* name)
+	add_render_pass(MEMORY_ARENA_PARAM, RenderGraph* graph, CmdQueueType queue, const char* name)
 	{
 		RenderPass* ret = array_add(&graph->render_passes);
 
@@ -108,7 +108,7 @@ namespace gfx::render
 
 
 	Handle<GpuImage>
-	create_image(RenderGraph* graph, const wchar_t* name, GpuImageDesc desc)
+	create_image(RenderGraph* graph, const char* name, GpuImageDesc desc)
 	{
 		ResourceHandle resource_handle = {0};
 		resource_handle.id = handle_index(graph);
@@ -126,7 +126,7 @@ namespace gfx::render
 	}
 
 	Handle<Sampler>
-	create_sampler(RenderGraph* graph, const wchar_t* name)
+	create_sampler(RenderGraph* graph, const char* name)
 	{
 		ResourceHandle resource_handle = {0};
 		resource_handle.id = handle_index(graph);
@@ -143,7 +143,7 @@ namespace gfx::render
 	}
 
 	Handle<GpuBuffer>
-	create_buffer(RenderGraph* graph, const wchar_t* name, GpuBufferDesc desc, Option<const void*> src)
+	create_buffer(RenderGraph* graph, const char* name, GpuBufferDesc desc, Option<const void*> src)
 	{
 		ResourceHandle resource_handle = {0};
 		resource_handle.id = handle_index(graph);

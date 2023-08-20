@@ -14,5 +14,4 @@ float4 main(PSInput IN) : SV_TARGET
 {
 	Texture2D<float4> input = ResourceDescriptorHeap[render_resources.texture];
 	return input.Sample(g_ClampSampler, IN.uv);
-//	return 0.1f / input.Sample(g_ClampSampler, IN.uv) * 0.0005f;
 }

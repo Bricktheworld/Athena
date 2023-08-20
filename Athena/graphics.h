@@ -121,7 +121,7 @@ namespace gfx
 	GraphicsDevice init_graphics_device(MEMORY_ARENA_PARAM);
 	void destroy_graphics_device(GraphicsDevice* device);
 	
-	void wait_for_device_idle(const GraphicsDevice* device);
+	void wait_for_device_idle(GraphicsDevice* device);
 	
 	enum GpuHeapType : u8
 	{
@@ -192,13 +192,13 @@ namespace gfx
 	
 	GpuImage alloc_gpu_image_2D_no_heap(const GraphicsDevice* device,
 																			GpuImageDesc desc,
-																			const wchar_t* name);
+																			const char* name);
 	void free_gpu_image(GpuImage* image);
 	
 	GpuImage alloc_gpu_image_2D(const GraphicsDevice* device,
 															GpuLinearAllocator* allocator,
 															GpuImageDesc desc,
-															const wchar_t* name);
+															const char* name);
 
 	bool is_depth_format(DXGI_FORMAT format);
 	
@@ -220,13 +220,13 @@ namespace gfx
 	GpuBuffer alloc_gpu_buffer_no_heap(const GraphicsDevice* device,
 																		GpuBufferDesc desc,
 																		GpuHeapType type,
-																		const wchar_t* name);
+																		const char* name);
 	void free_gpu_buffer(GpuBuffer* buffer);
 	
 	GpuBuffer alloc_gpu_buffer(const GraphicsDevice* device,
 														GpuLinearAllocator* allocator,
 														GpuBufferDesc desc,
-														const wchar_t* name);
+														const char* name);
 	
 	struct GpuUploadRange
 	{
@@ -395,7 +395,7 @@ namespace gfx
 	};
 	GraphicsPSO init_graphics_pipeline(const GraphicsDevice* device,
 																		 GraphicsPipelineDesc desc,
-																		 const wchar_t* name);
+																		 const char* name);
 	void destroy_graphics_pipeline(GraphicsPSO* pipeline);
 
 
@@ -404,7 +404,7 @@ namespace gfx
 		ID3D12PipelineState* d3d12_pso = nullptr;
 	};
 
-	ComputePSO init_compute_pipeline(const GraphicsDevice* device, GpuShader compute_shader, const wchar_t* name);
+	ComputePSO init_compute_pipeline(const GraphicsDevice* device, GpuShader compute_shader, const char* name);
 	void destroy_compute_pipeline(ComputePSO* pipeline);
 	
 	struct SwapChain
@@ -419,13 +419,6 @@ namespace gfx
 	
 		GpuImage* back_buffers[kFramesInFlight] = {0};
 		u32 back_buffer_index = 0;
-	//	RenderTargetView back_buffer_views[kFramesInFlight] = {0};
-	
-	//	GpuImage* depth_buffer;
-	//	DepthStencilView depth_stencil_view;
-	
-	//	DescriptorHeap render_target_view_heap;
-	//	DescriptorHeap depth_stencil_view_heap;
 	
 		bool vsync = false;
 		bool tearing_supported = false;

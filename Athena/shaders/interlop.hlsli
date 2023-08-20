@@ -117,25 +117,52 @@ namespace interlop
 		UAV(GpuImage)   render_target;
 	};
 
+	struct DofCocDilateComputeResources
+	{
+		SRV(GpuImage)   coc_buffer;
+
+		UAV(GpuImage)   render_target;
+	};
+
 	struct DofBlurHorizComputeResources
 	{
 		SRV(GpuImage)   color_buffer;
 		SRV(GpuImage)   coc_buffer;
 
-		UAV(GpuImage)   red_target;
-		UAV(GpuImage)   green_target;
-		UAV(GpuImage)   blue_target;
+		UAV(GpuImage)   red_near_target;
+		UAV(GpuImage)   green_near_target;
+		UAV(GpuImage)   blue_near_target;
+
+		UAV(GpuImage)   red_far_target;
+		UAV(GpuImage)   green_far_target;
+		UAV(GpuImage)   blue_far_target;
 	};
 
 	struct DofBlurVertComputeResources
 	{
 		SRV(GpuImage)   coc_buffer;
 
-		SRV(GpuImage)   red_buffer;
-		SRV(GpuImage)   green_buffer;
-		SRV(GpuImage)   blue_buffer;
+		SRV(GpuImage)   red_near_buffer;
+		SRV(GpuImage)   green_near_buffer;
+		SRV(GpuImage)   blue_near_buffer;
 
-		UAV(GpuImage)   blurred_target;
+		SRV(GpuImage)   red_far_buffer;
+		SRV(GpuImage)   green_far_buffer;
+		SRV(GpuImage)   blue_far_buffer;
+
+		UAV(GpuImage)   blurred_near_target;
+		UAV(GpuImage)   blurred_far_target;
+	};
+
+	struct DofCompositeComputeResources
+	{
+		SRV(GpuImage)   coc_buffer;
+
+		SRV(GpuImage)   color_buffer;
+		SRV(GpuImage)   near_buffer;
+		SRV(GpuImage)   far_buffer;
+
+		UAV(GpuImage)   render_target;
 	};
 
 	struct DebugGBufferOptions
@@ -153,6 +180,13 @@ namespace interlop
 		SRV(GpuImage)            gbuffer_depth;
 
 		UAV(GpuImage)            render_target;
+	};
+
+	struct DebugCoCResources
+	{
+		SRV(GpuImage) coc_buffer;
+
+		UAV(GpuImage) render_target;
 	};
 }
 

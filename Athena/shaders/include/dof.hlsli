@@ -3,6 +3,10 @@
 static const int kKernelRadius = 8;
 static const int kKernelCount = 17;
 
+static const int kDilateSize = 8;
+
+static const half kMaxCoC = 2.0h;
+
 static const float4 kKernel0BracketsRealXY_ImZW = float4(-0.045884,1.097245,-0.033796,0.838935);
 static const float2 kKernel0Weights_RealX_ImY = float2(0.411259,-0.548794);
 static const float4 kKernel0_RealX_ImY_RealZ_ImW[] =

@@ -105,14 +105,14 @@ draw_debug(RenderOptions* out_render_options)
 
 	ImGui::Begin("Rendering");
 
-	if (ImGui::BeginCombo("View", kDebugViewNames[out_render_options->debug_view]))
+	if (ImGui::BeginCombo("View", GET_RENDER_BUFFER_NAME(out_render_options->debug_view)))
 	{
-		for (u32 i = 0; i < kDebugViewsCount; i++)
+		for (u32 i = 0; i < RenderBuffers::kCount; i++)
 		{
 			bool is_selected = out_render_options->debug_view == i;
-			if (ImGui::Selectable(kDebugViewNames[i], is_selected))
+			if (ImGui::Selectable(GET_RENDER_BUFFER_NAME(i), is_selected))
 			{
-				out_render_options->debug_view = (RendererDebugView)i;
+				out_render_options->debug_view = (RenderBuffers::Entry)i;
 			}
 	
 			if (is_selected)
@@ -272,6 +272,7 @@ application_entry(MEMORY_ARENA_PARAM, HINSTANCE instance, int show_code, JobSyst
 		});
 	}
 
+	wait_for_device_idle(&graphics_device);
 	kill_job_system(job_system);
 }
 
