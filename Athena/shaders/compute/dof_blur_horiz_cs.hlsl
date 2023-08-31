@@ -40,7 +40,20 @@ void main( uint3 thread_id : SV_DispatchThreadID )
 		half2  sample_coc_pair = coc_buffer.Sample(g_ClampSampler, sample_uv);
 		half   sample_coc   = is_near ? sample_coc_pair.x : sample_coc_pair.y;
 
-		half   multiplier		= clamp(sample_coc, 0.0h, 1.0h);
+		// TODO(Brandon): There's an annoying pop-in halo effect that occurs very abruptly when objects move from
+		// the focus range into the far plane. This is caused by _very_ far pixels immediately going from not
+		// sampling objects that are in focus to doing a full blur (since they are very far they have a large CoC).
+		// The fix is to do some sort of multiplier that is dependent on the difference between CoCs. The idea being,
+		// if a very far and large CoC is sampling one with a very small CoC, it shouldn't have as much of an impact.
+		// Another way of doing this as described in the original paper is to simply multiply by the CoC,
+		// but this results in a much more ugly darkening effect at the boundaries between near, focus, and far.
+		// This is kinda a complex problem so I'm not entirely sure how to solve it. It's just not worth my time
+		// right now to solve :P
+		half   multiplier		= 1.0h; //clamp(sample_coc, 0.0h, 1.0h);
+		if (!is_near && sample_coc <= 0.0h)
+		{
+			multiplier = 0.0h;
+		}
 
 
 		red_component      += compute_c0_xy_c1_zw(sample_color.r * multiplier, i);

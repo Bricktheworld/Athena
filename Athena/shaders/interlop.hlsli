@@ -9,6 +9,7 @@
 #define UAV(T) gfx::render::Uav<T>
 #define SAMPLER gfx::render::Sampler
 using GpuImage = gfx::GpuImage;
+using GpuBvh   = gfx::GpuBvh;
 
 #else
 #define CONSTANT_BUFFER
@@ -19,6 +20,7 @@ typedef float4 Vec4;
 typedef uint u32;
 typedef float f32;
 struct GpuImage;
+struct GpuBvh;
 
 #define SRV(T) u32
 #define CBV(T) u32
@@ -31,8 +33,8 @@ struct GpuImage;
 namespace interlop
 {
 	struct Vertex
-	{
-		Vec4 position;
+	{	
+		Vec4 position; // Position MUST be at the START of the struct in order for BVHs to be built
 		Vec4 normal;
 		Vec4 uv;
 //		Vec4 tangent;
@@ -187,6 +189,11 @@ namespace interlop
 		SRV(GpuImage) coc_buffer;
 
 		UAV(GpuImage) render_target;
+	};
+
+	struct BasicRTResources
+	{
+		SRV(GpuBvh) bvh;
 	};
 }
 

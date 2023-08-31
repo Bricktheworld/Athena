@@ -218,6 +218,25 @@ namespace gfx::render
 		return ret;
 	}
 
+	Handle<GpuBvh>
+	import_bvh(RenderGraph* graph, const GpuBvh* bvh)
+	{
+		ResourceHandle resource_handle = {0};
+		resource_handle.id = handle_index(graph);
+		resource_handle.type = kResourceTypeBvh;
+		resource_handle.lifetime = kResourceLifetimeImported;
+
+		PhysicalResource* resource = hash_table_insert(&graph->imported_resources, resource_handle);
+		resource->bvh = bvh;
+		resource->state = D3D12_RESOURCE_STATE_COMMON;
+		resource->type = resource_handle.type;
+		resource->needs_initialization = false;
+		*array_add(&graph->resource_list) = resource_handle;
+
+		Handle<GpuBvh> ret = {resource_handle.id, resource_handle.lifetime};
+		return ret;
+	}
+
 	static void
 	render_pass_read(RenderPass* render_pass, ResourceHandle resource, D3D12_RESOURCE_STATES state)
 	{
@@ -464,6 +483,7 @@ namespace gfx::render
 		{
 			case kResourceTypeImage:            return resource->image->d3d12_image;
 			case kResourceTypeBuffer:           return resource->buffer->d3d12_buffer;
+			case kResourceTypeBvh:              return resource->bvh->top_bvh.d3d12_buffer;
 			// TODO(Brandon): Implement these resources
 			case kResourceTypeShader:           UNREACHABLE;
 			case kResourceTypeGraphicsPSO:      UNREACHABLE;	
@@ -561,6 +581,13 @@ namespace gfx::render
 				ASSERT(descriptor_type == kDescriptorTypeSampler);
 				*descriptor = alloc_descriptor(compiled_map->sampler_allocator);
 				init_sampler(device, descriptor);
+			}
+			else if (resource.type == kResourceTypeBvh)
+			{
+				ASSERT(descriptor_type == kDescriptorTypeSrv);
+				*descriptor = alloc_descriptor(compiled_map->cbv_srv_uav_descriptor_allocator);
+				const GpuBvh* bvh = physical_resource->bvh;
+				init_bvh_srv(device, descriptor, bvh);
 			} else { UNREACHABLE; }
 		}
 
@@ -598,11 +625,10 @@ namespace gfx::render
 				{
 					list->d3d12_list->SetGraphicsRoot32BitConstants(0, u32(root_consts.size), root_consts.memory, 0);
 				}
-				else if (cmd.type == RenderGraphCmdType::kComputeBindShaderResources)
+				else
 				{
 					list->d3d12_list->SetComputeRoot32BitConstants(0, u32(root_consts.size), root_consts.memory, 0);
 				}
-				else { UNREACHABLE; }
 			} break;
 			case RenderGraphCmdType::kDrawInstanced:
 			{
@@ -668,13 +694,18 @@ namespace gfx::render
 				const auto& args = cmd.set_compute_pso;
 				list->d3d12_list->SetPipelineState(args.compute_pso->d3d12_pso);
 			} break;
+			case RenderGraphCmdType::kSetRayTracingPSO:
+			{
+				const auto& args = cmd.set_ray_tracing_pso;
+				list->d3d12_list->SetPipelineState1(args.ray_tracing_pso->d3d12_pso);
+			} break;
 			case RenderGraphCmdType::kIASetIndexBuffer:
 			{
 				const auto& args = cmd.ia_set_index_buffer;
 				D3D12_INDEX_BUFFER_VIEW view;
 				view.BufferLocation = args.index_buffer->gpu_addr;
 				view.SizeInBytes = static_cast<u32>(args.index_buffer->desc.size);
-				view.Format = DXGI_FORMAT_R16_UINT;
+				view.Format = DXGI_FORMAT_R32_UINT;
 				list->d3d12_list->IASetIndexBuffer(&view);
 			} break;
 			case RenderGraphCmdType::kOMSetRenderTargets:
@@ -766,9 +797,31 @@ namespace gfx::render
 				                                                args.values.memory,
 				                                                0, nullptr);
 			} break;
+			case RenderGraphCmdType::kDispatchRays:
+			{
+				const auto& args = cmd.dispatch_rays;
+
+				D3D12_DISPATCH_RAYS_DESC desc = {};
+				desc.RayGenerationShaderRecord.StartAddress = args.shader_table.ray_gen_addr;
+				desc.RayGenerationShaderRecord.SizeInBytes  = args.shader_table.ray_gen_size;
+
+				desc.MissShaderTable.StartAddress  = args.shader_table.miss_addr;
+				desc.MissShaderTable.SizeInBytes   = args.shader_table.miss_size;
+				desc.MissShaderTable.StrideInBytes = args.shader_table.record_size;
+
+				desc.HitGroupTable.StartAddress  = args.shader_table.hit_addr;
+				desc.HitGroupTable.SizeInBytes   = args.shader_table.hit_size;
+				desc.HitGroupTable.StrideInBytes = args.shader_table.record_size;
+
+				desc.Width  = args.x;
+				desc.Height = args.y;
+				desc.Depth  = args.z;
+
+				list->d3d12_list->DispatchRays(&desc);
+			} break;
 			case RenderGraphCmdType::kDrawImGuiOnTop:
 			{
-				const auto& args = cmd.draw_imgui_on_top_args;
+				const auto& args = cmd.draw_imgui_on_top;
 				cmd_set_descriptor_heaps(list, {args.descriptor_linear_allocator});
 				ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), list->d3d12_list);
 
@@ -1128,6 +1181,12 @@ namespace gfx::render
 	}
 
 	void
+	cmd_ray_tracing_bind_shader_resources(RenderPass* render_pass, Span<ShaderResource> resources)
+	{
+		common_bind_shader_resources(render_pass, resources, kCmdQueueTypeCompute);
+	}
+
+	void
 	cmd_draw_instanced(RenderPass* render_pass,
 	                   u32 vertex_count_per_instance,
 	                   u32 instance_count,
@@ -1244,6 +1303,15 @@ namespace gfx::render
 	}
 
 	void
+	cmd_set_ray_tracing_pso(RenderPass* render_pass, const RayTracingPSO* ray_tracing_pso)
+	{
+		RenderGraphCmd cmd;
+		cmd.type = RenderGraphCmdType::kSetRayTracingPSO;
+		cmd.set_ray_tracing_pso.ray_tracing_pso = ray_tracing_pso;
+		push_cmd(render_pass, cmd);
+	}
+
+	void
 	cmd_ia_set_index_buffer(RenderPass* render_pass, 
 	                        const GpuBuffer* index_buffer,
 	                        DXGI_FORMAT format)
@@ -1346,11 +1414,23 @@ namespace gfx::render
 	}
 
 	void
+	cmd_dispatch_rays(RenderPass* render_pass, ShaderTable shader_table, u32 x, u32 y, u32 z)
+	{
+		RenderGraphCmd cmd;
+		cmd.type = RenderGraphCmdType::kDispatchRays;
+		cmd.dispatch_rays.shader_table = shader_table;
+		cmd.dispatch_rays.x = x;
+		cmd.dispatch_rays.y = y;
+		cmd.dispatch_rays.z = z;
+		push_cmd(render_pass, cmd);
+	}
+
+	void
 	cmd_draw_imgui_on_top(RenderPass* render_pass, const DescriptorLinearAllocator* descriptor_linear_allocator)
 	{
 		RenderGraphCmd cmd;
 		cmd.type = RenderGraphCmdType::kDrawImGuiOnTop;
-		cmd.draw_imgui_on_top_args.descriptor_linear_allocator = descriptor_linear_allocator;
+		cmd.draw_imgui_on_top.descriptor_linear_allocator = descriptor_linear_allocator;
 		push_cmd(render_pass, cmd);
 	}
 }

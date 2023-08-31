@@ -87,13 +87,13 @@ namespace gfx
 		ID3D12CommandQueue* d3d12_queue = nullptr;
 	
 		RingQueue<CmdAllocator> allocators;
-		RingQueue<ID3D12GraphicsCommandList*> lists;
+		RingQueue<ID3D12GraphicsCommandList5*> lists;
 		Fence fence;
 	};
 	
 	struct CmdList
 	{
-		ID3D12GraphicsCommandList* d3d12_list = nullptr;
+		ID3D12GraphicsCommandList5* d3d12_list = nullptr;
 		ID3D12CommandAllocator* d3d12_allocator = nullptr;
 	};
 	
@@ -109,7 +109,7 @@ namespace gfx
 	
 	struct GraphicsDevice
 	{
-		ID3D12Device* d3d12 = nullptr;
+		ID3D12Device5* d3d12 = nullptr;
 		CmdQueue graphics_queue;
 		CmdListAllocator graphics_cmd_allocator;
 		CmdQueue compute_queue;
@@ -206,6 +206,7 @@ namespace gfx
 	{
 		u64 size = 0;
 		D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE;
+		D3D12_RESOURCE_STATES initial_state = D3D12_RESOURCE_STATE_COMMON;
 	};
 	
 	struct GpuBuffer
@@ -227,6 +228,23 @@ namespace gfx
 														GpuLinearAllocator* allocator,
 														GpuBufferDesc desc,
 														const char* name);
+
+	struct GpuBvh
+	{
+		GpuBuffer top_bvh;
+		GpuBuffer bottom_bvh;
+		GpuBuffer instance_desc_buffer;
+	};
+
+	// TODO(Brandon): We eventually will want to have this not take uber buffers but instead be more fine-grained...
+	GpuBvh init_acceleration_structure(GraphicsDevice* device,
+	                                   const GpuBuffer& vertex_uber_buffer,
+	                                   u32 vertex_count,
+	                                   u32 vertex_stride,
+	                                   const GpuBuffer& index_uber_buffer,
+	                                   u32 index_count,
+	                                   const char* name);
+	void destroy_acceleration_structure(GpuBvh* bvh);
 	
 	struct GpuUploadRange
 	{
@@ -357,7 +375,8 @@ namespace gfx
 	void init_image_2D_uav(const GraphicsDevice* device, Descriptor* descriptor, const GpuImage* image);
 
 	void init_sampler(const GraphicsDevice* device, Descriptor* descriptor);
-	
+
+	void init_bvh_srv(const GraphicsDevice* device, Descriptor* descriptor, const GpuBvh* bvh);
 	
 	struct GpuShader
 	{
@@ -398,7 +417,6 @@ namespace gfx
 																		 const char* name);
 	void destroy_graphics_pipeline(GraphicsPSO* pipeline);
 
-
 	struct ComputePSO
 	{
 		ID3D12PipelineState* d3d12_pso = nullptr;
@@ -406,7 +424,37 @@ namespace gfx
 
 	ComputePSO init_compute_pipeline(const GraphicsDevice* device, GpuShader compute_shader, const char* name);
 	void destroy_compute_pipeline(ComputePSO* pipeline);
-	
+
+	struct RayTracingPSO
+	{
+		ID3D12StateObject* d3d12_pso = nullptr;
+		ID3D12StateObjectProperties* d3d12_properties = nullptr;
+	};
+
+	RayTracingPSO init_ray_tracing_pipeline(const GraphicsDevice* device,
+	                                        GpuShader ray_tracing_library,
+	                                        const char* name);
+	void destroy_ray_tracing_pipeline(RayTracingPSO* pipeline);
+
+	struct ShaderTable
+	{
+		GpuBuffer buffer;
+		u32 record_size = 0;
+
+		// TODO(Brandon): If we need more bytes then there's plenty to steal here using offset ptrs
+		u64 ray_gen_addr = 0;
+		u64 ray_gen_size = 0;
+		u64 miss_addr = 0;
+		u64 miss_size = 0;
+		u64 hit_addr  = 0;
+		u64 hit_size = 0;
+	};
+
+	ShaderTable init_shader_table(const GraphicsDevice* device,
+	                              RayTracingPSO pipeline,
+	                              const char* name);
+	void destroy_shader_table(ShaderTable* shader_table);
+
 	struct SwapChain
 	{
 		u32 width = 0;
@@ -431,33 +479,11 @@ namespace gfx
 	const GpuImage* swap_chain_acquire(SwapChain* swap_chain);
 	void swap_chain_submit(SwapChain* swap_chain, const GraphicsDevice* device, const GpuImage* rtv);
 	
-	void cmd_image_transition(CmdList* cmd,
-														const GpuImage* image,
-														D3D12_RESOURCE_STATES before,
-														D3D12_RESOURCE_STATES after);
-	void cmd_clear_rtv(CmdList* cmd, Descriptor rtv, Vec4 clear_color);
-	void cmd_clear_dsv(CmdList* cmd,
-										D3D12_CLEAR_FLAGS flags,
-										Descriptor dsv,
-										f32 depth,
-										u8 stencil);
-	void cmd_set_viewport(CmdList* cmd, f32 top, f32 left, f32 width, f32 height);
-	void cmd_set_scissor(CmdList* cmd,
-											u32 left = 0,
-											u32 top = 0,
-											u32 right = LONG_MAX,
-											u32 bottom = LONG_MAX);
-	void cmd_set_render_targets(CmdList* cmd, Span<Descriptor> render_targets, Option<Descriptor> dsv);
 	void cmd_set_descriptor_heaps(CmdList* cmd, const DescriptorPool* heaps, u32 num_heaps);
 	void cmd_set_descriptor_heaps(CmdList* cmd, Span<const DescriptorLinearAllocator*> heaps);
-	void cmd_set_pipeline(CmdList* cmd, const GraphicsPSO* pipeline);
-	void cmd_set_index_buffer(CmdList* cmd, const GpuBuffer* buffer, u32 start_index, u32 num_indices);
 	void cmd_set_primitive_topology(CmdList* cmd);
 	void cmd_set_graphics_root_signature(CmdList* cmd);
-	void cmd_set_graphics_32bit_constants(CmdList* cmd, const void* data);
 	void cmd_set_compute_root_signature(CmdList* cmd);
-	void cmd_draw_indexed(CmdList* cmd, u32 num_indices);
-	void cmd_draw(CmdList* cmd, u32 num_vertices);
 	
 	void init_imgui_ctx(const GraphicsDevice* device,
 											const SwapChain* swap_chain,

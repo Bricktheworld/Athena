@@ -43,6 +43,8 @@ enum ShaderIndex : u8
 	kCsDebugGBuffer,
 	kCsDebugCoC,
 
+	kRtBasic,
+
 	kShaderCount,
 };
 
@@ -64,6 +66,8 @@ static const wchar_t* kShaderPaths[] =
 
 	L"compute/debug_gbuffer_cs.hlsl.bin",
 	L"compute/debug_coc_cs.hlsl.bin",
+
+	L"ray_tracing/basic_rt.hlsl.bin",
 };
 static_assert(ARRAY_LENGTH(kShaderPaths) == kShaderCount);
 
@@ -204,6 +208,8 @@ struct Renderer
 	gfx::ComputePSO dof_composite_pipeline;
 
 	gfx::ComputePSO debug_gbuffer_pipeline;
+	gfx::RayTracingPSO basic_rt_pipeline;
+	gfx::ShaderTable   basic_rt_shader_table;
 
 	gfx::DescriptorLinearAllocator imgui_descriptor_heap;
 
@@ -216,6 +222,7 @@ Renderer init_renderer(MEMORY_ARENA_PARAM,
                        const ShaderManager& shader_manager,
                        HWND window);
 void destroy_renderer(Renderer* renderer);
+
 
 void begin_renderer_recording(MEMORY_ARENA_PARAM, Renderer* renderer);
 void submit_mesh(Renderer* renderer, Mesh mesh);
@@ -233,6 +240,7 @@ void execute_render(MEMORY_ARENA_PARAM,
                     Camera* camera,
                     const gfx::GpuBuffer& vertex_buffer,
                     const gfx::GpuBuffer& index_buffer,
+                    const gfx::GpuBvh& bvh,
                     const RenderOptions& render_options);
 
 enum SceneObjectFlags : u8
@@ -257,6 +265,10 @@ struct Scene
 	u32 vertex_uber_buffer_offset = 0;
 	gfx::GpuBuffer index_uber_buffer;
 	u32 index_uber_buffer_offset = 0;
+
+	gfx::GpuBuffer top_bvh;
+	gfx::GpuBuffer bottom_bvh;
+	gfx::GpuBvh bvh;
 	
 	Array<SceneObject>          scene_objects;
 	Array<interlop::PointLight> point_lights;
@@ -272,6 +284,8 @@ SceneObject* add_scene_object(Scene* scene,
                               ShaderIndex vertex_shader,
                               ShaderIndex material_shader);
 interlop::PointLight* add_point_light(Scene* scene);
+
+void build_acceleration_structures(gfx::GraphicsDevice* device, Scene* scene);
 void submit_scene(const Scene& scene, Renderer* renderer);
 
 

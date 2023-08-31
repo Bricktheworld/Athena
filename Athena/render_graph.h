@@ -22,6 +22,7 @@ namespace gfx::render
 		kResourceTypeShader,
 		kResourceTypeGraphicsPSO,
 		kResourceTypeSampler,
+		kResourceTypeBvh,
 
 		kResourceTypeCount,
 	};
@@ -34,6 +35,7 @@ namespace gfx::render
 			const GpuBuffer* buffer;
 			const GpuShader* shader;
 			const GraphicsPSO* graphics_pso;
+			const GpuBvh* bvh;
 		};
 		ResourceType type = kResourceTypeImage;
 		D3D12_RESOURCE_STATES state = D3D12_RESOURCE_STATE_COMMON;
@@ -84,6 +86,7 @@ namespace gfx::render
 	RESOURCE_TEMPLATE_TYPE(GpuBuffer, kResourceTypeBuffer);
 	RESOURCE_TEMPLATE_TYPE(Sampler, kResourceTypeSampler);
 	RESOURCE_TEMPLATE_TYPE(GraphicsPSO, kResourceTypeGraphicsPSO);
+	RESOURCE_TEMPLATE_TYPE(GpuBvh, kResourceTypeBvh);
 
 	template <typename T>
 	struct Handle
@@ -132,6 +135,7 @@ namespace gfx::render
 		kOMSetStencilRef,
 		kSetGraphicsPSO,
 		kSetComputePSO,
+		kSetRayTracingPSO,
 //		RESOURCE_BARRIER,
 //		EXECUTE_BUNDLE,
 //		SET_DESCRIPTOR_HEAPS,
@@ -169,6 +173,7 @@ namespace gfx::render
 //		BEGIN_EVENT,
 //		END_EVENT,
 //		EXECUTE_INDIRECT,
+		kDispatchRays,
 
 		kDrawImGuiOnTop,
 	};
@@ -261,6 +266,26 @@ namespace gfx::render
 	};
 	static_assert(sizeof(Srv<u32>) == sizeof(ShaderResource));
 
+	template <>
+	struct Srv<GpuBvh>
+	{
+		u32 id = 0;
+		const ResourceType type = kResourceTypeBvh;
+		ResourceLifetime lifetime = kResourceLifetimeImported;
+		const DescriptorType descriptor_type = kDescriptorTypeSrv;
+		const u32 __padding__ = 0;
+
+		Srv(Handle<GpuBvh> h) : id(h.id), lifetime(h.lifetime) {}
+
+		Srv& operator=(Handle<GpuBvh> h)
+		{
+			id = h.id;
+			lifetime = h.lifetime;
+			return *this;
+		}
+	};
+	static_assert(sizeof(Srv<GpuBvh>) == sizeof(ShaderResource));
+
 	template <typename T>
 	struct Cbv
 	{
@@ -344,15 +369,20 @@ namespace gfx::render
 				u32 stencil_ref = 0;
 			} om_set_stencil_ref;
 
-			struct SetGraphicsPSO
+			struct SetGraphicsPSOArgs
 			{
 				const GraphicsPSO* graphics_pso = nullptr;
 			} set_graphics_pso;
 
-			struct SetComputePSO
+			struct SetComputePSOArgs
 			{
 				const ComputePSO* compute_pso = nullptr;
 			} set_compute_pso;
+
+			struct SetRayTracingPSOArgs
+			{
+				const RayTracingPSO* ray_tracing_pso = nullptr;
+			} set_ray_tracing_pso;
 
 			struct IASetIndexBufferArgs
 			{
@@ -380,22 +410,30 @@ namespace gfx::render
 				u8 stencil = 0;
 			} clear_depth_stencil_view;
 
-			struct ClearUnorderedAccessViewUint
+			struct ClearUnorderedAccessViewUintArgs
 			{
 				ShaderResource uav;
 				Array<u32, 4> values;
 			} clear_unordered_access_view_uint;
 
-			struct ClearUnorderedAccessViewFloat
+			struct ClearUnorderedAccessViewFloatArgs
 			{
 				ShaderResource uav;
 				Array<f32, 4> values;
 			} clear_unordered_access_view_float;
 
+			struct DispatchRaysArgs
+			{
+				ShaderTable shader_table;
+				u32 x = 0;
+				u32 y = 0;
+				u32 z = 0;
+			} dispatch_rays;
+
 			struct DrawImGuiOnTopArgs
 			{
 				const DescriptorLinearAllocator* descriptor_linear_allocator;
-			} draw_imgui_on_top_args;
+			} draw_imgui_on_top;
 		};
 
 		RenderGraphCmdType type = RenderGraphCmdType::kDrawInstanced;
@@ -483,6 +521,7 @@ namespace gfx::render
 	Handle<GpuImage>      import_back_buffer(RenderGraph* graph, const GpuImage* image);
 	Handle<GpuImage>      import_image(RenderGraph* graph, const GpuImage* image);
 	Handle<GpuBuffer>     import_buffer(RenderGraph* graph, const GpuBuffer* buffer);
+	Handle<GpuBvh>        import_bvh(RenderGraph* graph, const GpuBvh* bvh);
 	Handle<GpuShader>     import_shader(RenderGraph* graph, const GpuShader* shader);
 //	Handle<GraphicsPSO>   import_graphics_pso(RenderGraph* graph, const GraphicsPSO* pipeline);
 
@@ -508,6 +547,19 @@ namespace gfx::render
 		const auto* shader_resources = reinterpret_cast<const ShaderResource*>(&resources);
 		u32 num_resources = sizeof(T) / sizeof(ShaderResource);
 		cmd_compute_bind_shader_resources(render_pass, Span(shader_resources, num_resources));
+	}
+
+	// NOTE(Brandon): These function exactly the same as the compute versions, they are just for name clarity.
+	void cmd_ray_tracing_bind_shader_resources(RenderPass* render_pass, Span<ShaderResource> resources);
+
+	template <typename T>
+	void cmd_ray_tracing_bind_shader_resources(RenderPass* render_pass, const T& resources)
+	{
+		static_assert(sizeof(T) % sizeof(ShaderResource) == 0, "Invalid resource struct!");
+
+		const auto* shader_resources = reinterpret_cast<const ShaderResource*>(&resources);
+		u32 num_resources = sizeof(T) / sizeof(ShaderResource);
+		cmd_ray_tracing_bind_shader_resources(render_pass, Span(shader_resources, num_resources));
 	}
 
 	void cmd_draw_instanced(RenderPass* render_pass,
@@ -542,6 +594,8 @@ namespace gfx::render
 
 	void cmd_set_compute_pso(RenderPass* render_pass, const ComputePSO* compute_pso);
 
+	void cmd_set_ray_tracing_pso(RenderPass* render_pass, const RayTracingPSO* ray_tracing_pso);
+
 	void cmd_ia_set_index_buffer(RenderPass* render_pass,
 	                             const GpuBuffer* index_buffer,
 	                             DXGI_FORMAT format = DXGI_FORMAT_R16_UINT);
@@ -575,6 +629,8 @@ namespace gfx::render
 //	void cmd_clear_unordered_access_view_float(RenderPass* render_pass,
 //	                                           Handle<GpuBuffer>* uav,
 //	                                           const f32* values);
+
+	void cmd_dispatch_rays(RenderPass* render_pass, ShaderTable shader_table, u32 x, u32 y, u32 z);
 
 	void cmd_draw_imgui_on_top(RenderPass* render_pass, const DescriptorLinearAllocator* descriptor_linear_allocator);
 }

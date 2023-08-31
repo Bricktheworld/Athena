@@ -181,9 +181,11 @@ application_entry(MEMORY_ARENA_PARAM, HINSTANCE instance, int show_code, JobSyst
 
 	Scene scene       = init_scene(MEMORY_ARENA_FWD, &graphics_device);
 //	SceneObject* dragon = add_scene_object(&scene, shader_manager, "C:\\Users\\Brand\\Dev\\Athena\\Athena\\assets\\dragon.fbx", kVsBasic, kPsBasicNormalGloss);
-	SceneObject* dragon_scene = add_scene_object(&scene, shader_manager, "C:\\Users\\Brand\\Dev\\Athena\\Athena\\assets\\dragon_scene.fbx", kVsBasic, kPsBasicNormalGloss);
+//	SceneObject* dragon_scene = add_scene_object(&scene, shader_manager, "C:\\Users\\Brand\\Dev\\Athena\\Athena\\assets\\dragon_scene.fbx", kVsBasic, kPsBasicNormalGloss);
 //	SceneObject* cube2 = add_scene_object(&scene, shader_manager, "C:\\Users\\Brand\\Dev\\Athena\\Athena\\assets\\cube2.fbx", kVsBasic, kPsBasicNormalGloss);
-//	SceneObject* sponza = add_scene_object(&scene, shader_manager, "C:\\Users\\Brand\\Dev\\Athena\\Athena\\assets\\sponza.fbx", kVsBasic, kPsBasicNormalGloss);
+	SceneObject* sponza = add_scene_object(&scene, shader_manager, "C:\\Users\\Brand\\Dev\\Athena\\Athena\\assets\\sponza.fbx", kVsBasic, kPsBasicNormalGloss);
+
+	blocking_kick_job(kJobPriorityHigh, build_acceleration_structures(&graphics_device, &scene));
 
 	MemoryArena frame_arena = sub_alloc_memory_arena(MEMORY_ARENA_FWD, MiB(4));
 
@@ -255,7 +257,7 @@ application_entry(MEMORY_ARENA_PARAM, HINSTANCE instance, int show_code, JobSyst
 		// TODO(Brandon): Something is completely fucked with my quaternion math...
 		Quat rot = quat_from_rotation_y(scene.camera.yaw); // * quat_from_rotation_x(-scene.camera.pitch);  //quat_from_euler_yxz(scene.camera.yaw, 0, 0);
 		move = rotate_vec3_by_quat(move, rot);
-		move *= 1.0f / 60.0f;
+		move *= 4.0f / 60.0f;
 
 		scene.camera.world_pos += move;
 
@@ -268,7 +270,15 @@ application_entry(MEMORY_ARENA_PARAM, HINSTANCE instance, int show_code, JobSyst
 		{
 			begin_renderer_recording(&frame_arena, &renderer);
 			submit_scene(scene, &renderer);
-			execute_render(&frame_arena, &renderer, &graphics_device, &swap_chain, &scene.camera, scene.vertex_uber_buffer, scene.index_uber_buffer, render_options);
+			execute_render(&frame_arena,
+			               &renderer,
+			               &graphics_device,
+			               &swap_chain,
+			               &scene.camera,
+			               scene.vertex_uber_buffer,
+			               scene.index_uber_buffer,
+			               scene.bvh,
+			               render_options);
 		});
 	}
 

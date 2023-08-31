@@ -1,6 +1,6 @@
+#include "graphics.h"
 #include "job_system.h"
 #include "memory/memory.h"
-#include "graphics.h"
 #include <windows.h>
 #include <d3dcompiler.h>
 #include "vendor/d3dx12.h"
@@ -59,10 +59,10 @@ namespace gfx
 		return res;
 	}
 	
-	static ID3D12Device2*
+	static ID3D12Device5*
 	init_d3d12_device(IDXGIAdapter1* adapter)
 	{
-		ID3D12Device2* d3d12_device = nullptr;
+		ID3D12Device5* d3d12_device = nullptr;
 		HASSERT(D3D12CreateDevice(adapter, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&d3d12_device)));
 		ASSERT(d3d12_device != nullptr);
 	
@@ -248,7 +248,7 @@ namespace gfx
 		ret.d3d12_queue = queue->d3d12_queue;
 		ret.fence = init_fence(device);
 		ret.allocators = init_ring_queue<CmdAllocator>(MEMORY_ARENA_FWD, pool_size);
-		ret.lists = init_ring_queue<ID3D12GraphicsCommandList*>(MEMORY_ARENA_FWD, pool_size);
+		ret.lists = init_ring_queue<ID3D12GraphicsCommandList5*>(MEMORY_ARENA_FWD, pool_size);
 	
 		CmdAllocator allocator = {0};
 		for (u16 i = 0; i < pool_size; i++)
@@ -261,7 +261,7 @@ namespace gfx
 	
 		for (u16 i = 0; i < pool_size; i++)
 		{
-			ID3D12GraphicsCommandList* list = nullptr;
+			ID3D12GraphicsCommandList5* list = nullptr;
 			HASSERT(device->d3d12->CreateCommandList(0,
 																							get_d3d12_cmd_list_type(queue->type),
 																							allocator.d3d12_allocator,
@@ -282,7 +282,7 @@ namespace gfx
 	
 		while (!ring_queue_is_empty(allocator->lists))
 		{
-			ID3D12GraphicsCommandList* list = nullptr;
+			ID3D12GraphicsCommandList5* list = nullptr;
 			ring_queue_pop(&allocator->lists, &list);
 			COM_RELEASE(list);
 		}
@@ -631,10 +631,10 @@ namespace gfx
 		HASSERT(device->d3d12->CreateCommittedResource(&heap_props,
 																									D3D12_HEAP_FLAG_NONE,
 																									&resource_desc,
-																									D3D12_RESOURCE_STATE_COMMON,
+																									desc.initial_state,
 																									nullptr,
 																									IID_PPV_ARGS(&ret.d3d12_buffer)));
-//		ret.d3d12_buffer->SetName(name);
+		ret.d3d12_buffer->SetPrivateData(WKPDID_D3DDebugObjectName, (u32)strlen(name), name);
 		ret.gpu_addr = ret.d3d12_buffer->GetGPUVirtualAddress();
 		if (type == kGpuHeapTypeUpload)
 		{
@@ -642,7 +642,7 @@ namespace gfx
 			ret.d3d12_buffer->Map(0, nullptr, &mapped);
 			ret.mapped = mapped;
 		}
-		ret.state = D3D12_RESOURCE_STATE_COMMON;
+		ret.state = desc.initial_state;
 	
 		return ret;
 	}
@@ -677,7 +677,7 @@ namespace gfx
 		HASSERT(device->d3d12->CreatePlacedResource(allocator->heap.d3d12_heap,
 																								allocator->pos,
 																								&resource_desc,
-																								D3D12_RESOURCE_STATE_COMMON,
+																								desc.initial_state,
 																								nullptr,
 																								IID_PPV_ARGS(&ret.d3d12_buffer)));
 	
@@ -692,7 +692,7 @@ namespace gfx
 	
 		allocator->pos = new_pos;
 
-		ret.state = D3D12_RESOURCE_STATE_COMMON;
+		ret.state = desc.initial_state;
 	
 		return ret;
 	}
@@ -1116,6 +1116,19 @@ namespace gfx
 		desc.MaxLOD = 100.0f;
 		device->d3d12->CreateSampler(&desc, descriptor->cpu_handle);
 	}
+
+	void
+	init_bvh_srv(const GraphicsDevice* device, Descriptor* descriptor, const GpuBvh* bvh)
+	{
+		ASSERT(descriptor->type == kDescriptorHeapTypeCbvSrvUav);
+
+		D3D12_SHADER_RESOURCE_VIEW_DESC desc = {0};
+		desc.ViewDimension = D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE;
+		desc.RaytracingAccelerationStructure.Location = bvh->top_bvh.gpu_addr;
+		desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	
+		device->d3d12->CreateShaderResourceView(nullptr, &desc, descriptor->cpu_handle);
+	}
 	
 	static ID3D12RootSignature* g_root_signature = nullptr;
 	
@@ -1244,6 +1257,184 @@ namespace gfx
 	{
 		COM_RELEASE(pipeline->d3d12_pso);
 		zero_memory(pipeline, sizeof(ComputePSO));
+	}
+
+	GpuBvh
+	init_acceleration_structure(GraphicsDevice* device,
+	                            const GpuBuffer& vertex_uber_buffer,
+	                            u32 vertex_count,
+	                            u32 vertex_stride,
+	                            const GpuBuffer& index_uber_buffer,
+	                            u32 index_count,
+	                            const char* name)
+	{
+		GpuBvh ret = {0};
+
+		D3D12_RAYTRACING_GEOMETRY_DESC geometry_desc = {};
+		geometry_desc.Type                                 = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
+		geometry_desc.Flags                                = D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
+		geometry_desc.Triangles.IndexBuffer                = index_uber_buffer.gpu_addr;
+		geometry_desc.Triangles.IndexCount                 = index_count; // ;
+		geometry_desc.Triangles.IndexFormat                = DXGI_FORMAT_R32_UINT;
+		geometry_desc.Triangles.Transform3x4               = 0;
+		geometry_desc.Triangles.VertexFormat               = DXGI_FORMAT_R32G32B32_FLOAT;
+		geometry_desc.Triangles.VertexCount                = vertex_count; //;
+		geometry_desc.Triangles.VertexBuffer.StartAddress  = vertex_uber_buffer.gpu_addr;
+		geometry_desc.Triangles.VertexBuffer.StrideInBytes = vertex_stride;
+	
+		D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS top_level_inputs = {};
+		top_level_inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+		top_level_inputs.Flags       = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
+		top_level_inputs.NumDescs    = 1;
+		top_level_inputs.Type        = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;
+	
+		D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO top_level_prebuild_info;
+		device->d3d12->GetRaytracingAccelerationStructurePrebuildInfo(&top_level_inputs, &top_level_prebuild_info);;
+		ASSERT(top_level_prebuild_info.ResultDataMaxSizeInBytes > 0);
+	
+		D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS bottom_level_inputs = {};
+		bottom_level_inputs.DescsLayout    = D3D12_ELEMENTS_LAYOUT_ARRAY;
+		bottom_level_inputs.Flags          = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
+		bottom_level_inputs.NumDescs       = 1;
+		bottom_level_inputs.Type           = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
+		bottom_level_inputs.pGeometryDescs = &geometry_desc;
+	
+		D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO bottom_level_prebuild_info;
+		device->d3d12->GetRaytracingAccelerationStructurePrebuildInfo(&bottom_level_inputs, &bottom_level_prebuild_info);
+		ASSERT(bottom_level_prebuild_info.ResultDataMaxSizeInBytes > 0);
+	
+		ret.bottom_bvh          = alloc_gpu_buffer_no_heap(device,
+																											{.size = bottom_level_prebuild_info.ResultDataMaxSizeInBytes,
+																												.flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+																												.initial_state = D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE},
+																											kGpuHeapTypeLocal,
+																											"Bottom BVH Buffer");
+		ret.top_bvh             = alloc_gpu_buffer_no_heap(device,
+																											{.size = top_level_prebuild_info.ResultDataMaxSizeInBytes,
+																												.flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+																												.initial_state = D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE},
+																											kGpuHeapTypeLocal,
+																											"Top BVH Buffer");
+	
+		GpuBuffer scratch_buffer = alloc_gpu_buffer_no_heap(device,
+																												{.size = MAX(top_level_prebuild_info.ScratchDataSizeInBytes,
+																																		bottom_level_prebuild_info.ScratchDataSizeInBytes),
+																												.flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS},
+																												kGpuHeapTypeLocal,
+																												"BVH Scratch Buffer");
+		defer { free_gpu_buffer(&scratch_buffer); };
+	
+		D3D12_RAYTRACING_INSTANCE_DESC instance_desc = {};
+		instance_desc.Transform[0][0] = 1;
+		instance_desc.Transform[1][1] = 1;
+		instance_desc.Transform[2][2] = 1;
+		instance_desc.InstanceMask    = 1;
+		instance_desc.AccelerationStructure = ret.bottom_bvh.gpu_addr;
+		ret.instance_desc_buffer = alloc_gpu_buffer_no_heap(device,
+																												{.size = sizeof(instance_desc)},
+																												kGpuHeapTypeUpload, "Instance Desc");
+		memcpy(unwrap(ret.instance_desc_buffer.mapped), &instance_desc, sizeof(instance_desc));
+	
+		D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC bottom_level_build_desc = {};
+		bottom_level_build_desc.Inputs                           = bottom_level_inputs;
+		bottom_level_build_desc.ScratchAccelerationStructureData = scratch_buffer.gpu_addr;
+		bottom_level_build_desc.DestAccelerationStructureData    = ret.bottom_bvh.gpu_addr;
+	
+		D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC top_level_build_desc = {};
+		top_level_inputs.InstanceDescs                        = ret.instance_desc_buffer.gpu_addr;
+		top_level_build_desc.Inputs                           = top_level_inputs;
+		top_level_build_desc.ScratchAccelerationStructureData = scratch_buffer.gpu_addr;
+		top_level_build_desc.DestAccelerationStructureData    = ret.top_bvh.gpu_addr;
+	
+		CmdList cmd_list = alloc_cmd_list(&device->graphics_cmd_allocator);
+		cmd_list.d3d12_list->BuildRaytracingAccelerationStructure(&bottom_level_build_desc, 0, nullptr);
+		cmd_list.d3d12_list->BuildRaytracingAccelerationStructure(&top_level_build_desc, 0, nullptr);
+		Fence fence = init_fence(device);
+		defer { destroy_fence(&fence); };
+	
+		FenceValue fence_value = submit_cmd_lists(&device->graphics_cmd_allocator, {cmd_list}, &fence);
+	
+		yield_for_fence_value(&fence, fence_value);
+
+		return ret;
+	}
+
+	void
+	destroy_acceleration_structure(GpuBvh* bvh)
+	{
+		free_gpu_buffer(&bvh->instance_desc_buffer);
+		free_gpu_buffer(&bvh->bottom_bvh);
+		free_gpu_buffer(&bvh->top_bvh);
+		zero_memory(bvh, sizeof(GpuBvh));
+	}
+
+	RayTracingPSO
+	init_ray_tracing_pipeline(const GraphicsDevice* device, GpuShader ray_tracing_library, const char* name)
+	{
+		RayTracingPSO ret;
+
+		CD3DX12_STATE_OBJECT_DESC desc = {D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE};
+
+		auto* library = desc.CreateSubobject<CD3DX12_DXIL_LIBRARY_SUBOBJECT>();
+		auto shader_byte_code = CD3DX12_SHADER_BYTECODE(ray_tracing_library.d3d12_shader);
+		library->SetDXILLibrary(&shader_byte_code);
+		HASSERT(device->d3d12->CreateStateObject(desc, IID_PPV_ARGS(&ret.d3d12_pso)));
+
+		HASSERT(ret.d3d12_pso->QueryInterface(IID_PPV_ARGS(&ret.d3d12_properties)));
+
+		return ret;
+	}
+
+	void
+	destroy_ray_tracing_pipeline(RayTracingPSO* pipeline)
+	{
+		COM_RELEASE(pipeline->d3d12_pso);
+		zero_memory(pipeline, sizeof(RayTracingPSO));
+	}
+
+	ShaderTable
+	init_shader_table(const GraphicsDevice* device, RayTracingPSO pipeline, const char* name)
+	{
+		ShaderTable ret = {0};
+
+		const u32 shader_id_size = D3D12_RAYTRACING_SHADER_RECORD_BYTE_ALIGNMENT;
+		ret.record_size          = ALIGN_POW2(shader_id_size + 8, D3D12_RAYTRACING_SHADER_RECORD_BYTE_ALIGNMENT);
+
+		// Shader Table:
+		// 0: RayGen Shader
+		// 1: Miss   Shader
+		// 2: Hit    Shader
+		u32 buffer_size = ret.record_size * 3;
+		buffer_size     = ALIGN_POW2(buffer_size, D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT);
+
+		GpuBufferDesc desc = {0};
+		desc.size = buffer_size;
+		ret.buffer = alloc_gpu_buffer_no_heap(device, desc, kGpuHeapTypeUpload, name);
+
+		u8* dst = (u8*)unwrap(ret.buffer.mapped);
+		// TODO(Brandon): Don't hard-code these names
+		memcpy(dst, pipeline.d3d12_properties->GetShaderIdentifier(L"ray_gen"), shader_id_size);
+		dst += ret.record_size;
+		memcpy(dst, pipeline.d3d12_properties->GetShaderIdentifier(L"miss"), shader_id_size);
+		dst += ret.record_size;
+		memcpy(dst, pipeline.d3d12_properties->GetShaderIdentifier(L"kHitGroup"), shader_id_size);
+
+		ret.ray_gen_addr = ret.buffer.gpu_addr + 0;
+		ret.miss_addr    = ret.ray_gen_addr    + ret.record_size;
+		ret.hit_addr     = ret.miss_addr       + ret.record_size;
+
+		ret.ray_gen_size = ret.record_size;
+		ret.miss_size    = ret.miss_size;
+		ret.hit_size     = ret.hit_size;
+
+		return ret;
+	}
+
+	void
+	destroy_shader_table(ShaderTable* shader_table)
+	{
+		free_gpu_buffer(&shader_table->buffer);
+		zero_memory(shader_table, sizeof(ShaderTable));
 	}
 	
 	static void
@@ -1393,57 +1584,6 @@ namespace gfx
 		swap_chain->back_buffer_index = swap_chain->d3d12_swap_chain->GetCurrentBackBufferIndex();
 	}
 	
-	void
-	cmd_image_transition(CmdList* cmd,
-											const GpuImage* image,
-											D3D12_RESOURCE_STATES before,
-											D3D12_RESOURCE_STATES after)
-	{
-		auto barrier = CD3DX12_RESOURCE_BARRIER::Transition(image->d3d12_image, before, after);
-		cmd->d3d12_list->ResourceBarrier(1, &barrier);
-	}
-	
-	void
-	cmd_clear_rtv(CmdList* cmd, Descriptor rtv, Rgba clear_color)
-	{
-		cmd->d3d12_list->ClearRenderTargetView(rtv.cpu_handle, (f32*)&clear_color, 0, nullptr);
-	}
-	
-	void
-	cmd_clear_dsv(CmdList* cmd, D3D12_CLEAR_FLAGS flags, Descriptor dsv, f32 depth, u8 stencil)
-	{
-		cmd->d3d12_list->ClearDepthStencilView(dsv.cpu_handle, flags, depth, stencil, 0, nullptr);
-	}
-	
-	void
-	cmd_set_viewport(CmdList* cmd, f32 top, f32 left, f32 width, f32 height)
-	{
-		auto viewport = CD3DX12_VIEWPORT(top, left, width, height);
-		cmd->d3d12_list->RSSetViewports(1, &viewport);
-	}
-	
-	void
-	cmd_set_scissor(CmdList* cmd, u32 left, u32 top, u32 right, u32 bottom)
-	{
-		auto viewport = CD3DX12_RECT(left, top, right, bottom);
-		cmd->d3d12_list->RSSetScissorRects(1, &viewport);
-	}
-	
-	void
-	cmd_set_render_targets(CmdList* cmd, Span<Descriptor> render_targets, Option<Descriptor> dsv)
-	{
-		USE_SCRATCH_ARENA();
-		auto rtv_handles = init_array<D3D12_CPU_DESCRIPTOR_HANDLE>(SCRATCH_ARENA_PASS, render_targets.size);
-		for (const Descriptor& rtv : render_targets)
-		{
-			*array_add(&rtv_handles) = rtv.cpu_handle;
-		}
-	
-		cmd->d3d12_list->OMSetRenderTargets(u32(rtv_handles.size),
-																				rtv_handles.memory,
-																				FALSE,
-																				dsv ? &unwrap(dsv).cpu_handle : nullptr);
-	}
 	
 	void
 	cmd_set_descriptor_heaps(CmdList* cmd, const DescriptorPool* heaps, u32 num_heaps)
@@ -1472,12 +1612,6 @@ namespace gfx
 	}
 	
 	void
-	cmd_set_pipeline(CmdList* cmd, const GraphicsPSO* pipeline)
-	{
-		cmd->d3d12_list->SetPipelineState(pipeline->d3d12_pso);
-	}
-	
-	void
 	cmd_set_graphics_root_signature(CmdList* cmd)
 	{
 		ASSERT(g_root_signature != nullptr);
@@ -1492,38 +1626,9 @@ namespace gfx
 	}
 	
 	void
-	cmd_set_graphics_32bit_constants(CmdList* cmd, const void* data)
-	{
-		cmd->d3d12_list->SetGraphicsRoot32BitConstants(0, 64, data, 0);
-	}
-	
-	void
 	cmd_set_primitive_topology(CmdList* cmd)
 	{
 		cmd->d3d12_list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-	}
-	
-	void
-	cmd_set_index_buffer(CmdList* cmd, const GpuBuffer* buffer, u32 start_index, u32 num_indices)
-	{
-		D3D12_INDEX_BUFFER_VIEW index_buffer_view;
-		index_buffer_view.BufferLocation = buffer->gpu_addr + start_index * sizeof(u16);
-		index_buffer_view.SizeInBytes = num_indices * sizeof(u16);
-		index_buffer_view.Format = DXGI_FORMAT_R16_UINT;
-	
-		cmd->d3d12_list->IASetIndexBuffer(&index_buffer_view);
-	}
-	
-	void
-	cmd_draw_indexed(CmdList* cmd, u32 num_indices)
-	{
-		cmd->d3d12_list->DrawIndexedInstanced(num_indices, 1, 0, 0, 0);
-	}
-	
-	void
-	cmd_draw(CmdList* cmd, u32 num_vertices)
-	{
-		cmd->d3d12_list->DrawInstanced(num_vertices, 1, 0, 0);
 	}
 	
 	void

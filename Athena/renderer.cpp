@@ -58,6 +58,8 @@ init_renderer(MEMORY_ARENA_PARAM, const GraphicsDevice* device, const SwapChain*
 	ret.dof_blur_vert_pipeline  = init_compute_pipeline(device, shader_manager.shaders[kCsDofBlurVert], "DoF Blur Vert");
 	ret.dof_composite_pipeline  = init_compute_pipeline(device, shader_manager.shaders[kCsDofComposite], "DoF Composite");
 	ret.debug_gbuffer_pipeline = init_compute_pipeline(device, shader_manager.shaders[kCsDebugGBuffer], "Debug GBuffer");
+	ret.basic_rt_pipeline       = init_ray_tracing_pipeline(device, shader_manager.shaders[kRtBasic], "Basic RT");
+	ret.basic_rt_shader_table  = init_shader_table(device, ret.basic_rt_pipeline, "Basic RT Shader Table");
 
 	ret.imgui_descriptor_heap = init_descriptor_linear_allocator(device, 1, kDescriptorHeapTypeCbvSrvUav);
 	init_imgui_ctx(device, swap_chain, window, &ret.imgui_descriptor_heap);
@@ -75,6 +77,19 @@ destroy_renderer(Renderer* renderer)
 	destroy_transient_resource_cache(&renderer->transient_resource_cache);
 	zero_memory(renderer, sizeof(Renderer));
 }
+
+void
+build_acceleration_structures(gfx::GraphicsDevice* device, Scene* scene)
+{
+	scene->bvh = init_acceleration_structure(device,
+	                                         scene->vertex_uber_buffer,
+	                                         scene->vertex_uber_buffer_offset / sizeof(interlop::Vertex),
+	                                         sizeof(interlop::Vertex),
+	                                         scene->index_uber_buffer,
+	                                         scene->index_uber_buffer_offset / sizeof(u32),
+	                                         "Scene Acceleration Structure");
+}
+
 
 void
 begin_renderer_recording(MEMORY_ARENA_PARAM, Renderer* renderer)
@@ -124,6 +139,7 @@ execute_render(MEMORY_ARENA_PARAM,
                Camera* camera,
                const gfx::GpuBuffer& vertex_buffer,
                const gfx::GpuBuffer& index_buffer,
+               const gfx::GpuBvh& bvh,
                const RenderOptions& render_options)
 {
 	RenderGraph graph = init_render_graph(MEMORY_ARENA_FWD);
@@ -296,6 +312,12 @@ execute_render(MEMORY_ARENA_PARAM,
 
 	}
 
+	RenderPass* ray_tracing_pass = add_render_pass(MEMORY_ARENA_FWD, &graph, kCmdQueueTypeGraphics, "Ray Tracing");
+	Handle<GpuBvh> graph_bvh = import_bvh(&graph, &bvh);
+	cmd_ray_tracing_bind_shader_resources<interlop::BasicRTResources>(ray_tracing_pass, {.bvh = graph_bvh});
+	cmd_set_ray_tracing_pso(ray_tracing_pass, &renderer->basic_rt_pipeline);
+	cmd_dispatch_rays(ray_tracing_pass, renderer->basic_rt_shader_table, 1, 1, 1);
+
 
 #if 0
 	Handle<GpuImage> debug_buffer = create_image(&graph, "Debug Buffer", color_buffer_desc);
@@ -370,7 +392,7 @@ init_scene(MEMORY_ARENA_PARAM, const gfx::GraphicsDevice* device)
 	ret.vertex_uber_buffer = alloc_gpu_buffer_no_heap(device, vertex_uber_desc, kGpuHeapTypeLocal, "Vertex Buffer");
 
 	GpuBufferDesc index_uber_desc = {0};
-	index_uber_desc.size = MiB(256);
+	index_uber_desc.size = MiB(512);
 
 	ret.index_uber_buffer = alloc_gpu_buffer_no_heap(device, index_uber_desc, kGpuHeapTypeLocal, "Index Buffer");
 	return ret;
@@ -456,7 +478,7 @@ static u32
 alloc_into_index_uber(Scene* scene, u32 index_count)
 {
 	u32 ret = scene->index_uber_buffer_offset;
-	ASSERT((ret + index_count) * sizeof(u16) <= scene->index_uber_buffer.desc.size);
+	ASSERT((ret + index_count) * sizeof(u32) <= scene->index_uber_buffer.desc.size);
 
 	scene->index_uber_buffer_offset += index_count;
 
@@ -495,7 +517,7 @@ mesh_import_scene(const aiScene* assimp_scene, Array<Mesh>* out,  Scene* scene)
 
 		u32 vertex_buffer_offset = alloc_into_vertex_uber(scene, num_vertices);
 
-		u16* indices = push_memory_arena<u16>(&g_upload_context.cpu_upload_arena, num_indices);
+		u32* indices = push_memory_arena<u32>(&g_upload_context.cpu_upload_arena, num_indices);
 
 		u32 iindex = 0;
 		for (u32 iface = 0; iface < assimp_mesh->mNumFaces; iface++)
@@ -525,9 +547,9 @@ mesh_import_scene(const aiScene* assimp_scene, Array<Mesh>* out,  Scene* scene)
 		                vertices,
 		                num_vertices * sizeof(interlop::Vertex));
 		upload_gpu_data(&scene->index_uber_buffer,
-		                out_mesh->index_buffer_offset * sizeof(u16),
+		                out_mesh->index_buffer_offset * sizeof(u32),
 		                indices,
-		                num_indices * sizeof(u16));
+		                num_indices * sizeof(u32));
 	}
 	flush_upload_staging();
 }
