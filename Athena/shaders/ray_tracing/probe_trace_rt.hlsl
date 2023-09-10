@@ -51,11 +51,13 @@ void ray_gen()
 	uint2 launch_index      = DispatchRaysIndex().xy;
 	uint2 launch_dimensions = DispatchRaysDimensions().xy;
 
-	ConstantBuffer<interlop::Scene> scene          = ResourceDescriptorHeap[rt_resources.scene];
-	RWTexture2DArray<float4>        ray_data       = ResourceDescriptorHeap[rt_resources.out_ray_data];
-	ConstantBuffer<interlop::DDGIVolDesc> vol_desc = ResourceDescriptorHeap[rt_resources.vol_desc];
+	ConstantBuffer<interlop::Scene>       scene            = ResourceDescriptorHeap[rt_resources.scene];
+	Texture2DArray<float4>                probe_irradiance = ResourceDescriptorHeap[rt_resources.probe_irradiance];
+	Texture2DArray<float2>                probe_distance   = ResourceDescriptorHeap[rt_resources.probe_distance];
+	RWTexture2DArray<float4>              ray_data         = ResourceDescriptorHeap[rt_resources.out_ray_data];
+	ConstantBuffer<interlop::DDGIVolDesc> vol_desc         = ResourceDescriptorHeap[rt_resources.vol_desc];
 
-	interlop::DirectionalLight directional_light = scene.directional_light;
+	interlop::DirectionalLight directional_light           = scene.directional_light;
 
 	int ray_index         = DispatchRaysIndex().x;
 	int probe_plane_index = DispatchRaysIndex().y;
@@ -76,11 +78,10 @@ void ray_gen()
   uint3  output_coords  = get_ray_data_texel_coords(ray_index, probe_index, vol_desc);
 
   RayDesc ray;
-  ray.Origin = probe_ws_pos;
+  ray.Origin    = probe_ws_pos;
   ray.Direction = probe_ray_dir;
-  // TODO(Brandon): This isn't a great hack...
-  ray.TMin = 0.0f;
-  ray.TMax = vol_desc.probe_max_ray_distance;
+  ray.TMin      = 0.0f;
+  ray.TMax      = vol_desc.probe_max_ray_distance;
 
   Payload payload = (Payload)0;
   TraceRay(g_AccelerationStructure, RAY_FLAG_NONE, 0xFF, 0, 0, 0, ray, payload);
@@ -88,8 +89,8 @@ void ray_gen()
 
   if (payload.t < 0.0f)
   {
-    // TODO(Brandon): On miss, we'll want to use the sky radiance instead of 0
-    ray_data[output_coords] = float4(directional_light.diffuse.rgb * directional_light.intensity * 0.0005f, 1e27f); // float4(0.7, 1.0f, 1.0f, 1e27f);
+    // TODO(Brandon): On miss, we'll want to use the sky radiance instead of just the directional light
+    ray_data[output_coords] = float4(directional_light.diffuse.rgb * directional_light.intensity * 0.0005f, 1e27f); 
     return;
   }
 
@@ -114,13 +115,19 @@ void ray_gen()
   
   // Indirect lighting
   float3 surface_bias = get_surface_bias(payload.normal, ray.Direction, vol_desc);
-  float3 irradiance = 0.0f;
+  float3 indirect     = get_vol_irradiance(payload.ws_pos,
+                                           surface_bias,
+                                           payload.normal,
+                                           vol_desc,
+                                           probe_irradiance,
+                                           probe_distance);
 
   // TODO(Brandon): Get this from the actual payload data
   float3 lambertian = 1.0f / kPI;
+  float3 albedo = 1.0f;
 
   // Write everything back out
-  float3 radiance = direct_diffuse_lighting * lambertian;
+  float3 radiance = (direct_diffuse_lighting + saturate(indirect * 0.01f)) * lambertian;
   ray_data[output_coords] = float4(saturate(radiance), payload.t);
 }
 

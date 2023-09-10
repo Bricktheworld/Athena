@@ -21,10 +21,7 @@ float3 get_probe_ray_dir(int ray_index, interlop::DDGIVolDesc vol_desc)
   // Get a unit sphere direction using a fibonacci pattern.
   float3 direction = spherical_fibonacci(ray_index, vol_desc.probe_num_rays);
 
-  // TODO(Brandon): Eventually we're gonna need to start sampling from random directions uniformly per frame
-  // the way we're doing it right now is actually really shit, but I just need something working quickly
   return normalize(mul(vol_desc.probe_ray_rotation, float4(direction, 1.0f)).xyz);
-//  return normalize(direction);
 }
 
 float3 get_probe_ws_pos(int3 probe_coords, interlop::DDGIVolDesc vol_desc)

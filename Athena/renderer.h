@@ -213,8 +213,8 @@ static_assert(ARRAY_LENGTH(kRenderBufferDescs) == RenderBuffers::kCount);
 struct RenderOptions
 {
   f32 aperture = 5.6f;
-  f32 focal_dist = 10.0f;
-  f32 focal_range = 5.0f;
+  f32 focal_dist = 3.0f;
+  f32 focal_range = 20.0f;
   RenderBuffers::Entry debug_view = RenderBuffers::kDoFBlurredNear;
 };
 

@@ -317,6 +317,12 @@ namespace gfx::render
       RenderPass* pass = &graph->render_passes[i];
       for (RenderPass& other : graph->render_passes)
       {
+        // TODO(Brandon): This is a hack that makes it so that the order in which you call `add_render_pass`
+        // matters so that you can do read -> write -> read sorts of things without a lot of fuss.
+        // Eventually we'll want a better system of dealing with this...
+        if (other.pass_id < pass->pass_id)
+          continue;
+
         if (other.pass_id == pass->pass_id)
           continue;
 

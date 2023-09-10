@@ -85,7 +85,7 @@ init_renderer(MEMORY_ARENA_PARAM, const GraphicsDevice* device, const SwapChain*
   ret.ddgi_vol_desc.probe_count_x = 19;
   ret.ddgi_vol_desc.probe_count_y = 4;
   ret.ddgi_vol_desc.probe_count_z = 12;
-  ret.ddgi_vol_desc.probe_num_rays = 256;
+  ret.ddgi_vol_desc.probe_num_rays = 128;
   ret.ddgi_vol_desc.probe_hysteresis = 0.97f;
   ret.ddgi_vol_desc.probe_max_ray_distance = 20.0f;
 
@@ -233,7 +233,6 @@ execute_render(MEMORY_ARENA_PARAM,
 
   Handle<GpuBuffer> scene_buffer = create_buffer(&graph, "Scene Buffer", scene);
 
-#if 1
   // Render GBuffers
   RenderPass* geometry_pass = add_render_pass(MEMORY_ARENA_FWD, &graph, kCmdQueueTypeGraphics, "Geometry Pass");
 
@@ -261,7 +260,6 @@ execute_render(MEMORY_ARENA_PARAM,
     cmd_graphics_bind_shader_resources<interlop::MaterialRenderResources>(geometry_pass, {.vertices = graph_vertex_buffer, .scene = scene_buffer, .transform = transform_buffer});
     cmd_draw_indexed_instanced(geometry_pass, mesh.index_count, 1, mesh.index_buffer_offset, 0, 0);
   }
-#endif
 
   u32 fullres_dispatch_x = (swap_chain->width + 7)  / 8;
   u32 fullres_dispatch_y = (swap_chain->height + 7) / 8;
@@ -282,6 +280,8 @@ execute_render(MEMORY_ARENA_PARAM,
     {
       .vol_desc = vol_desc_buffer,
       .scene = scene_buffer,
+      .probe_irradiance = probe_irradiance,
+      .probe_distance = probe_distance,
       .out_ray_data = probe_ray_data,
     };
 

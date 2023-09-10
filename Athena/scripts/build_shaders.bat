@@ -21,10 +21,10 @@ if not exist %out_pixel_dir% md %out_pixel_dir%
 if not exist %out_compute_dir% md %out_compute_dir%
 if not exist %out_ray_tracing_dir% md %out_ray_tracing_dir%
 
-for /f %%f in ('dir /b %in_vertex_dir%') do (%dxc% -T vs_6_6 -E main %in_vertex_dir%\%%f -Od -Zi -Fo %out_vertex_dir%\%%f.bin -Od || goto compilation_error)
-for /f %%f in ('dir /b %in_pixel_dir%') do (%dxc% -T ps_6_6 -E main %in_pixel_dir%\%%f -Od -Zi -Fo %out_pixel_dir%\%%f.bin -Od || goto compilation_error)
-for /f %%f in ('dir /b %in_compute_dir%') do (%dxc% -T cs_6_6 -E main %in_compute_dir%\%%f -Od -Zi -Fo %out_compute_dir%\%%f.bin -Od || goto compilation_error)
-for /f %%f in ('dir /b %in_ray_tracing_dir%') do (%dxc% -T lib_6_6 %in_ray_tracing_dir%\%%f -Od -Zi -Fo %out_ray_tracing_dir%\%%f.bin -Od || goto compilation_error)
+for /f %%f in ('dir /b %in_vertex_dir%') do (%dxc% -T vs_6_6 -E main %in_vertex_dir%\%%f -Zi -Fo %out_vertex_dir%\%%f.bin -Od || goto compilation_error)
+for /f %%f in ('dir /b %in_pixel_dir%') do (%dxc% -T ps_6_6 -E main %in_pixel_dir%\%%f -Zi -Fo %out_pixel_dir%\%%f.bin -Od || goto compilation_error)
+for /f %%f in ('dir /b %in_compute_dir%') do (%dxc% -T cs_6_6 -E main %in_compute_dir%\%%f -Zi -Fo %out_compute_dir%\%%f.bin -Od || goto compilation_error)
+for /f %%f in ('dir /b %in_ray_tracing_dir%') do (%dxc% -T lib_6_6 %in_ray_tracing_dir%\%%f -Zi -Fo %out_ray_tracing_dir%\%%f.bin -Od || goto compilation_error)
 
 @echo Successfully compiled shaders!
 goto :eof

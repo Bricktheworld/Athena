@@ -111,8 +111,6 @@ namespace interlop
     f32 aperture;
     f32 focal_dist;
     f32 focal_range;
-    // f32 focal_length;
-    // f32 focusing_dist;
   };
 
   struct DofCocComputeResources
@@ -232,6 +230,8 @@ namespace interlop
   {
 		CBV(DDGIVolDesc) vol_desc;
 		CBV(Scene)       scene;
+    SRV(GpuImage)    probe_irradiance;
+    SRV(GpuImage)    probe_distance;
 
 		UAV(GpuImage)    out_ray_data;
   };

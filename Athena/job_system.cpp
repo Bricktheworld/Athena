@@ -463,7 +463,7 @@ spawn_job_system_workers(MEMORY_ARENA_PARAM, JobSystem* job_system)
   // TODO(Brandon): Scale these appropriately. This entails making the async workers
   // not spin and also programmatically fetching the number of _physical_ cores without
   // hyperthreading
-  u32 worker_threads = 6; // max(1, num_physical_cores - 6);
+  u32 worker_threads = 1; // max(1, num_physical_cores - 6);
   // These are for the async threads... they will be locked to a single core shared with the OS
   u32 async_threads = 1;
 
