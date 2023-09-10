@@ -3,11 +3,11 @@
 
 struct RingBuffer
 {
-	byte* buffer = nullptr;
-	size_t size = 0;
-	size_t write = 0;
-	size_t read = 0;
-	size_t watermark = 0;
+  byte* buffer = nullptr;
+  size_t size = 0;
+  size_t write = 0;
+  size_t read = 0;
+  size_t watermark = 0;
 };
 
 // If the ring buffer is passed a size of 0, then it will fill
@@ -27,62 +27,62 @@ bool ring_buffer_is_empty(const RingBuffer& rb);
 template <typename T>
 struct RingQueue
 {
-	RingBuffer buffer;
+  RingBuffer buffer;
 };
 
 template <typename T>
 inline RingQueue<T>
 init_ring_queue(MEMORY_ARENA_PARAM, size_t size)
 {
-	ASSERT(size > 0);
-	// TODO(Brandon): ??? Shouldn't it just be 1?
-	size += 2;
+  ASSERT(size > 0);
+  // TODO(Brandon): ??? Shouldn't it just be 1?
+  size += 2;
 
-	RingQueue<T> ret = {0};
-	ret.buffer = init_ring_buffer(MEMORY_ARENA_FWD, alignof(T), sizeof(T) * size);
+  RingQueue<T> ret = {0};
+  ret.buffer = init_ring_buffer(MEMORY_ARENA_FWD, alignof(T), sizeof(T) * size);
 
-	return ret;
+  return ret;
 }
 
 template <typename T>
 inline check_return bool
 try_ring_queue_push(RingQueue<T>* queue, const T& data)
 {
-	return try_ring_buffer_push(&queue->buffer, &data, sizeof(data));
+  return try_ring_buffer_push(&queue->buffer, &data, sizeof(data));
 }
 
 template <typename T>
 inline void
 ring_queue_push(RingQueue<T>* queue, const T& data)
 {
-	ring_buffer_push(&queue->buffer, &data, sizeof(data));
+  ring_buffer_push(&queue->buffer, &data, sizeof(data));
 }
 
 template <typename T>
 inline check_return bool
 try_ring_queue_pop(RingQueue<T>* queue, T* out = nullptr)
 {
-	return try_ring_buffer_pop(&queue->buffer, sizeof(T), out);
+  return try_ring_buffer_pop(&queue->buffer, sizeof(T), out);
 }
 
 template <typename T>
 inline void
 ring_queue_pop(RingQueue<T>* queue, T* out = nullptr)
 {
-	ring_buffer_pop(&queue->buffer, sizeof(T), out);
+  ring_buffer_pop(&queue->buffer, sizeof(T), out);
 }
 
 template <typename T>
 inline bool
 ring_queue_is_empty(const RingQueue<T>& queue)
 {
-	return ring_buffer_is_empty(queue.buffer);
+  return ring_buffer_is_empty(queue.buffer);
 }
 
 template <typename T>
 inline void
 ring_queue_peak_front(const RingQueue<T>& queue, T* out = nullptr)
 {
-	ASSERT(!ring_queue_is_empty(queue));
-	memcpy(out, queue.buffer.buffer + queue.buffer.read, sizeof(T));
+  ASSERT(!ring_queue_is_empty(queue));
+  memcpy(out, queue.buffer.buffer + queue.buffer.read, sizeof(T));
 }

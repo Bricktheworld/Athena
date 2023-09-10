@@ -56,38 +56,38 @@ using InitializerList = std::initializer_list<T>;
 inline s32
 v_dbgln(const char* fmt, va_list args)
 {
-	static constexpr u32 MAX_CHARS = 1024;
-	char buf[MAX_CHARS];
+  static constexpr u32 MAX_CHARS = 1024;
+  char buf[MAX_CHARS];
 
-	s32 written = vsnprintf(buf, MAX_CHARS - 2, fmt, args);
-	buf[written] = '\n';
-	buf[written + 1] = 0;
+  s32 written = vsnprintf(buf, MAX_CHARS - 2, fmt, args);
+  buf[written] = '\n';
+  buf[written + 1] = 0;
 
-	OutputDebugStringA(buf);
+  OutputDebugStringA(buf);
 
-	return written;
+  return written;
 }
 
 inline int
 dbgln(const char* fmt, ...)
 {
-	va_list args;
-	va_start(args, fmt);
+  va_list args;
+  va_start(args, fmt);
 
-	s32 res = v_dbgln(fmt, args);
+  s32 res = v_dbgln(fmt, args);
 
-	va_end(args);
+  va_end(args);
 
-	return res;
+  return res;
 }
 
 template <typename T>
 inline void
 swap(T* a, T* b)
 {
-	T tmp = a;
-	a = b;
-	b = tmp;
+  T tmp = a;
+  a = b;
+  b = tmp;
 }
 
 #define MAX(a, b) (((a) > (b)) ? (a) : (b))
@@ -114,15 +114,15 @@ template <class F> __Deferrer__<F> operator*(__DeferDummy__, F f) { return {f}; 
 #define defer auto __DEFER(__LINE__) = __DeferDummy__{} *[&]()
 
 #define COM_RELEASE(com) \
-	do \
-	{ \
-		if (com == nullptr) {} \
-		else \
-		{ \
-			com->Release(); \
-			com = nullptr; \
-		} \
-	} while (0)
+  do \
+  { \
+    if (com == nullptr) {} \
+    else \
+    { \
+      com->Release(); \
+      com = nullptr; \
+    } \
+  } while (0)
 
 #ifdef _DEBUG
 #define DEBUG
@@ -133,29 +133,29 @@ template <class F> __Deferrer__<F> operator*(__DeferDummy__, F f) { return {f}; 
 #define DEBUG_BREAK() __debugbreak()
 
 #define ASSERT(expr) \
-	do \
-	{ \
-		if (expr) { } \
-		else \
-		{ \
-			dbgln("Assertion failed! %s, %d", __FILE__, __LINE__); \
-			DEBUG_BREAK();  \
-		} \
-	} while(0)
+  do \
+  { \
+    if (expr) { } \
+    else \
+    { \
+      dbgln("Assertion failed! %s, %d", __FILE__, __LINE__); \
+      DEBUG_BREAK();  \
+    } \
+  } while(0)
 
 #include <comdef.h>
 #define HASSERT(hres) \
-	do \
-	{ \
-		if (SUCCEEDED(hres)) { } \
-		else \
-		{ \
-			_com_error err(hres); \
-			const wchar_t* err_msg = err.ErrorMessage(); \
-			dbgln("HRESULT failed (%s, %d): %ls", __FILE__, __LINE__, err_msg); \
-			DEBUG_BREAK();  \
-		} \
-	} while(0)
+  do \
+  { \
+    if (SUCCEEDED(hres)) { } \
+    else \
+    { \
+      _com_error err(hres); \
+      const wchar_t* err_msg = err.ErrorMessage(); \
+      dbgln("HRESULT failed (%s, %d): %ls", __FILE__, __LINE__, err_msg); \
+      DEBUG_BREAK();  \
+    } \
+  } while(0)
 #else
 #define DEBUG_BREAK() do { } while(0)
 #define ASSERT(expr) do { } while(0)

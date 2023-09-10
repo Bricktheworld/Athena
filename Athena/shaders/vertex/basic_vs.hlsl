@@ -14,7 +14,7 @@ shaders::BasicVSOut main(uint vert_id: SV_VertexID)
 
 	interlop::Vertex vertex = vertices[vert_id];
 
-	ret.world_pos = mul(transform.model, float4(vertex.position.xyz, 1.0f));
+	ret.world_pos = float4(vertex.position.xyz, 1.0f); //mul(transform.model, float4(vertex.position.xyz, 1.0f));
 	ret.ndc_pos   = mul(scene.view_proj, ret.world_pos);
 
 	float3x3 normal_matrix = (float3x3)transpose(transform.model_inverse);
@@ -29,8 +29,5 @@ shaders::BasicVSOut main(uint vert_id: SV_VertexID)
 
 	ret.normal    = float4(normal, 1.0f);  //vertex.normal;
 	ret.uv        = vertex.uv;
-	ret.normal    = vertex.normal;
-//	ret.tangent   = vertex.tangent;
-//	ret.bitangent = vertex.bitangent;
 	return ret;
 }
