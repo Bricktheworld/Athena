@@ -21,13 +21,13 @@ void main( uint3 thread_id : SV_DispatchThreadID )
 	RWTexture2D<half4> green_far_target  = ResourceDescriptorHeap[compute_resources.green_far_target];
 
 	float2 resolution;
-	color_buffer.GetDimensions(resolution.x, resolution.y);
+	red_near_target.GetDimensions(resolution.x, resolution.y);
 
 	float2 uv_step = float2(1.0f, 1.0f) / resolution;
 	float2 uv      = thread_id.xy       / resolution;
 
 	bool is_near = thread_id.z == 0;
-	half filter_radius = is_near ? coc_buffer[thread_id.xy].x : coc_buffer[thread_id.xy].y;
+	half filter_radius = is_near ? coc_buffer.Sample(g_ClampSampler, uv).x : coc_buffer.Sample(g_ClampSampler, uv).y;
 
 	half4 red_component   = half4(0.0h, 0.0h, 0.0h, 0.0h);
 	half4 green_component = half4(0.0h, 0.0h, 0.0h, 0.0h);

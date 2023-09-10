@@ -288,7 +288,7 @@ float3 get_vol_irradiance(float3 ws_pos,
     return float3(0.0f, 0.0f, 0.0f);
 
 	irradiance /= total_weights;
-  irradiance  = pow(irradiance, 2.2f);
+  irradiance  = pow(irradiance, 2.0f);
 
 	// Adjust for energy loss due to reduced precision in the R10G10B10A2 irradiance texture format
 //	if (volume.probeIrradianceFormat == RTXGI_DDGI_VOLUME_TEXTURE_FORMAT_U32)

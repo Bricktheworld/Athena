@@ -138,7 +138,7 @@ void
 wait_for_thread_signal(ThreadSignal* signal)
 {
   AcquireSRWLockExclusive(&signal->lock);
-  ASSERT(SleepConditionVariableSRW(&signal->cond_var, &signal->lock, INFINITE, 0) != 0);
+  SleepConditionVariableSRW(&signal->cond_var, &signal->lock, INFINITE, 0);
   ReleaseSRWLockExclusive(&signal->lock);
 }
 

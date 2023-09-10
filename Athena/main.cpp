@@ -93,7 +93,9 @@ static constexpr u64 INCREMENT_AMOUNT = 10000;
 using namespace gfx;
 
 static void
-draw_debug(RenderOptions* out_render_options, interlop::DirectionalLight* out_directional_light)
+draw_debug(RenderOptions* out_render_options,
+           interlop::DirectionalLight* out_directional_light,
+           Camera* out_camera)
 {
   // Start the Dear ImGui frame
   ImGui_ImplDX12_NewFrame();
@@ -132,6 +134,8 @@ draw_debug(RenderOptions* out_render_options, interlop::DirectionalLight* out_di
   ImGui::DragFloat3("Diffuse", (f32*)&out_directional_light->diffuse, 0.1f, 0.0f, 1.0f);
   ImGui::DragFloat ("Intensity", &out_directional_light->intensity, 0.1f, 0.0f, 100.0f);
 
+  ImGui::InputFloat3("Camera Position", (f32*)&out_camera->world_pos);
+
   ImGui::End();
 
   ImGui::Render();
@@ -149,15 +153,16 @@ application_entry(MEMORY_ARENA_PARAM, HINSTANCE instance, int show_code, JobSyst
   wc.hInstance = instance;
   wc.lpszClassName = CLASS_NAME;
 
-  ASSERT(RegisterClassExW(&wc));
+  RegisterClassExW(&wc);
 
   RECT window_rect = {0, 0, 1920, 1080};
-  AdjustWindowRect(&window_rect, WS_OVERLAPPEDWINDOW, 0);
+  DWORD dw_style = WS_POPUP; // WS_OVERLAPPEDWINDOW;
+  AdjustWindowRect(&window_rect, dw_style, 0);
 
   HWND window = CreateWindowExW(0,
                                 wc.lpszClassName,
                                 WINDOW_NAME,
-                                WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+                                dw_style | WS_VISIBLE,
                                 CW_USEDEFAULT,
                                 CW_USEDEFAULT,
                                 window_rect.right - window_rect.left,
@@ -272,7 +277,7 @@ application_entry(MEMORY_ARENA_PARAM, HINSTANCE instance, int show_code, JobSyst
     if (done)
       break;
 
-    draw_debug(&render_options, &scene.directional_light);
+    draw_debug(&render_options, &scene.directional_light, &scene.camera);
 
 //    blocking_kick_closure_job(kJobPriorityMedium, [&]()
 //    {
@@ -302,7 +307,9 @@ WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, int show_code
 
   profiler::init();
 
-	LoadLibrary(L"C:\\Program Files\\Microsoft PIX\\2305.10\\WinPixGpuCapturer.dll");
+//#ifdef DEBUG
+//	LoadLibrary(L"C:\\Program Files\\Microsoft PIX\\2305.10\\WinPixGpuCapturer.dll");
+//#endif
 
   init_application_memory();
   defer { destroy_application_memory(); };

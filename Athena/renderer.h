@@ -102,10 +102,19 @@ struct Mesh
   ShaderIndex material_shader = kPsBasicNormalGloss;
 };
 
+enum ResolutionScale
+{
+  kFullRes,
+  kHalfRes,
+  kQuarterRes,
+  kEigthRes,
+};
+
 struct RenderBufferDesc
 {
   const char* debug_name = "Unknown Render Buffer";
   DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
+  ResolutionScale res = kFullRes;
 
   union
   {
@@ -118,9 +127,10 @@ struct RenderBufferDesc
   };
 };
 
-#define DECLARE_RENDER_BUFFER_EX(name, dxgi_format, clear_value) {.debug_name = name, .format = dxgi_format, .color_clear_value = clear_value}
-#define DECLARE_RENDER_BUFFER(debug_name, format) DECLARE_RENDER_BUFFER_EX(debug_name, format, Vec4(0, 0, 0, 1))
-#define DECLARE_DEPTH_BUFFER_EX(name, dxgi_format, depth_clear, stencil_clear) {.debug_name = name, .format = dxgi_format, .depth_clear_value = depth_clear, .stencil_clear_value = stencil_clear}
+
+#define DECLARE_RENDER_BUFFER_EX(name, dxgi_format, clear_value, res_scale) {.debug_name = name, .format = dxgi_format, .res = res_scale, .color_clear_value = clear_value}
+#define DECLARE_RENDER_BUFFER(debug_name, format) DECLARE_RENDER_BUFFER_EX(debug_name, format, Vec4(0, 0, 0, 1), kFullRes)
+#define DECLARE_DEPTH_BUFFER_EX(name, dxgi_format, depth_clear, stencil_clear) {.debug_name = name, .format = dxgi_format, .res = kFullRes, .depth_clear_value = depth_clear, .stencil_clear_value = stencil_clear}
 #define DECLARE_DEPTH_BUFFER(debug_name, format) DECLARE_DEPTH_BUFFER_EX(debug_name, format, 0.0f, 0)
 
 namespace RenderBuffers
@@ -133,8 +143,6 @@ namespace RenderBuffers
     kGBufferNormalRGBRoughnessA,
     kGBufferDepth,
 
-		kBasicRTLighting,
-		kDebugProbe,
     kHDRLighting,
 
     kDoFCoC,
@@ -173,15 +181,13 @@ static const DXGI_FORMAT kGBufferRenderTargetFormats[] =
 
 static const RenderBufferDesc kRenderBufferDescs[] =
 {
-  DECLARE_RENDER_BUFFER_EX("GBuffer Material ID", kGBufferRenderTargetFormats[RenderBuffers::kGBufferMaterialId], Vec4()),
-  DECLARE_RENDER_BUFFER_EX("GBuffer World Pos", kGBufferRenderTargetFormats[RenderBuffers::kGBufferWorldPos], Vec4()),
-  DECLARE_RENDER_BUFFER_EX("GBuffer Diffuse RGB Metallic A", kGBufferRenderTargetFormats[RenderBuffers::kGBufferDiffuseRGBMetallicA], Vec4()),
-  DECLARE_RENDER_BUFFER_EX("GBuffer Normal RGB Roughness A", kGBufferRenderTargetFormats[RenderBuffers::kGBufferNormalRGBRoughnessA], Vec4()),
+  DECLARE_RENDER_BUFFER_EX("GBuffer Material ID", kGBufferRenderTargetFormats[RenderBuffers::kGBufferMaterialId], Vec4(), kFullRes),
+  DECLARE_RENDER_BUFFER_EX("GBuffer World Pos", kGBufferRenderTargetFormats[RenderBuffers::kGBufferWorldPos], Vec4(), kFullRes),
+  DECLARE_RENDER_BUFFER_EX("GBuffer Diffuse RGB Metallic A", kGBufferRenderTargetFormats[RenderBuffers::kGBufferDiffuseRGBMetallicA], Vec4(), kFullRes),
+  DECLARE_RENDER_BUFFER_EX("GBuffer Normal RGB Roughness A", kGBufferRenderTargetFormats[RenderBuffers::kGBufferNormalRGBRoughnessA], Vec4(), kFullRes),
   DECLARE_DEPTH_BUFFER("GBuffer Depth", DXGI_FORMAT_D32_FLOAT),
 
-	DECLARE_RENDER_BUFFER("Ray Trace GBuffer Normal", DXGI_FORMAT_R32G32B32A32_FLOAT),
-	DECLARE_RENDER_BUFFER("Debug Probe", DXGI_FORMAT_R32G32B32A32_FLOAT),
-  DECLARE_RENDER_BUFFER("HDR Lighting", DXGI_FORMAT_R16G16B16A16_FLOAT),
+  DECLARE_RENDER_BUFFER("HDR Lighting", DXGI_FORMAT_R11G11B10_FLOAT),
 
   // TODO(Brandon): Holy shit that's a lot of memory
   DECLARE_RENDER_BUFFER("DoF CoC Near R Far G", DXGI_FORMAT_R16G16_FLOAT),
@@ -198,7 +204,7 @@ static const RenderBufferDesc kRenderBufferDescs[] =
   DECLARE_RENDER_BUFFER("DoF Blurred Near", DXGI_FORMAT_R16G16B16A16_FLOAT),
   DECLARE_RENDER_BUFFER("DoF Blurred Far", DXGI_FORMAT_R16G16B16A16_FLOAT),
 
-  DECLARE_RENDER_BUFFER("DoF Composite", DXGI_FORMAT_R16G16B16A16_FLOAT),
+  DECLARE_RENDER_BUFFER("DoF Composite", DXGI_FORMAT_R11G11B10_FLOAT),
 };
 static_assert(ARRAY_LENGTH(kRenderBufferDescs) == RenderBuffers::kCount);
 

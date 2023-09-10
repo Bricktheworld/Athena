@@ -45,7 +45,7 @@ void ray_gen()
 	ConstantBuffer<interlop::DDGIVolDesc> vol_desc                 = ResourceDescriptorHeap[rt_resources.vol_desc];
   Texture2DArray<float4>                probe_irradiance         = ResourceDescriptorHeap[rt_resources.probe_irradiance];
   Texture2DArray<float2>                probe_distance           = ResourceDescriptorHeap[rt_resources.probe_distance];
-	RWTexture2D<unorm float4>             render_target            = ResourceDescriptorHeap[rt_resources.render_target];
+	RWTexture2D<float3>                   render_target            = ResourceDescriptorHeap[rt_resources.render_target];
 
 	interlop::DirectionalLight            directional_light = scene.directional_light;
 
@@ -56,7 +56,7 @@ void ray_gen()
 
 	if (material_id == 0)
 	{
-		render_target[launch_index] = float4(0.0f, 0.0f, 0.0f, 1.0f);
+		render_target[launch_index] = float3(0.0f, 0.0f, 0.0f);
 		return;
 	}
 
@@ -84,7 +84,8 @@ void ray_gen()
   float3 lambertian              = evaluate_lambertian(1.0f);
 
 	float3 color = payload.t < 0.0f ? float3(0.0f, 0.0f, 0.0f) : lambertian * irradiance;
-	render_target[launch_index] = float4(color, 1.0f);
+
+	render_target[launch_index] = color;
 }
 
 [shader("miss")]

@@ -159,7 +159,7 @@ template <class F> __Deferrer__<F> operator*(__DeferDummy__, F f) { return {f}; 
 #else
 #define DEBUG_BREAK() do { } while(0)
 #define ASSERT(expr) do { } while(0)
-#define HASSERT(hres) do { } while(0)
+#define HASSERT(hres) hres
 #endif
 
 #define UNREACHABLE ASSERT(false); __assume(0)

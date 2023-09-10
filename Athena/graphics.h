@@ -201,6 +201,11 @@ namespace gfx
                               GpuImageDesc desc,
                               const char* name);
 
+//  void     upload_gpu_image_2D(const GraphicsDevice* device,
+//                               const 
+//                               GpuImage* dst,
+//                               )
+
   bool is_depth_format(DXGI_FORMAT format);
   
   struct GpuBufferDesc
