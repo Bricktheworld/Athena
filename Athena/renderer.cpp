@@ -80,11 +80,11 @@ init_renderer(MEMORY_ARENA_PARAM, const GraphicsDevice* device, const SwapChain*
   ret.imgui_descriptor_heap = init_descriptor_linear_allocator(device, 1, kDescriptorHeapTypeCbvSrvUav);
   init_imgui_ctx(device, swap_chain, window, &ret.imgui_descriptor_heap);
 
-  ret.ddgi_vol_desc.origin = Vec4(0.0f, 1.5f, 0.0f, 0.0f);
-  ret.ddgi_vol_desc.probe_spacing = Vec4(1.2f, 2.5f, 0.3f, 0.0f);
+  ret.ddgi_vol_desc.origin = Vec4(0.0f, 4.5f, -0.3f, 0.0f);
+  ret.ddgi_vol_desc.probe_spacing = Vec4(1.4f, 2.0f, 1.7f, 0.0f);
   ret.ddgi_vol_desc.probe_count_x = 19;
-  ret.ddgi_vol_desc.probe_count_y = 4;
-  ret.ddgi_vol_desc.probe_count_z = 12;
+  ret.ddgi_vol_desc.probe_count_y = 5;
+  ret.ddgi_vol_desc.probe_count_z = 8;
   ret.ddgi_vol_desc.probe_num_rays = 128;
   ret.ddgi_vol_desc.probe_hysteresis = 0.97f;
   ret.ddgi_vol_desc.probe_max_ray_distance = 20.0f;

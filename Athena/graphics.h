@@ -201,10 +201,9 @@ namespace gfx
                               GpuImageDesc desc,
                               const char* name);
 
-//  void     upload_gpu_image_2D(const GraphicsDevice* device,
-//                               const 
-//                               GpuImage* dst,
-//                               )
+  void     upload_gpu_image_2D(const GraphicsDevice* device,
+                               const void* rgba,
+                               GpuImage* dst);
 
   bool is_depth_format(DXGI_FORMAT format);
   

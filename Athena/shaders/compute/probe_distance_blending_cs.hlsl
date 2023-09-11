@@ -44,7 +44,7 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID,
 
       // Get the sampled data from the current frame for our ray index
       uint3 sample_texel_coords = get_ray_data_texel_coords(iray, probe_index, vol_desc);
-      float sample_distance     = ray_data[sample_texel_coords].a;
+      float sample_distance     = ray_data[sample_texel_coords].w;
       
       // Something to do with banding and sharpness...
       static const float probe_distance_exponent = 50.0f;
@@ -120,5 +120,6 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID,
     src_coords.x += group_thread_id.x - 1;
     src_coords.y += (kProbeNumDistanceTexels - 1) - group_thread_id.y;
   }
+
   distance[dispatch_thread_id] = distance[src_coords];
 }

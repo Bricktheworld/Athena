@@ -93,7 +93,6 @@ int get_probe_index(uint3 tex_coords, int probe_num_texels, interlop::DDGIVolDes
   return (tex_coords.z * probes_per_plane) + probe_index_in_plane;
 }
 
-// TODO(Brandon): These were copy pasta, fix naming n shit
 uint3 get_probe_texel_coords(int probe_index, interlop::DDGIVolDesc vol_desc)
 {
   int probes_per_plane = get_probes_per_plane(vol_desc);
@@ -212,57 +211,11 @@ float3 get_vol_irradiance(float3 ws_pos,
 		float  trilinear_weight   = trilinear.x * trilinear.y * trilinear.z;
 		float  weight             = 1.0f;
 
-		// A naive soft backface weight would ignore a probe when
-		// it is behind the surface. That's good for walls, but for
-		// small details inside of a room, the normals on the details
-		// might rule out all of the probes that have mutual visibility 
-		// to the point. We instead use a "wrap shading" test. The small
-		// offset at the end reduces the "going to zero" impact.
-
-    // TODO(Brandon): Understand wtf this does or how it works.
-		float wrap_shading = (dot(ws_to_adj_dir, normal) + 1.0f) * 0.5f;
-		weight *= (wrap_shading * wrap_shading) + 0.2f;
-
 		// Get the texture array coordinates for the octant of the probe
 		float3 adj_dist_uv = get_probe_uv(adj_probe_index,
                                       octahedral_encode_dir(-biased_to_adj_dir),
                                       kProbeNumDistanceInteriorTexels,
                                       vol_desc);
-
-		// Sample the probe's distance texture to get the mean distance to nearby surfaces
-		float2 sampled_dist = 2.0f * probe_distance_tex.SampleLevel(g_ClampSampler, adj_dist_uv, 0).rg;
-
-    // How I understand this is that the `variance` is the difference between what we calculated earlier as the square
-    // and what the bilinear sampler saw. Using that allows us to get a better "weight"
-		float variance = abs((sampled_dist.x * sampled_dist.x) - sampled_dist.y);
-
-		// Occlusion test
-    // TODO(Brandon): This is some math I definitely don't understand...
-		float chebyshev_weight = 1.0f;
-		if (biased_to_adj_dist > sampled_dist.x)
-		{
-			// v must be greater than 0, which is guaranteed by the if condition above.
-			float v          = biased_to_adj_dist - sampled_dist.x;
-			chebyshev_weight = variance / (variance + (v * v));
-
-			// Increase the contrast in the weight
-			chebyshev_weight = max((chebyshev_weight * chebyshev_weight * chebyshev_weight), 0.0f);
-		}
-
-		// Avoid visibility weights ever going all the way to zero because
-		// when *no* probe has visibility we need a fallback value
-		weight *= max(0.05f, chebyshev_weight);
-
-		// Avoid a weight of zero
-		weight  = max(0.000001f, weight);
-
-		// A small amount of light is visible due to logarithmic perception, so
-		// crush tiny weights but keep the curve continuous
-		const float crush_threshold = 0.2f;
-		if (weight < crush_threshold)
-		{
-			weight *= (weight * weight) * (1.0f / (crush_threshold * crush_threshold));
-		}
 
 		// Apply the trilinear weights
 		weight *= trilinear_weight;
@@ -285,13 +238,9 @@ float3 get_vol_irradiance(float3 ws_pos,
     return float3(0.0f, 0.0f, 0.0f);
 
 	irradiance /= total_weights;
-  irradiance  = pow(irradiance, 2.0f);
-
-	// Adjust for energy loss due to reduced precision in the R10G10B10A2 irradiance texture format
-//	if (volume.probeIrradianceFormat == RTXGI_DDGI_VOLUME_TEXTURE_FORMAT_U32)
-//	{
-//		irradiance *= 1.0989f;
-//	}
+  // This gamma-esque correction makes it so that we only really care about the big amounts of indirect lighting.
+  // We really don't want the sort of feeling that the entire scene is being illuminated by nothing
+  irradiance  = pow(irradiance, 2.3f);
 
 	return irradiance;
 }

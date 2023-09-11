@@ -127,7 +127,7 @@ void ray_gen()
   float3 albedo = 1.0f;
 
   // Write everything back out
-  float3 radiance = (direct_diffuse_lighting + saturate(indirect * 0.01f)) * lambertian;
+  float3 radiance = (direct_diffuse_lighting + saturate(pow(indirect, 2.0f))) * lambertian;
   ray_data[output_coords] = float4(saturate(radiance), payload.t);
 }
 

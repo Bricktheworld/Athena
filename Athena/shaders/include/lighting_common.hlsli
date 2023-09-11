@@ -78,12 +78,9 @@ float3 evaluate_directional_light(float3 light_direction,
   light_direction = -normalize(light_direction);
 
   // The light direction from the fragment position
-//    float3 light_direction = normalize(-float3(-1, -1, 0));
   float3 halfway_vector  = normalize(view_direction + light_direction);
 
   // Add the radiance
-//		float3 directional_light_diffuse = float3(1.0, 1.0, 1.0);
-//		float directional_light_intensity = 3.0f;
   float3 radiance        = light_diffuse * light_intensity;
 
   // The Fresnel-Schlick approximation expects a F0 parameter which is known as the surface reflection at zero incidence
