@@ -18,9 +18,11 @@ float3 spherical_fibonacci(float sample_idx, float num_samples)
 
 float3 get_probe_ray_dir(int ray_index, interlop::DDGIVolDesc vol_desc)
 {
-  // Get a unit sphere direction using a fibonacci pattern.
+  // Each ray index will have a predictable spherical fibonacci unit vector direction
   float3 direction = spherical_fibonacci(ray_index, vol_desc.probe_num_rays);
 
+  // Then ALL the rays in the frame will have the same randomized rotation applied to their respective spherical
+  // fibonacci pattern
   return normalize(mul(vol_desc.probe_ray_rotation, float4(direction, 1.0f)).xyz);
 }
 
@@ -30,7 +32,6 @@ float3 get_probe_ws_pos(int3 probe_coords, interlop::DDGIVolDesc vol_desc)
 
 	int3   probe_counts      = int3(vol_desc.probe_count_x, vol_desc.probe_count_y, vol_desc.probe_count_z);
 
-	// Center the probes about the origin
 	float3 probe_grid_shift = (vol_desc.probe_spacing.xyz * (probe_counts - 1)) * 0.5f;
 
 	float3 probe_ws_pos = (probe_grid_ws_pos - probe_grid_shift) + vol_desc.origin.xyz;
@@ -114,7 +115,6 @@ float3 get_probe_uv(int probe_index, float2 octant_coords, int num_interior_texe
   float tex_width  = num_texels * vol_desc.probe_count_x;
   float tex_height = num_texels * vol_desc.probe_count_z;
 
-  // Move to the center of the probe and move to the octant texel before normalizing
   float2 uv        = float2(coords.x * num_texels, coords.y * num_texels) + (num_texels * 0.5f);
   uv              += octant_coords.xy * ((float)num_interior_texels * 0.5f);
   uv              /= float2(tex_width, tex_height);
@@ -206,30 +206,24 @@ float3 get_vol_irradiance(float3 ws_pos,
 		float3 biased_to_adj_dir  = normalize(adj_probe_ws_pos - biased_ws_pos);
 		float  biased_to_adj_dist = length(adj_probe_ws_pos - biased_ws_pos);
 
-    // We will blend the probes using trilinear interpolation
 		float3 trilinear          = max(0.001f, lerp(1.0f - alpha, alpha, adj_coord_offset));
 		float  trilinear_weight   = trilinear.x * trilinear.y * trilinear.z;
 		float  weight             = 1.0f;
 
-		// Get the texture array coordinates for the octant of the probe
 		float3 adj_dist_uv = get_probe_uv(adj_probe_index,
                                       octahedral_encode_dir(-biased_to_adj_dir),
                                       kProbeNumDistanceInteriorTexels,
                                       vol_desc);
 
-		// Apply the trilinear weights
 		weight *= trilinear_weight;
 
-		// Get the probe's texture coordinates
 		float3 irradiance_uv = get_probe_uv(adj_probe_index,
                                         octahedral_encode_dir(normal),
                                         kProbeNumIrradianceInteriorTexels,
                                         vol_desc);
 
-		// Sample the probe's irradiance
 		float3 adj_irradiance = probe_irradiance_tex.SampleLevel(g_ClampSampler, irradiance_uv, 0).rgb;
 
-		// Accumulate the weighted irradiance
 		irradiance    += weight * adj_irradiance;
 		total_weights += weight;
 	}
@@ -237,10 +231,13 @@ float3 get_vol_irradiance(float3 ws_pos,
 	if (total_weights == 0.0f)
     return float3(0.0f, 0.0f, 0.0f);
 
+  // Figure out the weighted average
 	irradiance /= total_weights;
+
   // This gamma-esque correction makes it so that we only really care about the big amounts of indirect lighting.
   // We really don't want the sort of feeling that the entire scene is being illuminated by nothing
-  irradiance  = pow(irradiance, 2.3f);
+  // NOTE that this power is not based on any physical data, it's just what looks good to my eye
+  irradiance  = pow(irradiance, 2.1f);
 
 	return irradiance;
 }

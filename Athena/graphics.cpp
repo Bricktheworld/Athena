@@ -13,6 +13,10 @@
 #pragma comment(lib, "dxguid.lib")
 #pragma comment(lib, "d3dcompiler.lib")
 
+#ifdef DEBUG
+//#define DEBUG_LAYER
+#endif
+
 namespace gfx
 {
   static IDXGIFactory7*
@@ -20,7 +24,7 @@ namespace gfx
   {
     IDXGIFactory7* factory = nullptr;
     u32 create_factory_flags = 0;
-#ifdef DEBUG
+#ifdef DEBUG_LAYER
     create_factory_flags = DXGI_CREATE_FACTORY_DEBUG;
 #endif
   
@@ -397,7 +401,7 @@ namespace gfx
   GraphicsDevice
   init_graphics_device(MEMORY_ARENA_PARAM)
   {
-#ifdef DEBUG
+#ifdef DEBUG_LAYER
     ID3D12Debug* debug_interface = nullptr;
     HASSERT(D3D12GetDebugInterface(IID_PPV_ARGS(&debug_interface)));
     debug_interface->EnableDebugLayer();

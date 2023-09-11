@@ -20,11 +20,14 @@ void main( uint3 thread_id : SV_DispatchThreadID )
 	RWTexture2D<half4> blue_far_target   = ResourceDescriptorHeap[compute_resources.blue_far_target];
 	RWTexture2D<half4> green_far_target  = ResourceDescriptorHeap[compute_resources.green_far_target];
 
-	float2 resolution;
-	red_near_target.GetDimensions(resolution.x, resolution.y);
+	float2 in_res;
+	color_buffer.GetDimensions(in_res.x, in_res.y);
 
-	float2 uv_step = float2(1.0f, 1.0f) / resolution;
-	float2 uv      = thread_id.xy       / resolution;
+	float2 out_res;
+	red_near_target.GetDimensions(out_res.x, out_res.y);
+
+	float2 uv_step = float2(1.0f, 1.0f)   / in_res;
+	float2 uv      = float2(thread_id.xy) / out_res;
 
 	bool is_near = thread_id.z == 0;
 	half filter_radius = is_near ? coc_buffer.Sample(g_ClampSampler, uv).x : coc_buffer.Sample(g_ClampSampler, uv).y;
@@ -34,7 +37,7 @@ void main( uint3 thread_id : SV_DispatchThreadID )
 	half4 blue_component  = half4(0.0h, 0.0h, 0.0h, 0.0h);
 	for (int i = -kKernelRadius; i <= kKernelRadius; i++)
 	{
-		float2 sample_uv    = uv + uv_step * float2((float)i, 0.0f) * filter_radius;
+		float2 sample_uv    = uv + uv_step / 4.0f * float2((float)i, 0.0f) * filter_radius;
 		float3 sample_color = color_buffer.Sample(g_ClampSampler, sample_uv).rgb;
 
 		half2  sample_coc_pair = coc_buffer.Sample(g_ClampSampler, sample_uv);

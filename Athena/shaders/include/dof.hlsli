@@ -1,7 +1,7 @@
 #pragma once
 
 static const int kKernelRadius = 8;
-static const int kKernelCount = 17;
+//static const int kKernelCount = 17;
 
 static const int kDilateSize = 8;
 

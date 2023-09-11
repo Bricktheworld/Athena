@@ -264,6 +264,12 @@ execute_render(MEMORY_ARENA_PARAM,
   u32 fullres_dispatch_x = (swap_chain->width + 7)  / 8;
   u32 fullres_dispatch_y = (swap_chain->height + 7) / 8;
 
+  u32 halfres_dispatch_x = ((swap_chain->width  >> 1) + 7) / 8;
+  u32 halfres_dispatch_y = ((swap_chain->height >> 1) + 7) / 8;
+
+  u32 quarterres_dispatch_x = ((swap_chain->width  >> 2) + 7) / 8;
+  u32 quarterres_dispatch_y = ((swap_chain->height >> 2) + 7) / 8;
+
   u32 eighthres_dispatch_x = ((swap_chain->width  >> 3) + 7) / 8;
   u32 eighthres_dispatch_y = ((swap_chain->height >> 3) + 7) / 8;
 
@@ -380,6 +386,7 @@ execute_render(MEMORY_ARENA_PARAM,
     cmd_compute_bind_shader_resources(coc_pass, dof_coc_resources);
     cmd_dispatch(coc_pass, fullres_dispatch_x, fullres_dispatch_y, 1);
 
+#if 0
     RenderPass* coc_dilate_pass = add_render_pass(MEMORY_ARENA_FWD, &graph, kCmdQueueTypeGraphics, "CoC Dilate");
   
     interlop::DofCocDilateComputeResources dof_coc_dilate_resources =
@@ -390,12 +397,13 @@ execute_render(MEMORY_ARENA_PARAM,
     cmd_set_compute_pso(coc_dilate_pass, &renderer->dof_coc_dilate_pipeline);
     cmd_compute_bind_shader_resources(coc_dilate_pass, dof_coc_dilate_resources);
     cmd_dispatch(coc_dilate_pass, fullres_dispatch_x, fullres_dispatch_y, 1);
+#endif
 
     RenderPass* horiz_pass = add_render_pass(MEMORY_ARENA_FWD, &graph, kCmdQueueTypeGraphics, "Dof Blur Horizontal");
     interlop::DofBlurHorizComputeResources dof_blur_horiz_resources = 
     {
       .color_buffer      = RENDER_BUFFER(kHDRLighting),
-      .coc_buffer        = RENDER_BUFFER(kDoFDilatedCoC),
+      .coc_buffer        = RENDER_BUFFER(kDoFCoC),
 
       .red_near_target   = RENDER_BUFFER(kDoFRedNear),
       .green_near_target = RENDER_BUFFER(kDoFGreenNear),
@@ -407,12 +415,12 @@ execute_render(MEMORY_ARENA_PARAM,
     };
     cmd_set_compute_pso(horiz_pass, &renderer->dof_blur_horiz_pipeline);
     cmd_compute_bind_shader_resources(horiz_pass, dof_blur_horiz_resources);
-    cmd_dispatch(horiz_pass, fullres_dispatch_x, fullres_dispatch_y, 2);
+    cmd_dispatch(horiz_pass, quarterres_dispatch_x, quarterres_dispatch_y, 2);
 
     RenderPass* vert_pass = add_render_pass(MEMORY_ARENA_FWD, &graph, kCmdQueueTypeGraphics, "Dof Blur Vertical");
     interlop::DofBlurVertComputeResources dof_blur_vert_resources = 
     {
-      .coc_buffer        = RENDER_BUFFER(kDoFDilatedCoC),
+      .coc_buffer        = RENDER_BUFFER(kDoFCoC),
 
       .red_near_buffer   = RENDER_BUFFER(kDoFRedNear),
       .green_near_buffer = RENDER_BUFFER(kDoFGreenNear),
@@ -427,12 +435,12 @@ execute_render(MEMORY_ARENA_PARAM,
     };
     cmd_set_compute_pso(vert_pass, &renderer->dof_blur_vert_pipeline);
     cmd_compute_bind_shader_resources(vert_pass, dof_blur_vert_resources);
-    cmd_dispatch(vert_pass, fullres_dispatch_x, fullres_dispatch_y, 2);
+    cmd_dispatch(vert_pass, quarterres_dispatch_x, quarterres_dispatch_y, 2);
 
     RenderPass* composite_pass = add_render_pass(MEMORY_ARENA_FWD, &graph, kCmdQueueTypeGraphics, "Dof Composite");
     interlop::DofCompositeComputeResources dof_composite_resources = 
     {
-      .coc_buffer   = RENDER_BUFFER(kDoFDilatedCoC),
+      .coc_buffer   = RENDER_BUFFER(kDoFCoC),
 
       .color_buffer = RENDER_BUFFER(kHDRLighting),
       .near_buffer  = RENDER_BUFFER(kDoFBlurredNear),

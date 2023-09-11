@@ -18,17 +18,18 @@ void main( uint3 thread_id : SV_DispatchThreadID )
 	Texture2D<half4>    blue_far_buffer   = ResourceDescriptorHeap[compute_resources.blue_far_buffer];
 	Texture2D<half4>    green_far_buffer  = ResourceDescriptorHeap[compute_resources.green_far_buffer];
 
-	RWTexture2D<float4> blurred_near_target = ResourceDescriptorHeap[compute_resources.blurred_near_target];
-	RWTexture2D<float4> blurred_far_target = ResourceDescriptorHeap[compute_resources.blurred_far_target];
+	RWTexture2D<float3> blurred_near_target = ResourceDescriptorHeap[compute_resources.blurred_near_target];
+	RWTexture2D<float3> blurred_far_target = ResourceDescriptorHeap[compute_resources.blurred_far_target];
 
-	float2 in_res;
-	coc_buffer.GetDimensions(in_res.x, in_res.y);
+	float2 coc_res;
+	coc_buffer.GetDimensions(coc_res.x, coc_res.y);
 
 	float2 out_res;
 	blurred_near_target.GetDimensions(out_res.x, out_res.y);
 
-	float2 uv_step = float2(1.0f, 1.0f) / in_res;
-	float2 uv      = thread_id.xy       / out_res;
+	float2 uv_step = float2(1.0f, 1.0f)   / out_res;
+	float2 uv      = float2(thread_id.xy) / out_res;
+//	float2 coc_uv  = float2(thread_id.xy) / coc_res;
  
 	bool is_near = thread_id.z == 0;
 	half filter_radius = is_near ? coc_buffer.Sample(g_ClampSampler, uv).x : coc_buffer.Sample(g_ClampSampler, uv).y;
@@ -38,7 +39,7 @@ void main( uint3 thread_id : SV_DispatchThreadID )
 	half4 blue_component  = half4(0.0h, 0.0h, 0.0h, 0.0h);
 	for (int i = -kKernelRadius; i <= kKernelRadius; i++)
 	{
-		float2 sample_uv  = uv + uv_step * float2(0.0f, (float)i) * filter_radius;
+		float2 sample_uv  = uv + uv_step / 4.0f * float2(0.0f, (float)i) * filter_radius;
 
 		half4 sample_red, sample_green, sample_blue;
 		if (is_near)
@@ -67,11 +68,10 @@ void main( uint3 thread_id : SV_DispatchThreadID )
 		blue_component.zw += mult_complex(sample_blue.zw, c1);
 	}
 
-	float4 output_color;
+	float3 output_color;
 	output_color.r = dot(red_component.xy, kKernel0Weights_RealX_ImY) + dot(red_component.zw, kKernel1Weights_RealX_ImY);
 	output_color.g = dot(green_component.xy, kKernel0Weights_RealX_ImY) + dot(green_component.zw, kKernel1Weights_RealX_ImY);
 	output_color.b = dot(blue_component.xy, kKernel0Weights_RealX_ImY) + dot(blue_component.zw, kKernel1Weights_RealX_ImY);
-	output_color.a = 1.0f;
 	if (is_near)
 	{
 		blurred_near_target[thread_id.xy] = output_color;

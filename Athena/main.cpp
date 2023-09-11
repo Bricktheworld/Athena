@@ -156,10 +156,11 @@ application_entry(MEMORY_ARENA_PARAM, HINSTANCE instance, int show_code, JobSyst
   RegisterClassExW(&wc);
 
   RECT window_rect = {0, 0, 1920, 1080};
-#ifdef DEBUG
+#define FULLSCREEN
+#ifndef FULLSCREEN
   DWORD dw_style = WS_OVERLAPPEDWINDOW; // WS_POPUP
 #else
-  DWORD dw_style = WS_POPUP
+  DWORD dw_style = WS_POPUP;
 #endif
   AdjustWindowRect(&window_rect, dw_style, 0);
 

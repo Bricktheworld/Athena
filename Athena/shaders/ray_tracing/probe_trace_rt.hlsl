@@ -90,7 +90,7 @@ void ray_gen()
   if (payload.t < 0.0f)
   {
     // TODO(Brandon): On miss, we'll want to use the sky radiance instead of just the directional light
-    ray_data[output_coords] = float4(directional_light.diffuse.rgb * directional_light.intensity * 0.0005f, 1e27f); 
+    ray_data[output_coords] = float4(directional_light.diffuse.rgb * directional_light.intensity * 0.0001f, 1e27f); 
     return;
   }
 
@@ -127,7 +127,7 @@ void ray_gen()
   float3 albedo = 1.0f;
 
   // Write everything back out
-  float3 radiance = (direct_diffuse_lighting + saturate(pow(indirect, 2.0f))) * lambertian;
+  float3 radiance = (direct_diffuse_lighting + saturate(pow(indirect, 1.9f))) * lambertian;
   ray_data[output_coords] = float4(saturate(radiance), payload.t);
 }
 

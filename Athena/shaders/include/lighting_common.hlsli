@@ -4,10 +4,6 @@
 #include "../include/rt_common.hlsli"
 #include "../include/math.hlsli"
 
-//static const float3 kTodoDirectionalLightDir  = float3(-1.0f, -1.0f, 0.0f); // float3(0.6f, -0.435f, -0.816f); 
-static const float3 kTodoDirectionalDiffuse   = float3(1.0f, 1.0f, 1.0f);
-static const float  kTodoDirectionalIntensity = 5.0f;
-
 float distribution_ggx(float3 normal, float3 halfway_vector, float roughness)
 {
     float a      = roughness * roughness;

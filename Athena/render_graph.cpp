@@ -1025,7 +1025,7 @@ namespace gfx::render
         CmdListAllocator* allocator = get_cmd_list_allocator(cache, kCmdQueueTypeGraphics);
         CmdList cmd_list = alloc_cmd_list(allocator);
 
-        PIXBeginEvent(cmd_list.d3d12_list, kPIXTransitionColor, L"Transition Barrier");
+        PIXBeginEvent(cmd_list.d3d12_list, kPIXTransitionColor, "Transition Barrier");
         for (RenderPassId pass_id : dependency_level.passes)
         {
           const RenderPass& pass = graph->render_passes[pass_id];
@@ -1057,7 +1057,7 @@ namespace gfx::render
           CmdListAllocator* allocator = get_cmd_list_allocator(cache, pass.queue);
   
           CmdList list = alloc_cmd_list(allocator);
-          PIXBeginEvent(list.d3d12_list, kPIXRenderPassColor, L"Render Pass %s", pass.name);
+          PIXBeginEvent(list.d3d12_list, kPIXRenderPassColor, "Render Pass %s", pass.name);
   
           cmd_set_descriptor_heaps(&list, {compiled_map.cbv_srv_uav_descriptor_allocator,
                                            compiled_map.sampler_allocator});
@@ -1100,7 +1100,7 @@ namespace gfx::render
       {
         CmdListAllocator* allocator = get_cmd_list_allocator(cache, kCmdQueueTypeGraphics);
         CmdList cmd_list = alloc_cmd_list(allocator);
-        PIXBeginEvent(cmd_list.d3d12_list, kPIXTransitionColor, L"Back Buffer Transition");
+        PIXBeginEvent(cmd_list.d3d12_list, kPIXTransitionColor, "Back Buffer Transition");
         auto barrier = CD3DX12_RESOURCE_BARRIER::Transition(physical->image->d3d12_image,
                                                             physical->state,
                                                             next_state);

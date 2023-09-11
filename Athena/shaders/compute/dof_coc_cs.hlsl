@@ -26,7 +26,7 @@ void main( uint3 thread_id : SV_DispatchThreadID )
 		z = focal_dist + max(0, z - focal_dist - focal_range);
 	}
 
-	float coc = (1.0f - focal_dist / z) * 0.7f * 5.4f;
+	float coc = (1.0f - focal_dist / z) * 0.7f * aperture;
 
 	render_target[thread_id.xy] = half2(clamp(-coc, 0.0h, kMaxCoC), clamp(coc, 0.0h, kMaxCoC));
 }
