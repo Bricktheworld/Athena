@@ -51,6 +51,7 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID,
       // want to blend it
       if (sample_distance < 0.0f)
       {
+//        result += float4(weight, 0.0f, 0.0f, weight);
         continue;
       }
 

@@ -13,28 +13,6 @@ namespace gfx
   typedef Vec4 Rgba;
   typedef Vec3 Rgb;
   
-  const Vec4 VERTICES[8] =
-  {
-    Vec4(-1.0f, -1.0f, -1.0f, 1.0f), // 0
-    Vec4(-1.0f, 1.0f, -1.0f, 1.0f),  // 1
-    Vec4(1.0f, 1.0f, -1.0f, 1.0f),   // 2
-    Vec4(1.0f, -1.0f, -1.0f, 1.0f),  // 3
-    Vec4(-1.0f, -1.0f, 1.0f, 1.0f),  // 4
-    Vec4(-1.0f, 1.0f, 1.0f, 1.0f),   // 5
-    Vec4( 1.0f, 1.0f, 1.0f, 1.0f),   // 6
-    Vec4(1.0f, -1.0f, 1.0f, 1.0f)    // 7
-  };
-  
-  const u16 INDICES[36] =
-  {
-    0, 1, 2, 0, 2, 3,
-    4, 6, 5, 4, 7, 6,
-    4, 5, 1, 4, 1, 0,
-    3, 2, 6, 3, 6, 7,
-    1, 5, 6, 1, 6, 2,
-    4, 0, 3, 4, 3, 7
-  };
-  
   constant u8 kFramesInFlight = 2;
   constant u8 kMaxCommandListThreads = 8;
   constant u8 kCommandAllocators = kFramesInFlight * kMaxCommandListThreads;

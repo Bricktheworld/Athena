@@ -252,6 +252,7 @@ struct Renderer
   gfx::GpuImage probe_ray_data;
   gfx::GpuImage probe_irradiance;
   gfx::GpuImage probe_distance;
+  gfx::GpuImage probe_offset;
 
   Array<Mesh> meshes;
 };

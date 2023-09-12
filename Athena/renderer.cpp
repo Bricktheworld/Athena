@@ -80,11 +80,19 @@ init_renderer(MEMORY_ARENA_PARAM, const GraphicsDevice* device, const SwapChain*
   ret.imgui_descriptor_heap = init_descriptor_linear_allocator(device, 1, kDescriptorHeapTypeCbvSrvUav);
   init_imgui_ctx(device, swap_chain, window, &ret.imgui_descriptor_heap);
 
+#if 1
   ret.ddgi_vol_desc.origin = Vec4(0.0f, 4.5f, -0.3f, 0.0f);
   ret.ddgi_vol_desc.probe_spacing = Vec4(1.4f, 2.0f, 1.7f, 0.0f);
   ret.ddgi_vol_desc.probe_count_x = 19;
   ret.ddgi_vol_desc.probe_count_y = 5;
   ret.ddgi_vol_desc.probe_count_z = 8;
+#else
+  ret.ddgi_vol_desc.origin = Vec4(0.0f, 4.5f, 0.0f, 0.0f);
+  ret.ddgi_vol_desc.probe_spacing = Vec4(1.0f, 2.0f, 1.0f, 0.0f);
+  ret.ddgi_vol_desc.probe_count_x = 19;
+  ret.ddgi_vol_desc.probe_count_y = 5;
+  ret.ddgi_vol_desc.probe_count_z = 19;
+#endif
   ret.ddgi_vol_desc.probe_num_rays = 128;
   ret.ddgi_vol_desc.probe_hysteresis = 0.97f;
   ret.ddgi_vol_desc.probe_max_ray_distance = 20.0f;
@@ -119,6 +127,16 @@ init_renderer(MEMORY_ARENA_PARAM, const GraphicsDevice* device, const SwapChain*
   probe_distance_desc.initial_state     = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
   probe_distance_desc.color_clear_value = 0.0f;
   ret.probe_distance = alloc_gpu_image_2D_no_heap(device, probe_distance_desc, "Probe Distance");
+
+  GpuImageDesc probe_offset_desc = {0};
+  probe_offset_desc.width             = ret.ddgi_vol_desc.probe_count_x;
+  probe_offset_desc.height            = ret.ddgi_vol_desc.probe_count_z;
+  probe_offset_desc.array_size        = ret.ddgi_vol_desc.probe_count_y;
+  probe_offset_desc.format            = DXGI_FORMAT_R11G11B10_FLOAT;
+  probe_offset_desc.flags             = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+  probe_offset_desc.initial_state     = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+  probe_offset_desc.color_clear_value = 0.0f;
+  ret.probe_offset = alloc_gpu_image_2D_no_heap(device, probe_offset_desc, "Probe Offset");
 
   return ret;
 }

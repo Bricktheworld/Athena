@@ -214,6 +214,11 @@ float3 get_vol_irradiance(float3 ws_pos,
                                       octahedral_encode_dir(-biased_to_adj_dir),
                                       kProbeNumDistanceInteriorTexels,
                                       vol_desc);
+    float2 sampled_dist = probe_distance_tex.SampleLevel(g_ClampSampler, adj_dist_uv, 0).rg;
+//    if (3.0f * sampled_dist.x < biased_to_adj_dist)
+//    {
+//      weight *= 0.0f;
+//    }
 
 		weight *= trilinear_weight;
 
