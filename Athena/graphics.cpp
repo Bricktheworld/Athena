@@ -1115,7 +1115,6 @@ namespace gfx
     desc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
     desc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
     desc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
-//    desc.ComparisonFunc = D3D12_COMPARISON_FUNC_ALWAYS;
     desc.MipLODBias = 0.0f;
     desc.MinLOD = 0.0f;
     desc.MaxLOD = 100.0f;
@@ -1170,8 +1169,6 @@ namespace gfx
                         GraphicsPipelineDesc desc,
                         const char* name)
   {
-//    ASSERT(desc.rtv_formats.size <= 8);
-  
     GraphicsPSO ret = {0};
   
     D3D12_RENDER_TARGET_BLEND_DESC render_target_blend_desc;
@@ -1656,9 +1653,9 @@ namespace gfx
   }
   
   void
-  cmd_set_primitive_topology(CmdList* cmd)
+  cmd_set_primitive_topology(CmdList* cmd, D3D_PRIMITIVE_TOPOLOGY topology)
   {
-    cmd->d3d12_list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    cmd->d3d12_list->IASetPrimitiveTopology(topology);
   }
   
   void

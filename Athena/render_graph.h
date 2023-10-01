@@ -109,6 +109,9 @@ namespace gfx::render
     DescriptorLinearAllocator sampler_allocators[kFramesInFlight];
     Array<ID3D12Resource*> last_frame_resources[kFramesInFlight];
     HashTable<u64, GraphicsPSO> pso_cache;
+
+    GpuBuffer debug_vertex_buffer;
+    GpuBuffer debug_indirect_draw_args;
 //    DescriptorHeap sampler_heaps[kFramesInFlight];
   };
 

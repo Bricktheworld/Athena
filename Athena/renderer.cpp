@@ -769,38 +769,6 @@ add_scene_object(Scene* scene,
   return ret;
 }
 
-void
-add_debug_triangle(Scene* scene)
-{
-  u32 indices[] =
-  {
-	  0, 1, 2
-  };
-
-	f32 depthValue = 1.0;
-  f32 offset = 0.7f;
-	interlop::Vertex vertices[] =
-	{
-    // The sample raytraces in screen space coordinates.
-    // Since DirectX screen space coordinates are right handed (i.e. Y axis points down).
-    // Define the vertices in counter clockwise order ~ clockwise in left handed.
-    { 0, -offset, depthValue },
-    { -offset, offset, depthValue },
-    { offset, offset, depthValue }
-  };
-  u32 vertex_buffer_offset = alloc_into_vertex_uber(scene, 3);
-  u32 index_buffer_offset = alloc_into_index_uber(scene, 3);
-  upload_gpu_data(&scene->vertex_uber_buffer,
-                  vertex_buffer_offset * sizeof(interlop::Vertex),
-                  vertices,
-                  3 * sizeof(interlop::Vertex));
-  upload_gpu_data(&scene->index_uber_buffer,
-                  index_buffer_offset * sizeof(u32),
-                  indices,
-                  3 * sizeof(u32));
-  flush_upload_staging();
-}
-
 interlop::PointLight* add_point_light(Scene* scene)
 {
   interlop::PointLight* ret = array_add(&scene->point_lights);

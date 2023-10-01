@@ -326,7 +326,6 @@ SceneObject* add_scene_object(Scene* scene,
                               const char* mesh,
                               ShaderIndex vertex_shader,
                               ShaderIndex material_shader);
-void add_debug_triangle(Scene* scene);
 interlop::PointLight* add_point_light(Scene* scene);
 
 void build_acceleration_structures(gfx::GraphicsDevice* device, Scene* scene);

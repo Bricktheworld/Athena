@@ -156,7 +156,7 @@ application_entry(MEMORY_ARENA_PARAM, HINSTANCE instance, int show_code, JobSyst
   RegisterClassExW(&wc);
 
   RECT window_rect = {0, 0, 1920, 1080};
-#define FULLSCREEN
+//#define FULLSCREEN
 #ifndef FULLSCREEN
   DWORD dw_style = WS_OVERLAPPEDWINDOW; // WS_POPUP
 #else

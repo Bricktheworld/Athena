@@ -2,7 +2,6 @@
 #include "../interlop.hlsli"
 #include "../include/dof.hlsli"
 
-
 ConstantBuffer<interlop::DofBlurHorizComputeResources> compute_resources : register(b0);
 
 [RootSignature(BINDLESS_ROOT_SIGNATURE)]

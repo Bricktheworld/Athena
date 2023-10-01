@@ -105,6 +105,12 @@ namespace interlop
     UAV(GpuImage)  render_target;
   };
 
+  struct DownsampleComputeResources
+  {
+    SRV(GpuImage)  src;
+    UAV(GpuImage)  dst;
+  };
+
   struct DofOptions
   {
     f32 z_near;

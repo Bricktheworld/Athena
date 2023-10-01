@@ -8,18 +8,18 @@ ConstantBuffer<interlop::DofBlurVertComputeResources> compute_resources : regist
 [numthreads(8, 8, 1)]
 void main( uint3 thread_id : SV_DispatchThreadID )
 {
-	Texture2D<half2>    coc_buffer    = ResourceDescriptorHeap[compute_resources.coc_buffer];
+	Texture2D<half2>    coc_buffer          = ResourceDescriptorHeap[compute_resources.coc_buffer];
 
-	Texture2D<half4>    red_near_buffer    = ResourceDescriptorHeap[compute_resources.red_near_buffer];
-	Texture2D<half4>    blue_near_buffer   = ResourceDescriptorHeap[compute_resources.blue_near_buffer];
-	Texture2D<half4>    green_near_buffer  = ResourceDescriptorHeap[compute_resources.green_near_buffer];
+	Texture2D<half4>    red_near_buffer     = ResourceDescriptorHeap[compute_resources.red_near_buffer];
+	Texture2D<half4>    blue_near_buffer    = ResourceDescriptorHeap[compute_resources.blue_near_buffer];
+	Texture2D<half4>    green_near_buffer   = ResourceDescriptorHeap[compute_resources.green_near_buffer];
 
-	Texture2D<half4>    red_far_buffer    = ResourceDescriptorHeap[compute_resources.red_far_buffer];
-	Texture2D<half4>    blue_far_buffer   = ResourceDescriptorHeap[compute_resources.blue_far_buffer];
-	Texture2D<half4>    green_far_buffer  = ResourceDescriptorHeap[compute_resources.green_far_buffer];
+	Texture2D<half4>    red_far_buffer      = ResourceDescriptorHeap[compute_resources.red_far_buffer];
+	Texture2D<half4>    blue_far_buffer     = ResourceDescriptorHeap[compute_resources.blue_far_buffer];
+	Texture2D<half4>    green_far_buffer    = ResourceDescriptorHeap[compute_resources.green_far_buffer];
 
 	RWTexture2D<float3> blurred_near_target = ResourceDescriptorHeap[compute_resources.blurred_near_target];
-	RWTexture2D<float3> blurred_far_target = ResourceDescriptorHeap[compute_resources.blurred_far_target];
+	RWTexture2D<float3> blurred_far_target  = ResourceDescriptorHeap[compute_resources.blurred_far_target];
 
 	float2 coc_res;
 	coc_buffer.GetDimensions(coc_res.x, coc_res.y);
@@ -29,7 +29,6 @@ void main( uint3 thread_id : SV_DispatchThreadID )
 
 	float2 uv_step = float2(1.0f, 1.0f)   / out_res;
 	float2 uv      = float2(thread_id.xy) / out_res;
-//	float2 coc_uv  = float2(thread_id.xy) / coc_res;
  
 	bool is_near = thread_id.z == 0;
 	half filter_radius = is_near ? coc_buffer.Sample(g_ClampSampler, uv).x : coc_buffer.Sample(g_ClampSampler, uv).y;

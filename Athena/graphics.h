@@ -464,7 +464,7 @@ namespace gfx
   
   void cmd_set_descriptor_heaps(CmdList* cmd, const DescriptorPool* heaps, u32 num_heaps);
   void cmd_set_descriptor_heaps(CmdList* cmd, Span<const DescriptorLinearAllocator*> heaps);
-  void cmd_set_primitive_topology(CmdList* cmd);
+  void cmd_set_primitive_topology(CmdList* cmd, D3D_PRIMITIVE_TOPOLOGY topology = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
   void cmd_set_graphics_root_signature(CmdList* cmd);
   void cmd_set_compute_root_signature(CmdList* cmd);
   
