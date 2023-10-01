@@ -60,38 +60,31 @@ void ray_gen()
 		return;
 	}
 
-	float  shadow_atten            = light_visibility(directional_light.direction.xyz,
+	float  shadow_atten    = light_visibility(directional_light.direction.xyz,
                                                     ws_pos,
                                                     normal,
                                                     1e27f,
                                                     0.001f);
 
-	float3 view_direction          = normalize(scene.camera_world_pos.xyz - ws_pos);
-//  float3 direct_diffuse_lighting = evaluate_directional_radiance(directional_light.diffuse.xyz, directional_light.intensity) * 
-//                                   evaluate_cos_theta(directional_light.direction.xyz, normal) * 
-//                                   saturate(shadow_atten);
-  float3 direct_lighting         = evaluate_directional_light(directional_light.direction.xyz,
-                                                              directional_light.diffuse.rgb, 
-                                                              directional_light.intensity,
-                                                              view_direction,
-                                                              normal,
-                                                              0.2f,
-                                                              0.0f,
-                                                              1.0f) * saturate(shadow_atten);
+	float3 view_direction  = normalize(scene.camera_world_pos.xyz - ws_pos);
 
-  float3 cam_dir                 = normalize(ws_pos - scene.camera_world_pos.xyz);
-  float3 surface_bias            = get_surface_bias(normal, cam_dir, vol_desc);
-  float3 indirect                = get_vol_irradiance(ws_pos,
-                                                      surface_bias,
+  float3 direct_lighting = evaluate_directional_light(directional_light.direction.xyz,
+                                                      directional_light.diffuse.rgb, 
+                                                      directional_light.intensity,
+                                                      view_direction,
                                                       normal,
-                                                      vol_desc,
-                                                      probe_irradiance,
-                                                      probe_distance);
+                                                      0.2f,
+                                                      0.0f,
+                                                      1.0f) * saturate(shadow_atten);
 
-  float3 irradiance              = direct_lighting + saturate(indirect);
-  float3 lambertian              = evaluate_lambertian(1.0f);
+  float3 cam_dir         = normalize(ws_pos - scene.camera_world_pos.xyz);
+  float3 surface_bias    = get_surface_bias(normal, cam_dir, vol_desc);
+  float3 indirect        = get_vol_irradiance(ws_pos, surface_bias, normal, vol_desc, probe_irradiance, probe_distance);
 
-	float3 color = payload.t < 0.0f ? float3(0.0f, 0.0f, 0.0f) : lambertian * irradiance;
+  float3 irradiance      = direct_lighting + saturate(indirect);
+  float3 lambertian      = evaluate_lambertian(1.0f);
+
+	float3 color           = payload.t < 0.0f ? float3(0.0f, 0.0f, 0.0f) : lambertian * irradiance;
 
 	render_target[launch_index] = color;
 }

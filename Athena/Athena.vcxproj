@@ -128,7 +128,8 @@
       <ShaderModel>6.5</ShaderModel>
     </FxCompile>
     <PostBuildEvent>
-      <Command>call "$(ProjectDir)\scripts\build_shaders.bat" $(TargetDir)</Command>
+      <Command>call "$(ProjectDir)\scripts\build_shaders.bat" $(TargetDir)
+call "$(ProjectDir)\scripts\build_assets.bat" $(TargetDir)</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -155,7 +156,8 @@
       <ObjectFileOutput />
     </FxCompile>
     <PostBuildEvent>
-      <Command>call "$(ProjectDir)\scripts\build_shaders.bat" $(TargetDir)</Command>
+      <Command>call "$(ProjectDir)\scripts\build_shaders.bat" $(TargetDir)
+call "$(ProjectDir)\scripts\build_assets.bat" $(TargetDir)</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>

@@ -194,14 +194,13 @@ application_entry(MEMORY_ARENA_PARAM, HINSTANCE instance, int show_code, JobSyst
   defer { destroy_renderer(&renderer); };
 
   Scene scene       = init_scene(MEMORY_ARENA_FWD, &graphics_device);
-//  SceneObject* dragon = add_scene_object(&scene, shader_manager, "C:\\Users\\Brand\\Dev\\Athena\\Athena\\assets\\dragon.fbx", kVsBasic, kPsBasicNormalGloss);
-//  SceneObject* dragon_scene = add_scene_object(&scene, shader_manager, "C:\\Users\\Brand\\Dev\\Athena\\Athena\\assets\\dragon_scene.fbx", kVsBasic, kPsBasicNormalGloss);
-//	add_debug_triangle(&scene);
-//  SceneObject* cube = add_scene_object(&scene, shader_manager, "C:\\Users\\Brand\\Dev\\Athena\\Athena\\assets\\cube.fbx", kVsBasic, kPsBasicNormalGloss);
-//  SceneObject* cube2 = add_scene_object(&scene, shader_manager, "C:\\Users\\Brand\\Dev\\Athena\\Athena\\assets\\cube2.fbx", kVsBasic, kPsBasicNormalGloss);
-//  SceneObject* sponza = add_scene_object(&scene, shader_manager, "C:\\Users\\Brand\\Dev\\Athena\\Athena\\assets\\sponza.fbx", kVsBasic, kPsBasicNormalGloss);
-  SceneObject* sponza = add_scene_object(&scene, shader_manager, "C:\\Users\\Brand\\Dev\\Athena\\Athena\\assets\\sponza\\Sponza.gltf", kVsBasic, kPsBasicNormalGloss);
-//  SceneObject* cornell = add_scene_object(&scene, shader_manager, "C:\\Users\\Brand\\Dev\\Athena\\Athena\\assets\\cornell.fbx", kVsBasic, kPsBasicNormalGloss);
+//  SceneObject* dragon = add_scene_object(&scene, shader_manager, "assets/dragon.fbx", kVsBasic, kPsBasicNormalGloss);
+//  SceneObject* dragon_scene = add_scene_object(&scene, shader_manager, "assets/dragon_scene.fbx", kVsBasic, kPsBasicNormalGloss);
+//  SceneObject* cube = add_scene_object(&scene, shader_manager, "assets/cube.fbx", kVsBasic, kPsBasicNormalGloss);
+//  SceneObject* cube2 = add_scene_object(&scene, shader_manager, "assets/cube2.fbx", kVsBasic, kPsBasicNormalGloss);
+//  SceneObject* sponza = add_scene_object(&scene, shader_manager, "assets/sponza.fbx", kVsBasic, kPsBasicNormalGloss);
+  SceneObject* sponza = add_scene_object(&scene, shader_manager, "assets/sponza/Sponza.gltf", kVsBasic, kPsBasicNormalGloss);
+//  SceneObject* cornell = add_scene_object(&scene, shader_manager, "assets/cornell.fbx", kVsBasic, kPsBasicNormalGloss);
 
   build_acceleration_structures(&graphics_device, &scene);
 

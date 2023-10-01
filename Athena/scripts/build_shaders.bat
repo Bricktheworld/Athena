@@ -1,5 +1,7 @@
 @echo off
 
+@echo Building shaders...
+
 if "%~1"=="" goto error
 
 set dxc=%~dp0..\vendor\dxc\bin\x64\dxc.exe
@@ -21,10 +23,10 @@ if not exist %out_pixel_dir% md %out_pixel_dir%
 if not exist %out_compute_dir% md %out_compute_dir%
 if not exist %out_ray_tracing_dir% md %out_ray_tracing_dir%
 
-for /f %%f in ('dir /b %in_vertex_dir%') do (%dxc% -T vs_6_6 -E main %in_vertex_dir%\%%f -Zi -Fo %out_vertex_dir%\%%f.bin -Od || goto compilation_error)
-for /f %%f in ('dir /b %in_pixel_dir%') do (%dxc% -T ps_6_6 -E main %in_pixel_dir%\%%f -Zi -Fo %out_pixel_dir%\%%f.bin -Od || goto compilation_error)
-for /f %%f in ('dir /b %in_compute_dir%') do (%dxc% -T cs_6_6 -E main %in_compute_dir%\%%f -Zi -Fo %out_compute_dir%\%%f.bin -Od || goto compilation_error)
-for /f %%f in ('dir /b %in_ray_tracing_dir%') do (%dxc% -T lib_6_6 %in_ray_tracing_dir%\%%f -Zi -Fo %out_ray_tracing_dir%\%%f.bin -Od || goto compilation_error)
+for /f %%f in ('dir /b %in_vertex_dir%') do (%dxc% -T vs_6_6 -E main %in_vertex_dir%\%%f -Zi -Qembed_debug -Fo %out_vertex_dir%\%%f.bin || goto compilation_error)
+for /f %%f in ('dir /b %in_pixel_dir%') do (%dxc% -T ps_6_6 -E main %in_pixel_dir%\%%f -Zi -Qembed_debug -Fo %out_pixel_dir%\%%f.bin || goto compilation_error)
+for /f %%f in ('dir /b %in_compute_dir%') do (%dxc% -T cs_6_6 -E main %in_compute_dir%\%%f -Qembed_debug -Zi -Fo %out_compute_dir%\%%f.bin || goto compilation_error)
+for /f %%f in ('dir /b %in_ray_tracing_dir%') do (%dxc% -T lib_6_6 %in_ray_tracing_dir%\%%f -Qembed_debug -Zi -Fo %out_ray_tracing_dir%\%%f.bin || goto compilation_error)
 
 @echo Successfully compiled shaders!
 goto :eof

@@ -5,9 +5,9 @@
 #include "math.hlsli"
 #include "rt_common.hlsli"
 
-// This was ripped directly from the DDGI NVIDIA code, I don't know how it works...
 float3 spherical_fibonacci(float sample_idx, float num_samples)
 {
+  // This was ripped directly from the DDGI NVIDIA code, I don't know how it works...
   const float b = (sqrt(5.f) * 0.5f + 0.5f) - 1.f;
   float phi = k2PI * frac(sample_idx * b);
   float cos_theta = 1.f - (2.f * sample_idx + 1.f) * (1.f / num_samples);
@@ -139,14 +139,12 @@ float3 octahedral_decode_dir(float2 coords)
 
 float2 octahedral_wrap(float2 v)
 {
-  // I have no idea what this does, but it's in the code so I'm using it...
   return (1.0 - abs(v.yx)) * (v.xy >= 0.0 ? 1.0 : -1.0);
 }
 
 // Converts a normalized unit vector to an octahedral coordinate in [0, 1] UV space
 float2 octahedral_encode_dir(float3 n)
 {
-  // I know that this divides by the l1, I don't know how the rest of this function works...
   n       /= abs(n.x) + abs(n.y) + abs(n.z);
   n.xy     = n.z >= 0.0f ? n.xy : octahedral_wrap(n.xy);
   n.xy     = n.xy * 0.5f + 0.5f;

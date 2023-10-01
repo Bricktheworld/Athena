@@ -111,7 +111,7 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID,
     return;
   }
 
-  // Wait for all threads in the group to finish all memory operations
+  // We don't want to handle corners until all non-corners have finished writing their data...
   AllMemoryBarrierWithGroupSync();
 
   bool is_corner_texel = (group_thread_id.x == 0 || group_thread_id.x == (kProbeNumIrradianceTexels - 1)) && 
