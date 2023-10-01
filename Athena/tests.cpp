@@ -6,7 +6,6 @@
 #include "hash_table.h"
 #include "render_graph.h"
 
-// Thank u chatgpt for writing these tests for me <3
 void
 test_vector_operators()
 {
