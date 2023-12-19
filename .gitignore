@@ -361,4 +361,5 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
-/Athena/vcpkg_installed/x64-windows
+builddir/
+*.10x

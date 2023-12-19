@@ -1,5 +1,13 @@
-# Athena Real-Time Renderer
+# Athena D3D12 Renderer
 
-This codebase is a heavy work in progress. Much of the infrastructure has not yet been set up for it to be used
-for anything and purely serves as the minimal amount of code necessary I need to make my renderer put pretty
-images on the screen, no more no less.
+Features:
+
+- D3D12 rendering backend
+- Render-graph architecture with automatic resource barriers and transient allocations
+- Shader model 6.6 bindless rendering
+- Real-time ray-traced global illumination using irradiance probes
+
+[![Image](/Documentation/realtime_gi.gif)](https://www.youtube.com/watch?v=05GTN8YapZE)
+
+[Video demo](https://www.youtube.com/watch?v=05GTN8YapZE)
+

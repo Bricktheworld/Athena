@@ -1,0 +1,1 @@
+.\Bin\python-3.12.0\Scripts\meson.exe setup builddir --backend vs
