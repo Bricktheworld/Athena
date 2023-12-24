@@ -6,10 +6,6 @@
 #include "Core/Engine/Vendor/imgui/imgui_impl_win32.h"
 #include "Core/Engine/Vendor/imgui/imgui_impl_dx12.h"
 
-#include "Core/Engine/Vendor/assimp/Importer.hpp"
-#include "Core/Engine/Vendor/assimp/scene.h"
-#include "Core/Engine/Vendor/assimp/postprocess.h"
-
 using namespace gfx;
 using namespace gfx::render;
 
@@ -164,11 +160,11 @@ build_acceleration_structures(gfx::GraphicsDevice* device, Scene* scene)
 void
 begin_renderer_recording(MEMORY_ARENA_PARAM, Renderer* renderer)
 {
-  renderer->meshes = init_array<Mesh>(MEMORY_ARENA_FWD, 128);
+  renderer->meshes = init_array<RenderMeshInst>(MEMORY_ARENA_FWD, 128);
 }
 
 void
-submit_mesh(Renderer* renderer, Mesh mesh)
+submit_mesh(Renderer* renderer, RenderMeshInst mesh)
 {
   *array_add(&renderer->meshes) = mesh;
 }
@@ -268,7 +264,7 @@ execute_render(MEMORY_ARENA_PARAM,
 
   Handle<GpuBuffer> graph_vertex_buffer = import_buffer(&graph, &vertex_buffer);
   cmd_ia_set_index_buffer(geometry_pass, &index_buffer);
-  for (Mesh mesh : renderer->meshes)
+  for (RenderMeshInst mesh : renderer->meshes)
   {
     cmd_set_graphics_pso(geometry_pass, &mesh.gbuffer_pso);
     cmd_graphics_bind_shader_resources<interlop::MaterialRenderResources>(geometry_pass, {.vertices = graph_vertex_buffer, .scene = scene_buffer, .transform = transform_buffer});
@@ -577,14 +573,6 @@ destroy_global_upload_context()
 }
 
 static void
-print_error(const ufbx_error *error, const char *description)
-{
-  char buffer[1024];
-  ufbx_format_error(buffer, sizeof(buffer), error);
-  fprintf(stderr, "%s\n%s\n", description, buffer);
-}
-
-static void
 flush_upload_staging()
 {
   if (g_upload_context.staging_offset == 0)
@@ -639,8 +627,9 @@ alloc_into_index_uber(Scene* scene, u32 index_count)
 }
 
 
+#if 0
 static void 
-mesh_import_scene(const aiScene* assimp_scene, Array<Mesh>* out,  Scene* scene)
+mesh_import_scene(const aiScene* assimp_scene, Array<RenderMeshInst>* out,  Scene* scene)
 {
   for (u32 imesh = 0; imesh < assimp_scene->mNumMeshes; imesh++)
   {
@@ -664,9 +653,9 @@ mesh_import_scene(const aiScene* assimp_scene, Array<Mesh>* out,  Scene* scene)
 //      const aiVector3D* a_tangent = &assimp_mesh->mTangents[i];
 //      const aiVector3D* a_tangent = &assimp_mesh->mTangents[i];
 
-      vertices[ivertex].position = Vec4(a_pos->x, a_pos->y, a_pos->z, 1.0f);
-      vertices[ivertex].normal   = Vec4(a_normal->x, a_normal->y, a_normal->z, 1.0f);
-      vertices[ivertex].uv       = Vec4(a_uv->x, a_uv->y, 0.0f, 0.0f);
+      vertices[ivertex].position = Vec3(a_pos->x, a_pos->y, a_pos->z);
+      vertices[ivertex].normal   = Vec3(a_normal->x, a_normal->y, a_normal->z);
+      vertices[ivertex].uv       = Vec2(a_uv->x, a_uv->y);
     }
 
     u32 vertex_buffer_offset = alloc_into_vertex_uber(scene, num_vertices);
@@ -707,48 +696,61 @@ mesh_import_scene(const aiScene* assimp_scene, Array<Mesh>* out,  Scene* scene)
   }
   flush_upload_staging();
 }
+#endif
 
-static Array<Mesh>
-load_mesh_from_file(
-  MEMORY_ARENA_PARAM,
-  Scene* scene,
-  const ShaderManager& shader_manager,
-  const char* mesh_path,
-  EngineShaderIndex vertex_shader,
-  EngineShaderIndex material_shader
-) {
-  Array<Mesh> ret = {0};
-
-  Assimp::Importer importer;
-  dbgln("Assimp reading file...");
-  const aiScene* assimp_scene = importer.ReadFile(mesh_path, aiProcess_CalcTangentSpace | aiProcess_Triangulate | aiProcess_JoinIdenticalVertices | aiProcess_SortByPType | aiProcess_PreTransformVertices );
-  dbgln("Assimp done reading.");
-
-  ASSERT(assimp_scene != nullptr);
-
-  ret = init_array<Mesh>(MEMORY_ARENA_FWD, assimp_scene->mNumMeshes);
-
-  mesh_import_scene(assimp_scene, &ret, scene);
-
-  GraphicsPipelineDesc graphics_pipeline_desc = 
+static RenderModel
+init_render_model(MEMORY_ARENA_PARAM, const ModelData& model, Scene* scene, const ShaderManager& shader_manager)
+{
+  RenderModel ret = {0};
+  ret.mesh_insts = init_array<RenderMeshInst>(MEMORY_ARENA_FWD, model.mesh_insts.size);
+  for (u32 imesh_inst = 0; imesh_inst < model.mesh_insts.size; imesh_inst++)
   {
-    .vertex_shader = shader_manager.shaders[vertex_shader],
-    .pixel_shader = shader_manager.shaders[material_shader],
-    .rtv_formats = kGBufferRenderTargetFormats,
-    .dsv_format = kRenderBufferDescs[RenderBuffers::kGBufferDepth].format,
-    .comparison_func = kDepthComparison,
-    .stencil_enable = false,
-  };
-  GraphicsPSO pso = init_graphics_pipeline(g_upload_context.device, graphics_pipeline_desc, "Mesh PSO");
-  for (Mesh& mesh : ret)
-  {
-    mesh.vertex_shader = vertex_shader;
-    mesh.material_shader = material_shader;
-    mesh.gbuffer_pso = pso;
+    const MeshInstData* src = &model.mesh_insts[imesh_inst];
+    RenderMeshInst* dst = array_add(&ret.mesh_insts);
+
+    reset_memory_arena(&g_upload_context.cpu_upload_arena);
+
+    u32 vertex_buffer_offset = alloc_into_vertex_uber(scene, src->vertices.size);
+
+    dst->index_count         = src->indices.size;
+    dst->index_buffer_offset = alloc_into_index_uber(scene, dst->index_count);
+    dst->vertex_shader       = kVS_Basic;
+    dst->material_shader     = kPS_BasicNormalGloss;
+
+    GraphicsPipelineDesc graphics_pipeline_desc =
+    {
+      .vertex_shader   = shader_manager.shaders[dst->vertex_shader],
+      .pixel_shader    = shader_manager.shaders[dst->material_shader],
+      .rtv_formats     = kGBufferRenderTargetFormats,
+      .dsv_format      = kRenderBufferDescs[RenderBuffers::kGBufferDepth].format,
+      .comparison_func = kDepthComparison,
+      .stencil_enable  = false,
+    };
+
+    dst->gbuffer_pso = init_graphics_pipeline(g_upload_context.device, graphics_pipeline_desc, "Mesh PSO");
+
+    u32* indices = push_memory_arena<u32>(&g_upload_context.cpu_upload_arena, dst->index_count);
+
+    for (u32 iindex = 0; iindex < dst->index_count; iindex++)
+    {
+      indices[iindex] = src->indices[iindex] + vertex_buffer_offset;
+    }
+
+    upload_gpu_data(
+      &scene->vertex_uber_buffer,
+      vertex_buffer_offset * sizeof(Vertex),
+      src->vertices.memory,
+      src->vertices.size * sizeof(Vertex)
+    );
+
+    upload_gpu_data(
+      &scene->index_uber_buffer,
+      dst->index_buffer_offset * sizeof(u32),
+      indices,
+      dst->index_count * sizeof(u32)
+    );
   }
-
-  importer.FreeScene();
-
+  flush_upload_staging();
   return ret;
 }
 
@@ -756,13 +758,13 @@ SceneObject*
 add_scene_object(
   Scene* scene,
   const ShaderManager& shader_manager,
-  const char* mesh,
+  const ModelData& model,
   EngineShaderIndex vertex_shader,
   EngineShaderIndex material_shader
 ) {
   SceneObject* ret = array_add(&scene->scene_objects);
   ret->flags = kSceneObjectMesh;
-  ret->meshes = load_mesh_from_file(&scene->scene_object_heap, scene, shader_manager, mesh, vertex_shader, material_shader);
+  ret->model = init_render_model(&scene->scene_object_heap, model, scene, shader_manager);
 
   return ret;
 }
@@ -792,9 +794,9 @@ submit_scene(const Scene& scene, Renderer* renderer)
 //      flags &= ~kSceneObjectPendingLoad;
 //    }
 
-    for (const Mesh& mesh : obj.meshes)
+    for (const RenderMeshInst& mesh_inst : obj.model.mesh_insts)
     {
-      submit_mesh(renderer, mesh);
+      submit_mesh(renderer, mesh_inst);
     }
   }
 }

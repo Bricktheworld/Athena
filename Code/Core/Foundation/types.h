@@ -39,6 +39,12 @@ typedef __m128i u64x2;
 template <typename T>
 using InitializerList = std::initializer_list<T>;
 
+// OffsetPtr is used when you would like to denote how far into a serialized file or buffer
+// some piece of data is. The convention in this codebase is that the offset starts at the
+// start of the buffer, so OffsetPtr<T> = 0 => the start of the file/buffer.
+template <typename T>
+using OffsetPtr = u64;
+
 #define U64_MAX ((u64)0xFFFFFFFFFFFFFFFF)
 #define U32_MAX ((u32)0xFFFFFFFF)
 #define U16_MAX ((u16)0xFFFF)
@@ -54,13 +60,20 @@ using InitializerList = std::initializer_list<T>;
 
 
 inline s32
-v_dbgln(const char* fmt, va_list args)
+v_dbg(const char* fmt, bool newline, va_list args)
 {
   static constexpr u32 MAX_CHARS = 1024;
   char buf[MAX_CHARS];
 
   s32 written = vsnprintf(buf, MAX_CHARS - 2, fmt, args);
-  buf[written] = '\n';
+  if (newline)
+  {
+    buf[written] = '\n';
+  }
+  else
+  {
+    buf[written] = 0;
+  }
   buf[written + 1] = 0;
 
   OutputDebugStringA(buf);
@@ -74,7 +87,20 @@ dbgln(const char* fmt, ...)
   va_list args;
   va_start(args, fmt);
 
-  s32 res = v_dbgln(fmt, args);
+  s32 res = v_dbg(fmt, true, args);
+
+  va_end(args);
+
+  return res;
+}
+
+inline int
+dbg(const char* fmt, ...)
+{
+  va_list args;
+  va_start(args, fmt);
+
+  s32 res = v_dbg(fmt, false, args);
 
   va_end(args);
 
@@ -106,6 +132,9 @@ swap(T* a, T* b)
 #define check_return [[nodiscard]]
 
 #define constant static constexpr
+
+#define PACK_STRUCT_BEGIN() __pragma(pack(push, 1))
+#define PACK_STRUCT_END()   __pragma(pack(pop))
 
 #ifdef FOUNDATION_EXPORT
 #define FOUNDATION_API __declspec(dllexport)

@@ -34,10 +34,10 @@ struct GpuBvh;
 namespace interlop
 {
   struct Vertex
-  {  
-    Vec4 position; // Position MUST be at the START of the struct in order for BVHs to be built
-    Vec4 normal;
-    Vec4 uv;
+  {
+    Vec3 position; // Position MUST be at the START of the struct in order for BVHs to be built
+    Vec3 normal;
+    Vec2 uv;
   };
 
   struct DirectionalLight
@@ -291,8 +291,8 @@ namespace shaders
   {
     float4 ndc_pos   : SV_Position;
     float4 world_pos : POSITIONT;
-    float4 normal    : NORMAL0;
-    float4 uv        : TEXCOORD0;
+    float3 normal    : NORMAL0;
+    float2 uv        : TEXCOORD0;
 //    float4 tangent   : TANGENT0;
 //    float4 bitangent : BITANGENT0;
   };

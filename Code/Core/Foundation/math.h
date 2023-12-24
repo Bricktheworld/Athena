@@ -7,6 +7,315 @@
 static constexpr f32 kPI  = 3.1415926535897932f;
 static constexpr f32 k2PI = 6.2831853071795864f;
 
+struct Vec2
+{
+  Vec2() : x(0.0f), y(0.0f) {}
+  Vec2(f32 all) : x(all), y(all) {}
+  Vec2(f32 x, f32 y) : x(x), y(y) {}
+  struct
+  {
+    union
+    {
+      f32 x;
+      f32 r;
+    };
+    union
+    {
+      f32 y;
+      f32 g;
+    };
+  };
+};
+
+struct Vec3
+{
+  Vec3() : x(0), y(0), z(0) {}
+  Vec3(f32 all) : x(all), y(all), z(all) {}
+  Vec3(f32 x, f32 y, f32 z) : x(x), y(y), z(z) {}
+  Vec3(Vec2 v, f32 z = 0.0) : x(v.x), y(v.y), z(z) {}
+
+  union
+  {
+    f32 x;
+    f32 r;
+  };
+  union
+  {
+    f32 y;
+    f32 g;
+  };
+  union
+  {
+    f32 z;
+    f32 b;
+  };
+};
+
+struct alignas(16) Vec4
+{
+  Vec4() : avx(_mm_setzero_ps()) {}
+  Vec4(f32 all) : avx(_mm_set_ps(all, all, all, all)) {}
+  Vec4(f32 x, f32 y, f32 z, f32 w) : avx(_mm_set_ps(w, z, y, x)) {}
+  Vec4(Vec2 v, f32 z = 0.0, f32 w = 1.0) : avx(_mm_set_ps(w, z, v.y, v.x)) {}
+  Vec4(Vec3 v, f32 w = 1.0) : avx(_mm_set_ps(w, v.z, v.y, v.x)) {}
+  Vec4(f32x4 val) : avx(val) {}
+
+  operator f32x4() const
+  {
+    return avx;
+  }
+
+  union
+  {
+    struct
+    {
+      union
+      {
+        f32 x;
+        f32 r;
+      };
+      union
+      {
+        f32 y;
+        f32 g;
+      };
+      union
+      {
+        f32 z;
+        f32 b;
+      };
+      union
+      {
+        f32 w;
+        f32 a;
+      };
+    };
+    f32x4 avx;
+  };
+};
+
+////////////////////////////////////////////////////////////////
+/// Vec2 ops
+
+inline Vec2 pass_by_register
+operator+(Vec2 a, Vec2 b)
+{
+  Vec2 ret;
+  ret.x = a.x + b.x;
+  ret.y = a.y + b.y;
+  return ret;
+}
+
+inline Vec2 pass_by_register
+operator-(Vec2 a, Vec2 b)
+{
+  Vec2 ret;
+  ret.x = a.x - b.x;
+  ret.y = a.y - b.y;
+  return ret;
+}
+
+inline Vec2& pass_by_register
+operator-(Vec2& a)
+{
+  a.x = -a.x;
+  a.y = -a.y;
+  return a;
+}
+
+inline Vec2& pass_by_register
+operator+=(Vec2& a, Vec2 b)
+{
+  a.x += b.x;
+  a.y += b.y;
+  return a;
+}
+
+inline Vec2& pass_by_register
+operator-=(Vec2& a, Vec2 b)
+{
+  a.x -= b.x;
+  a.y -= b.y;
+  return a;
+}
+
+inline Vec2 pass_by_register
+operator*(Vec2 a, f32 scale)
+{
+  Vec2 ret;
+  ret.x = a.x * scale;
+  ret.y = a.y * scale;
+  return ret;
+}
+
+inline Vec2& pass_by_register
+operator*=(Vec2& a, f32 scale)
+{
+  a.x *= scale;
+  a.y *= scale;
+  return a;
+}
+
+inline Vec2 pass_by_register
+operator/(Vec2 a, f32 scale)
+{
+  Vec2 ret;
+  ret.x = a.x / scale;
+  ret.y = a.y / scale;
+  return ret;
+}
+
+inline Vec2& pass_by_register
+operator/=(Vec2& a, f32 scale)
+{
+  a.x /= scale;
+  a.y /= scale;
+  return a;
+}
+
+inline Vec2 pass_by_register
+hadamard_f32(Vec2 a, Vec2 b)
+{
+  return Vec2(a.x * b.x, a.y * b.y);
+}
+
+inline f32 pass_by_register
+dot_f32(Vec2 a, Vec2 b)
+{
+  Vec2 res = hadamard_f32(a, b);
+
+  return res.x + res.y;
+}
+
+inline f32 pass_by_register 
+length_f32(Vec2 v)
+{
+  return sqrt(dot_f32(v, v));
+}
+
+inline Vec2 pass_by_register
+normalize_f32(Vec2 v)
+{
+  return v / length_f32(v);
+}
+
+////////////////////////////////////////////////////////////////
+/// Vec3 ops
+
+inline Vec3 pass_by_register
+operator+(Vec3 a, Vec3 b)
+{
+  Vec3 ret;
+  ret.x = a.x + b.x;
+  ret.y = a.y + b.y;
+  ret.z = a.z + b.z;
+  return ret;
+}
+
+inline Vec3 pass_by_register
+operator-(Vec3 a, Vec3 b)
+{
+  Vec3 ret;
+  ret.x = a.x - b.x;
+  ret.y = a.y - b.y;
+  ret.z = a.z - b.z;
+  return ret;
+}
+
+inline Vec3& pass_by_register
+operator-(Vec3& a)
+{
+  a.x = -a.x;
+  a.y = -a.y;
+  a.z = -a.z;
+  return a;
+}
+
+inline Vec3& pass_by_register
+operator+=(Vec3& a, Vec3 b)
+{
+  a.x += b.x;
+  a.y += b.y;
+  a.z += b.z;
+  return a;
+}
+
+inline Vec3& pass_by_register
+operator-=(Vec3& a, Vec3 b)
+{
+  a.x -= b.x;
+  a.y -= b.y;
+  a.z -= b.z;
+  return a;
+}
+
+inline Vec3 pass_by_register
+operator*(Vec3 a, f32 scale)
+{
+  Vec3 ret;
+  ret.x = a.x * scale;
+  ret.y = a.y * scale;
+  ret.z = a.z * scale;
+  return ret;
+}
+
+inline Vec3& pass_by_register
+operator*=(Vec3& a, f32 scale)
+{
+  a.x *= scale;
+  a.y *= scale;
+  a.z *= scale;
+  return a;
+}
+
+inline Vec3 pass_by_register
+operator/(Vec3 a, f32 scale)
+{
+  Vec3 ret;
+  ret.x = a.x / scale;
+  ret.y = a.y / scale;
+  ret.z = a.z / scale;
+  return ret;
+}
+
+inline Vec3& pass_by_register
+operator/=(Vec3& a, f32 scale)
+{
+  a.x /= scale;
+  a.y /= scale;
+  a.z /= scale;
+  return a;
+}
+
+inline Vec3 pass_by_register
+hadamard_f32(Vec3 a, Vec3 b)
+{
+  return Vec3(a.x * b.x, a.y * b.y, a.z * b.z);
+}
+
+inline f32 pass_by_register
+dot_f32(Vec3 a, Vec3 b)
+{
+  Vec3 res = hadamard_f32(a, b);
+
+  return res.x + res.y + res.z;
+}
+
+inline f32 pass_by_register 
+length_f32(Vec3 v)
+{
+  return sqrt(dot_f32(v, v));
+}
+
+inline Vec3 pass_by_register
+normalize_f32(Vec3 v)
+{
+  return v / length_f32(v);
+}
+
+////////////////////////////////////////////////////////////////
+/// f32x4 ops
+
 inline f32x4 pass_by_register 
 operator+(f32x4 a, f32x4 b)
 {
@@ -113,15 +422,13 @@ normalize_f32(f32x4 v)
   return v / sqrt(dot_f32(v, v));
 }
 
-template <typename T>
 inline void
-dot_f32_arrays_x4(const T* a,
-                              const T* b,
-                              size_t count,
-                              f32* out)
-{
-  static_assert(sizeof(T) == sizeof(f32x4));
-
+dot_f32_arrays_x4(
+  const Vec4* a,
+  const Vec4* b,
+  size_t count,
+  f32* out
+) {
   ASSERT(count % 4 == 0);
 
   for (size_t i = 0; i < count; i += 4)
@@ -149,12 +456,75 @@ dot_f32_arrays_x4(const T* a,
   }
 }
 
-// This method will produce garbage in the w component
-// since the cross product is only defined for 3-component
-// vectors.
-inline f32x4 pass_by_register
-cross_f32(f32x4 a, f32x4 b)
+////////////////////////////////////////////////////////////////
+/// Vec4 ops
+
+static_assert(sizeof(Vec4) == sizeof(f32) * 4);
+
+inline Vec4 pass_by_register
+operator+(Vec4 a, Vec4 b)
 {
+  return a.avx + b.avx;
+}
+
+inline Vec4 pass_by_register
+operator-(Vec4 a, Vec4 b)
+{
+  return a.avx - b.avx;
+}
+
+inline Vec4& pass_by_register
+operator-(Vec4& a)
+{
+  a.avx = -a.avx;
+  return a;
+}
+
+inline Vec4& pass_by_register
+operator+=(Vec4& a, Vec4 b)
+{
+  a.avx = a.avx + b.avx;
+  return a;
+}
+
+inline Vec4& pass_by_register
+operator-=(Vec4& a, Vec4 b)
+{
+  a.avx = a.avx - b.avx;
+  return a;
+}
+
+inline Vec4 pass_by_register
+operator*(Vec4 a, f32 scale)
+{
+  return a.avx * scale;
+}
+
+inline Vec4& pass_by_register
+operator*=(Vec4& a, f32 scale)
+{
+  a.avx = a.avx * scale;
+  return a;
+}
+
+inline Vec4 pass_by_register
+operator/(Vec4 a, f32 scale)
+{
+  return a.avx / scale;
+}
+
+inline Vec4& pass_by_register
+operator/=(Vec4& a, f32 scale)
+{
+  a.avx = a.avx / scale;
+  return a;
+}
+
+inline Vec3 pass_by_register
+cross_f32(Vec3 a, Vec3 b)
+{
+  f32x4 a_avx = Vec4(a);
+  f32x4 b_avx = Vec4(b);
   //         [a.y * b.z - a.z * b.y]
   // a x b = [a.z * b.x - a.x * b.z]
   //         [a.x * b.y - a.y * b.x]
@@ -198,299 +568,14 @@ cross_f32(f32x4 a, f32x4 b)
   // subtraction.
   // So now all we need to do is 
   // let result = tmp3 - tmp2
-  f32x4 tmp0 = _mm_shuffle_ps(a, a, _MM_SHUFFLE(3, 0, 2, 1));
-  f32x4 tmp1 = _mm_shuffle_ps(b, b, _MM_SHUFFLE(3, 1, 0, 2));
-  f32x4 tmp2 = hadamard_f32(tmp0, b);
+  f32x4 tmp0 = _mm_shuffle_ps(a_avx, a_avx, _MM_SHUFFLE(3, 0, 2, 1));
+  f32x4 tmp1 = _mm_shuffle_ps(b_avx, b_avx, _MM_SHUFFLE(3, 1, 0, 2));
+  f32x4 tmp2 = hadamard_f32(tmp0, b_avx);
   f32x4 tmp3 = hadamard_f32(tmp0, tmp1);
 
   tmp2 = _mm_shuffle_ps(tmp2, tmp2, _MM_SHUFFLE(3, 0, 2, 1));
-  return tmp3 - tmp2;
-}
-
-struct alignas(16) Vec2
-{
-  Vec2() : avx(_mm_setzero_ps()) {}
-  Vec2(f32 all) : avx(_mm_set_ps(0.0f, 0.0f, all, all)) {}
-  Vec2(f32 x, f32 y) : avx(_mm_set_ps(0.0f, 0.0f, y, x)) {}
-  Vec2(f32x4 val) : avx(val) {}
-
-  operator f32x4() const
-  {
-    return avx;
-  }
-
-  union
-  {
-    struct
-    {
-      union
-      {
-        f32 x;
-        f32 r;
-      };
-      union
-      {
-        f32 y;
-        f32 g;
-      };
-    };
-    f32x4 avx;
-  };
-};
-
-inline f32 pass_by_register
-dot_f32(Vec2 a, Vec2 b)
-{
-  Vec2 res = hadamard_f32(a, b);
-
-  return res.x + res.y;
-}
-
-inline Vec2 pass_by_register
-operator+(Vec2 a, Vec2 b)
-{
-  return a.avx + b.avx;
-}
-
-inline Vec2 pass_by_register
-operator-(Vec2 a, Vec2 b)
-{
-  return a.avx - b.avx;
-}
-
-inline Vec2& pass_by_register
-operator-(Vec2& a)
-{
-  a.avx = -a.avx;
-  return a;
-}
-
-inline Vec2& pass_by_register
-operator+=(Vec2& a, Vec2 b)
-{
-  a.avx = a.avx + b.avx;
-  return a;
-}
-
-inline Vec2& pass_by_register
-operator-=(Vec2& a, Vec2 b)
-{
-  a.avx = a.avx - b.avx;
-  return a;
-}
-
-inline Vec2 pass_by_register
-operator*(Vec2 a, f32 scale)
-{
-  return a.avx * scale;
-}
-
-inline Vec2& pass_by_register
-operator*=(Vec2& a, f32 scale)
-{
-  a.avx = a.avx * scale;
-  return a;
-}
-
-inline Vec2 pass_by_register
-operator/(Vec2 a, f32 scale)
-{
-  return a.avx / scale;
-}
-
-inline Vec2& pass_by_register
-operator/=(Vec2& a, f32 scale)
-{
-  a.avx = a.avx / scale;
-  return a;
-}
-
-struct alignas(16) Vec3
-{
-  Vec3() : avx(_mm_setzero_ps()) {}
-  Vec3(f32 all) : avx(_mm_set_ps(0.0f, all, all, all)) {}
-  Vec3(f32 x, f32 y, f32 z) : avx(_mm_set_ps(0.0f, z, y, x)) {}
-  Vec3(Vec2 v, f32 z = 0.0, f32 w = 0.0) : avx(_mm_set_ps(w, z, v.y, v.x)) {}
-  Vec3(f32x4 val) : avx(val) {}
-
-  operator f32x4() const
-  {
-    return avx;
-  }
-
-  union
-  {
-    struct
-    {
-      union
-      {
-        f32 x;
-        f32 r;
-      };
-      union
-      {
-        f32 y;
-        f32 g;
-      };
-      union
-      {
-        f32 z;
-        f32 b;
-      };
-    };
-    f32x4 avx;
-  };
-};
-
-inline Vec3 pass_by_register operator+(Vec3 a, Vec3 b)
-{
-  return a.avx + b.avx;
-}
-
-inline Vec3 pass_by_register operator-(Vec3 a, Vec3 b)
-{
-  return a.avx - b.avx;
-}
-
-inline Vec3& pass_by_register operator-(Vec3& a)
-{
-  a.avx = -a.avx;
-  return a;
-}
-
-inline Vec3& pass_by_register operator+=(Vec3& a, Vec3 b)
-{
-  a.avx = a.avx + b.avx;
-  return a;
-}
-
-inline Vec3& pass_by_register operator-=(Vec3& a, Vec3 b)
-{
-  a.avx = a.avx - b.avx;
-  return a;
-}
-
-inline Vec3 pass_by_register operator*(Vec3 a, f32 scale)
-{
-  return a.avx * scale;
-}
-
-inline Vec3& pass_by_register operator*=(Vec3& a, f32 scale)
-{
-  a.avx = a.avx * scale;
-  return a;
-}
-
-inline Vec3 pass_by_register operator/(Vec3 a, f32 scale)
-{
-  return a.avx / scale;
-}
-
-inline Vec3& pass_by_register operator/=(Vec3& a, f32 scale)
-{
-  a.avx = a.avx / scale;
-  return a;
-}
-
-struct alignas(16) Vec4
-{
-  Vec4() : avx(_mm_setzero_ps()) {}
-  Vec4(f32 all) : avx(_mm_set_ps(all, all, all, all)) {}
-  Vec4(f32 x, f32 y, f32 z, f32 w) : avx(_mm_set_ps(w, z, y, x)) {}
-  Vec4(Vec2 v, f32 z = 0.0, f32 w = 1.0) : avx(_mm_set_ps(w, z, v.y, v.x)) {}
-  Vec4(Vec3 v, f32 w = 1.0) : avx(_mm_set_ps(w, v.z, v.y, v.x)) {}
-  Vec4(f32x4 val) : avx(val) {}
-
-  operator f32x4() const
-  {
-    return avx;
-  }
-
-  union
-  {
-    struct
-    {
-      union
-      {
-        f32 x;
-        f32 r;
-      };
-      union
-      {
-        f32 y;
-        f32 g;
-      };
-      union
-      {
-        f32 z;
-        f32 b;
-      };
-      union
-      {
-        f32 w;
-        f32 a;
-      };
-    };
-    f32x4 avx;
-  };
-};
-
-inline f32 pass_by_register dot_f32(Vec3 a, Vec3 b)
-{
-  Vec3 res = hadamard_f32(a, b);
-
-  return res.x + res.y + res.z;
-}
-
-static_assert(sizeof(Vec4) == sizeof(f32) * 4);
-
-inline Vec4 pass_by_register operator+(Vec4 a, Vec4 b)
-{
-  return a.avx + b.avx;
-}
-
-inline Vec4 pass_by_register operator-(Vec4 a, Vec4 b)
-{
-  return a.avx - b.avx;
-}
-
-inline Vec4& pass_by_register operator-(Vec4& a)
-{
-  a.avx = -a.avx;
-  return a;
-}
-
-inline Vec4& pass_by_register operator+=(Vec4& a, Vec4 b)
-{
-  a.avx = a.avx + b.avx;
-  return a;
-}
-
-inline Vec4& pass_by_register operator-=(Vec4& a, Vec4 b)
-{
-  a.avx = a.avx - b.avx;
-  return a;
-}
-
-inline Vec4 pass_by_register operator*(Vec4 a, f32 scale)
-{
-  return a.avx * scale;
-}
-
-inline Vec4& pass_by_register operator*=(Vec4& a, f32 scale)
-{
-  a.avx = a.avx * scale;
-  return a;
-}
-inline Vec4 pass_by_register operator/(Vec4 a, f32 scale)
-{
-  return a.avx / scale;
-}
-
-inline Vec4& pass_by_register operator/=(Vec4& a, f32 scale)
-{
-  a.avx = a.avx / scale;
-  return a;
+  Vec4 ret = tmp3 - tmp2;
+  return Vec3(ret.x, ret.y, ret.z);
 }
 
 // Matrix is stored in column major order.
@@ -532,13 +617,15 @@ struct alignas(16) Mat4
 
 static_assert(sizeof(Mat4) == sizeof(f32) * 4 * 4);
 
-inline Mat4 transpose_f32(Mat4 m)
+inline Mat4
+transpose_f32(Mat4 m)
 {
   _MM_TRANSPOSE4_PS(m.cols[0], m.cols[1], m.cols[2], m.cols[3]);
   return m;
 }
 
-inline f32x4 pass_by_register operator*(Mat4 a, f32x4 v)
+inline f32x4 pass_by_register
+operator*(Mat4 a, f32x4 v)
 {
   // Broadcast components.
   f32x4 v_x = _mm_shuffle_ps(v, v, _MM_SHUFFLE(0, 0, 0, 0));
@@ -555,13 +642,15 @@ inline f32x4 pass_by_register operator*(Mat4 a, f32x4 v)
 // If you want to treat your matrix as row major, then a transpose will be performed
 // to transform into col major and then the same calculation will occur.
 // NOTE(Brandon): This has a performance implication, so use this sparingly.
-inline f32x4 pass_by_register operator*(f32x4 v, Mat4 a)
+inline f32x4 pass_by_register
+operator*(f32x4 v, Mat4 a)
 {
   _MM_TRANSPOSE4_PS(a.cols[0], a.cols[1], a.cols[2], a.cols[3]);
   return a * v;
 }
 
-inline Mat4 operator*(Mat4 a, Mat4 b)
+inline Mat4
+operator*(Mat4 a, Mat4 b)
 {
   Mat4 res;
   // Column-wise matrix multiplication
@@ -572,13 +661,15 @@ inline Mat4 operator*(Mat4 a, Mat4 b)
   return res;
 }
 
-inline Mat4& operator*=(Mat4& a, Mat4 b)
+inline Mat4&
+operator*=(Mat4& a, Mat4 b)
 {
   a = a * b;
   return a;
 }
 
-inline Mat4 operator*(Mat4 a, f32 scale)
+inline Mat4
+operator*(Mat4 a, f32 scale)
 {
   Mat4 res;
   res.cols[0] *= scale;
@@ -588,13 +679,15 @@ inline Mat4 operator*(Mat4 a, f32 scale)
   return res;
 }
 
-inline Mat4& operator*=(Mat4& a, f32 scale)
+inline Mat4&
+operator*=(Mat4& a, f32 scale)
 {
   a = a * scale;
   return a;
 }
 
-inline Mat4 operator+(Mat4 a, Mat4 b)
+inline Mat4
+operator+(Mat4 a, Mat4 b)
 {
   Mat4 res;
   res.cols[0] = a.cols[0] + b.cols[0];
@@ -604,13 +697,15 @@ inline Mat4 operator+(Mat4 a, Mat4 b)
   return res;
 }
 
-inline Mat4& operator+=(Mat4& a, Mat4 b)
+inline Mat4&
+operator+=(Mat4& a, Mat4 b)
 {
   a = a + b;
   return a;
 }
 
-inline Mat4 operator-(Mat4 a, Mat4 b)
+inline Mat4
+operator-(Mat4 a, Mat4 b)
 {
   Mat4 res;
   res.cols[0] = a.cols[0] - b.cols[0];
@@ -620,13 +715,15 @@ inline Mat4 operator-(Mat4 a, Mat4 b)
   return res;
 }
 
-inline Mat4& operator-=(Mat4& a, Mat4 b)
+inline Mat4&
+operator-=(Mat4& a, Mat4 b)
 {
   a = a - b;
   return a;
 }
 
-inline Mat4 perspective_infinite_reverse_lh(f32 fov_y_rads, f32 aspect_ratio, f32 z_near)
+inline Mat4
+perspective_infinite_reverse_lh(f32 fov_y_rads, f32 aspect_ratio, f32 z_near)
 {
   f32 sin_fov = static_cast<f32>(sin(0.5 * fov_y_rads));
   f32 cos_fov = static_cast<f32>(cos(0.5 * fov_y_rads));
@@ -639,7 +736,8 @@ inline Mat4 perspective_infinite_reverse_lh(f32 fov_y_rads, f32 aspect_ratio, f3
                        Vec4(0.0, 0.0, z_near, 0.0));
 }
 
-inline Mat4 pass_by_register look_at_lh(Vec3 eye, Vec3 dir, Vec3 up)
+inline Mat4 pass_by_register
+look_at_lh(Vec3 eye, Vec3 dir, Vec3 up)
 {
   Vec3 z = normalize_f32(dir);
   Vec3 x = normalize_f32(cross_f32(up, z));
@@ -650,7 +748,8 @@ inline Mat4 pass_by_register look_at_lh(Vec3 eye, Vec3 dir, Vec3 up)
                        Vec4(-dot_f32(x, eye), -dot_f32(y, eye), -dot_f32(z, eye), 1.0f));
 }
 
-inline Mat4 transform_inverse_no_scale(Mat4 in)
+inline Mat4
+transform_inverse_no_scale(Mat4 in)
 {
   Mat4 ret;
   f32x4 t0 = _mm_movelh_ps(in.cols[0], in.cols[1]);
@@ -911,3 +1010,9 @@ generate_random_rotation()
                        Vec4(_13, _23, _33, 0.0f),
                        Vec4(0.0f, 0.0f, 0.0f, 1.0f));
 }
+
+struct Aabb3d
+{
+  Vec3 min;
+  Vec3 max;
+};

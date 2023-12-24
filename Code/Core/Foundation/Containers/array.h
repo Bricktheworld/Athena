@@ -125,6 +125,25 @@ init_array(MEMORY_ARENA_PARAM, size_t capacity)
   return ret;
 }
 
+template <typename T>
+inline Array<T, 0>
+init_array_uninitialized(MEMORY_ARENA_PARAM, size_t size)
+{
+  Array<T, 0> ret = init_array<T>(MEMORY_ARENA_FWD, size);
+  ret.size = size;
+  return ret;
+}
+
+template <typename T>
+inline Array<T, 0>
+init_array(void* buffer, size_t capacity)
+{
+  Array<T, 0> ret = {0};
+  ret.memory = buffer;
+  ret.capacity = capacity / sizeof(T);
+  ret.size = 0;
+  return ret;
+}
 
 template <typename T, size_t S>
 inline T*
@@ -280,11 +299,19 @@ zero_array(Array<T, S>* arr)
 
 template <typename T, size_t S>
 inline void
-resize_array(Array<T, S>* arr, size_t size, const T& value)
+resize_array_uninitialized(Array<T, S>* arr, size_t size)
 {
   ASSERT(arr->memory != nullptr);
   ASSERT(size <= MAX(arr->capacity, S));
+
   arr->size = size;
+}
+
+template <typename T, size_t S>
+inline void
+resize_array(Array<T, S>* arr, size_t size, const T& value)
+{
+  resize_array_uninitialized(arr, size);
 
   for (size_t i = 0; i < size; i++)
   {

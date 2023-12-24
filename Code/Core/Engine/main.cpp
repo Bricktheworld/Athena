@@ -1,8 +1,9 @@
 //#include "Core/Foundation/tests.h"
-#include "Core/Foundation/Math/math.h"
+#include "Core/Foundation/math.h"
 #include "Core/Foundation/threading.h"
 #include "Core/Foundation/context.h"
 #include "Core/Foundation/profiling.h"
+#include "Core/Foundation/filesystem.h"
 
 #include "Core/Engine/Render/graphics.h"
 #include "Core/Engine/Render/renderer.h"
@@ -168,18 +169,20 @@ application_entry(MEMORY_ARENA_PARAM, HINSTANCE instance, int show_code, JobSyst
 #endif
   AdjustWindowRect(&window_rect, dw_style, 0);
 
-  HWND window = CreateWindowExW(0,
-                                wc.lpszClassName,
-                                WINDOW_NAME,
-                                dw_style | WS_VISIBLE,
-                                CW_USEDEFAULT,
-                                CW_USEDEFAULT,
-                                window_rect.right - window_rect.left,
-                                window_rect.bottom - window_rect.top,
-                                0,
-                                0,
-                                instance,
-                                0);
+  HWND window = CreateWindowExW(
+    0,
+    wc.lpszClassName,
+    WINDOW_NAME,
+    dw_style | WS_VISIBLE,
+    CW_USEDEFAULT,
+    CW_USEDEFAULT,
+    window_rect.right - window_rect.left,
+    window_rect.bottom - window_rect.top,
+    0,
+    0,
+    instance,
+    0
+  );
   ASSERT(window != nullptr);
   ShowWindow(window, show_code);
   UpdateWindow(window);
@@ -198,13 +201,25 @@ application_entry(MEMORY_ARENA_PARAM, HINSTANCE instance, int show_code, JobSyst
   defer { destroy_renderer(&renderer); };
 
   Scene scene       = init_scene(MEMORY_ARENA_FWD, &graphics_device);
-//  SceneObject* dragon = add_scene_object(&scene, shader_manager, "assets/dragon.fbx", kVS_Basic, kPS_BasicNormalGloss);
-//  SceneObject* dragon_scene = add_scene_object(&scene, shader_manager, "assets/dragon_scene.fbx", kVS_Basic, kPS_BasicNormalGloss);
-//  SceneObject* cube = add_scene_object(&scene, shader_manager, "assets/cube.fbx", kVS_Basic, kPS_BasicNormalGloss);
-//  SceneObject* cube2 = add_scene_object(&scene, shader_manager, "assets/cube2.fbx", kVS_Basic, kPS_BasicNormalGloss);
-//  SceneObject* sponza = add_scene_object(&scene, shader_manager, "assets/sponza.fbx", kVS_Basic, kPS_BasicNormalGloss);
-  SceneObject* sponza = add_scene_object(&scene, shader_manager, "assets/sponza/Sponza.gltf", kVS_Basic, kPS_BasicNormalGloss);
-//  SceneObject* cornell = add_scene_object(&scene, shader_manager, "assets/cornell.fbx", kVS_Basic, kPS_BasicNormalGloss);
+
+  SceneObject* sponza = nullptr;
+  {
+    MemoryArena temp_arena = sub_alloc_memory_arena(MEMORY_ARENA_FWD, MiB(32));
+    defer { reset_memory_arena(&temp_arena); };
+
+    fs::FileStream sponza_built_file = open_built_asset_file(path_to_asset_id("Assets/Source/sponza/Sponza.gltf"));
+    defer { fs::close_file(&sponza_built_file); };
+
+    u64 buf_size = fs::get_file_size(sponza_built_file);
+    u8* buf = push_memory_arena<u8>(&temp_arena, buf_size);
+
+    ASSERT(fs::read_file(sponza_built_file, buf, buf_size));
+    ModelData model;
+    AssetLoadResult res = load_model(&temp_arena, buf, buf_size, &model);
+    ASSERT(res == AssetLoadResult::kOk);
+
+    sponza = add_scene_object(&scene, shader_manager, model, kVS_Basic, kPS_BasicNormalGloss);
+  }
 
   build_acceleration_structures(&graphics_device, &scene);
 
@@ -319,13 +334,15 @@ WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, int show_code
 //	LoadLibrary(L"C:\\Program Files\\Microsoft PIX\\2305.10\\WinPixGpuCapturer.dll");
 //#endif
 
-  init_application_memory();
+  // TODO(Brandon): lol
+  static constexpr size_t kHeapSize = GiB(2);
+
+  init_application_memory(kHeapSize);
   defer { destroy_application_memory(); };
 
 //  run_all_tests();
 
   MemoryArena arena = alloc_memory_arena(MiB(64));
-  defer { free_memory_arena(&arena); };
 
   MemoryArena scratch_arena = sub_alloc_memory_arena(&arena, DEFAULT_SCRATCH_SIZE);
   init_context(scratch_arena);
@@ -333,7 +350,7 @@ WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, int show_code
   JobSystem* job_system = init_job_system(&arena, 512);
   Array<Thread> threads = spawn_job_system_workers(&arena, job_system);
 
-  MemoryArena game_memory = alloc_memory_arena(GiB(1));
+  MemoryArena game_memory = alloc_memory_arena(GiB(2) - MiB(64));
 
   application_entry(&game_memory, instance, show_code, job_system);
   join_threads(threads.memory, static_cast<u32>(threads.size));

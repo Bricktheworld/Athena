@@ -27,7 +27,7 @@ shaders::BasicVSOut VS_Basic(uint vert_id: SV_VertexID)
 //
 //	float3x3 tbn_matrix = float3x3(tangent, bitangent, normal);
 
-	ret.normal    = float4(normal, 1.0f);  //vertex.normal;
+	ret.normal    = normal;  //vertex.normal;
 	ret.uv        = vertex.uv;
 	return ret;
 }

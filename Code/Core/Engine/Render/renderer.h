@@ -1,4 +1,6 @@
 #pragma once
+#include "Core/Foundation/assets.h"
+
 #include "Core/Engine/job_system.h"
 
 #include "Core/Engine/Render/render_graph.h"
@@ -27,69 +29,6 @@ struct UploadContext
 void init_global_upload_context(MEMORY_ARENA_PARAM, const gfx::GraphicsDevice* device);
 void destroy_global_upload_context();
 
-#if 0
-enum ShaderIndex : u8
-{
-  kVsBasic,
-  kVsFullscreen,
-
-  kPsBasicNormalGloss,
-  kPsFullscreen,
-  kPsPostProcessing,
-
-  kCsStandardBrdf,
-
-  kCsDofCoC,
-  kCsDofCoCDilate,
-  kCsDofBlurHoriz,
-  kCsDofBlurVert,
-  kCsDofComposite,
-
-
-  kCsDebugGBuffer,
-  kCsDebugCoC,
-
-  kRtBasic,
-  kRtStandardBrdf,
-  kRtProbeTrace,
-
-  kCsProbeBlending,
-  kCsProbeDistanceBlending,
-  kCsDebugProbe,
-
-  kShaderCount,
-};
-
-static const wchar_t* kShaderPaths[] =
-{
-  L"vertex/basic_vs.hlsl.bin",
-  L"vertex/fullscreen_vs.hlsl.bin",
-
-  L"pixel/basic_normal_gloss_ps.hlsl.bin",
-  L"pixel/fullscreen_ps.hlsl.bin",
-  L"pixel/post_processing_ps.hlsl.bin",
-
-  L"compute/standard_brdf_cs.hlsl.bin",
-
-  L"compute/dof_coc_cs.hlsl.bin",
-  L"compute/dof_coc_dilate_cs.hlsl.bin",
-  L"compute/dof_blur_horiz_cs.hlsl.bin",
-  L"compute/dof_blur_vert_cs.hlsl.bin",
-  L"compute/dof_composite_cs.hlsl.bin",
-
-  L"compute/debug_gbuffer_cs.hlsl.bin",
-  L"compute/debug_coc_cs.hlsl.bin",
-
-  L"ray_tracing/basic_rt.hlsl.bin",
-  L"ray_tracing/standard_brdf_rt.hlsl.bin",
-  L"ray_tracing/probe_trace_rt.hlsl.bin",
-  L"compute/probe_blending_cs.hlsl.bin",
-  L"compute/probe_distance_blending_cs.hlsl.bin",
-  L"compute/debug_probe_cs.hlsl.bin",
-};
-static_assert(ARRAY_LENGTH(kShaderPaths) == kShaderCount);
-#endif
-
 struct ShaderManager
 {
   gfx::GpuShader shaders[kEngineShaderCount];
@@ -98,12 +37,12 @@ struct ShaderManager
 ShaderManager init_shader_manager(const gfx::GraphicsDevice* device);
 void destroy_shader_manager(ShaderManager* shader_manager);
 
-struct Mesh
+struct RenderMeshInst
 {
   gfx::GraphicsPSO gbuffer_pso;
   u32 index_buffer_offset = 0;
-  u32 index_count = 0;
-  EngineShaderIndex vertex_shader = kVS_Basic;
+  u32 index_count;
+  EngineShaderIndex vertex_shader   = kVS_Basic;
   EngineShaderIndex material_shader = kPS_BasicNormalGloss;
 };
 
@@ -256,7 +195,7 @@ struct Renderer
   gfx::GpuImage probe_distance;
   gfx::GpuImage probe_offset;
 
-  Array<Mesh> meshes;
+  Array<RenderMeshInst> meshes;
 };
 
 Renderer init_renderer(
@@ -270,7 +209,7 @@ void destroy_renderer(Renderer* renderer);
 
 
 void begin_renderer_recording(MEMORY_ARENA_PARAM, Renderer* renderer);
-void submit_mesh(Renderer* renderer, Mesh mesh);
+void submit_mesh(Renderer* renderer, RenderMeshInst mesh);
 
 struct Camera
 {
@@ -298,10 +237,15 @@ enum SceneObjectFlags : u8
   kSceneObjectMesh        = 0x4,
 };
 
+struct RenderModel
+{
+  Array<RenderMeshInst> mesh_insts;
+};
 
 struct SceneObject
 {
-  Array<Mesh> meshes;
+  RenderModel model;
+//  Array<RenderMeshInst> meshes;
   u8 flags = 0;
 };
 
@@ -330,7 +274,7 @@ Scene init_scene(MEMORY_ARENA_PARAM, const gfx::GraphicsDevice* device);
 SceneObject* add_scene_object(
   Scene* scene,
   const ShaderManager& shader_manager,
-  const char* mesh,
+  const ModelData& model,
   EngineShaderIndex vertex_shader,
   EngineShaderIndex material_shader
 );

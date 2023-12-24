@@ -363,3 +363,4 @@ MigrationBackup/
 FodyWeavers.xsd
 builddir/
 *.10x
+Assets/Built/*

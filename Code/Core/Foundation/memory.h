@@ -39,7 +39,7 @@ zero_memory(void* memory, size_t size)
   }
 }
 
-FOUNDATION_API void init_application_memory();
+FOUNDATION_API void init_application_memory(size_t heap_size);
 FOUNDATION_API void destroy_application_memory();
 
 struct MemoryArena
@@ -55,7 +55,6 @@ struct MemoryArena
 #define MEMORY_ARENA_FWD memory_arena
 
 FOUNDATION_API MemoryArena alloc_memory_arena(size_t size);
-FOUNDATION_API void free_memory_arena(MEMORY_ARENA_PARAM);
 FOUNDATION_API void reset_memory_arena(MEMORY_ARENA_PARAM);
 
 FOUNDATION_API uintptr_t* memory_arena_pos_ptr(MEMORY_ARENA_PARAM);

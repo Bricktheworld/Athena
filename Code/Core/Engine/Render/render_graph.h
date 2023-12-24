@@ -1,5 +1,5 @@
 #pragma once
-#include "Core/Foundation/Math/math.h"
+#include "Core/Foundation/math.h"
 #include "Core/Foundation/memory.h"
 
 #include "Core/Foundation/Containers/hash_table.h"

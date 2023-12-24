@@ -5,7 +5,7 @@
 #include "Core/Foundation/Containers/ring_buffer.h"
 #include "Core/Foundation/Containers/hash_table.h"
 
-#include "Core/Foundation/Math/math.h"
+#include "Core/Foundation/math.h"
 
 #include <d3d12.h>
 #include <dxgi1_6.h>
@@ -16,12 +16,16 @@ namespace gfx
   typedef Vec4 Rgba;
   typedef Vec3 Rgb;
   
-  constant u8 kFramesInFlight = 2;
-  constant u8 kMaxCommandListThreads = 8;
-  constant u8 kCommandAllocators = kFramesInFlight * kMaxCommandListThreads;
+  enum : u8
+  {
+    kFramesInFlight = 2,
+    kMaxCommandListThreads = 8,
+    kCommandAllocators = kFramesInFlight * kMaxCommandListThreads,
+  };
   
   struct GraphicsDevice;
   typedef u64 FenceValue;
+
   struct Fence
   {
     ID3D12Fence* d3d12_fence = nullptr;
@@ -32,9 +36,9 @@ namespace gfx
   };
   
   Fence init_fence(const GraphicsDevice* device);
-  void destroy_fence(Fence* fence);
-  void yield_for_fence_value(Fence* fence, FenceValue value);
-  void block_for_fence_value(Fence* fence, FenceValue value);
+  void  destroy_fence(Fence* fence);
+  void  yield_for_fence_value(Fence* fence, FenceValue value);
+  void  block_for_fence_value(Fence* fence, FenceValue value);
   
   enum CmdQueueType : u8
   {
@@ -51,10 +55,9 @@ namespace gfx
     CmdQueueType type = kCmdQueueTypeGraphics;
   };
   
-  CmdQueue init_cmd_queue(const GraphicsDevice* device, CmdQueueType type);
-  void destroy_cmd_queue(const CmdQueue* queue);
-  
-  void cmd_queue_gpu_wait_for_fence(const CmdQueue* queue, Fence* fence, FenceValue value);
+  CmdQueue   init_cmd_queue(const GraphicsDevice* device, CmdQueueType type);
+  void       destroy_cmd_queue(CmdQueue* queue);
+  void       cmd_queue_gpu_wait_for_fence(const CmdQueue* queue, Fence* fence, FenceValue value);
   FenceValue cmd_queue_signal(const CmdQueue* queue, Fence* fence);
   
   struct CmdAllocator
@@ -78,15 +81,20 @@ namespace gfx
     ID3D12CommandAllocator* d3d12_allocator = nullptr;
   };
   
-  CmdListAllocator init_cmd_list_allocator(MEMORY_ARENA_PARAM,
-                                          const GraphicsDevice* device,
-                                          const CmdQueue* queue,
-                                          u16 pool_size);
-  void destroy_cmd_list_allocator(CmdListAllocator* allocator);
-  CmdList alloc_cmd_list(CmdListAllocator* allocator);
-  FenceValue submit_cmd_lists(CmdListAllocator* allocator,
-                              Span<CmdList> lists,
-                              Option<Fence*> fence = None);
+  CmdListAllocator init_cmd_list_allocator(
+    MEMORY_ARENA_PARAM,
+    const GraphicsDevice* device,
+    const CmdQueue* queue,
+    u16 pool_size
+  );
+
+  void       destroy_cmd_list_allocator(CmdListAllocator* allocator);
+  CmdList    alloc_cmd_list(CmdListAllocator* allocator);
+  FenceValue submit_cmd_lists(
+    CmdListAllocator* allocator,
+    Span<CmdList> lists,
+    Option<Fence*> fence = None
+  );
   
   struct GraphicsDevice
   {
@@ -121,9 +129,11 @@ namespace gfx
     GpuHeapType type = kGpuHeapTypeLocal;
   };
   
-  GpuResourceHeap init_gpu_resource_heap(const GraphicsDevice* device,
-                                        u64 size,
-                                        GpuHeapType type);
+  GpuResourceHeap init_gpu_resource_heap(
+    const GraphicsDevice* device,
+    u64 size,
+    GpuHeapType type
+  );
   void destroy_gpu_resource_heap(GpuResourceHeap* heap);
   
   struct GpuLinearAllocator
@@ -132,10 +142,13 @@ namespace gfx
     u64 pos = 0;
   };
   
-  GpuLinearAllocator init_gpu_linear_allocator(const GraphicsDevice* device,
-                                              u64 size,
-                                              GpuHeapType type);
+  GpuLinearAllocator init_gpu_linear_allocator(
+    const GraphicsDevice* device,
+    u64 size,
+    GpuHeapType type
+  );
   void destroy_gpu_linear_allocator(GpuLinearAllocator* allocator);
+
   inline void
   reset_gpu_linear_allocator(GpuLinearAllocator* allocator)
   {
@@ -172,19 +185,25 @@ namespace gfx
     D3D12_RESOURCE_STATES state = D3D12_RESOURCE_STATE_COMMON;
   };
   
-  GpuImage alloc_gpu_image_2D_no_heap(const GraphicsDevice* device,
-                                      GpuImageDesc desc,
-                                      const char* name);
+  GpuImage alloc_gpu_image_2D_no_heap(
+    const GraphicsDevice* device,
+    GpuImageDesc desc,
+    const char* name
+  );
   void free_gpu_image(GpuImage* image);
   
-  GpuImage alloc_gpu_image_2D(const GraphicsDevice* device,
-                              GpuLinearAllocator* allocator,
-                              GpuImageDesc desc,
-                              const char* name);
+  GpuImage alloc_gpu_image_2D(
+    const GraphicsDevice* device,
+    GpuLinearAllocator* allocator,
+    GpuImageDesc desc,
+    const char* name
+  );
 
-  void     upload_gpu_image_2D(const GraphicsDevice* device,
-                               const void* rgba,
-                               GpuImage* dst);
+  void upload_gpu_image_2D(
+    const GraphicsDevice* device,
+    const void* rgba,
+    GpuImage* dst
+  );
 
   bool is_depth_format(DXGI_FORMAT format);
   
@@ -204,16 +223,20 @@ namespace gfx
     Option<void*> mapped = None;
     D3D12_RESOURCE_STATES state = D3D12_RESOURCE_STATE_COMMON;
   };
-  GpuBuffer alloc_gpu_buffer_no_heap(const GraphicsDevice* device,
-                                    GpuBufferDesc desc,
-                                    GpuHeapType type,
-                                    const char* name);
+  GpuBuffer alloc_gpu_buffer_no_heap(
+    const GraphicsDevice* device,
+    GpuBufferDesc desc,
+    GpuHeapType type,
+    const char* name
+  );
   void free_gpu_buffer(GpuBuffer* buffer);
   
-  GpuBuffer alloc_gpu_buffer(const GraphicsDevice* device,
-                            GpuLinearAllocator* allocator,
-                            GpuBufferDesc desc,
-                            const char* name);
+  GpuBuffer alloc_gpu_buffer(
+    const GraphicsDevice* device,
+    GpuLinearAllocator* allocator,
+    GpuBufferDesc desc,
+    const char* name
+  );
 
   struct GpuBvh
   {
@@ -223,44 +246,16 @@ namespace gfx
   };
 
   // TODO(Brandon): We eventually will want to have this not take uber buffers but instead be more fine-grained...
-  GpuBvh init_acceleration_structure(GraphicsDevice* device,
-                                     const GpuBuffer& vertex_uber_buffer,
-                                     u32 vertex_count,
-                                     u32 vertex_stride,
-                                     const GpuBuffer& index_uber_buffer,
-                                     u32 index_count,
-                                     const char* name);
+  GpuBvh init_acceleration_structure(
+    GraphicsDevice* device,
+    const GpuBuffer& vertex_uber_buffer,
+    u32 vertex_count,
+    u32 vertex_stride,
+    const GpuBuffer& index_uber_buffer,
+    u32 index_count,
+    const char* name
+  );
   void destroy_acceleration_structure(GpuBvh* bvh);
-  
-  struct GpuUploadRange
-  {
-    u64 size = 0;
-    FenceValue fence_value = 0;
-  };
-  
-  struct GpuUploadRingBuffer
-  {
-    GpuBuffer gpu_buffer;
-    u64 write = 0;
-    u64 read = 0;
-    u64 size = 0;
-  
-    RingQueue<GpuUploadRange> upload_fence_values;
-    Fence fence;
-    HANDLE cpu_event;
-  };
-  
-  GpuUploadRingBuffer alloc_gpu_ring_buffer(MEMORY_ARENA_PARAM,
-                                            const GraphicsDevice* device,
-                                            u64 size);
-  void free_gpu_ring_buffer(GpuUploadRingBuffer* gpu_upload_ring_buffer);
-  FenceValue yield_gpu_upload_buffer(CmdListAllocator* cmd_allocator,
-                                     GpuUploadRingBuffer* ring_buffer,
-                                     GpuBuffer* dst,
-                                     u64 dst_offset,
-                                     const void* src,
-                                     u64 size,
-                                     u64 alignment = 1);
   
   enum DescriptorType : u8
   {
@@ -293,10 +288,12 @@ namespace gfx
     DescriptorHeapType type = kDescriptorHeapTypeCbvSrvUav;
   };
   
-  DescriptorPool init_descriptor_pool(MEMORY_ARENA_PARAM,
-                                      const GraphicsDevice* device,
-                                      u32 size,
-                                      DescriptorHeapType type);
+  DescriptorPool init_descriptor_pool(
+    MEMORY_ARENA_PARAM,
+    const GraphicsDevice* device,
+    u32 size,
+    DescriptorHeapType type
+  );
   
   void destroy_descriptor_pool(DescriptorPool* pool);
 
@@ -314,9 +311,11 @@ namespace gfx
     DescriptorHeapType type = kDescriptorHeapTypeCbvSrvUav;
   };
 
-  DescriptorLinearAllocator init_descriptor_linear_allocator(const GraphicsDevice* device,
-                                                             u32 size,
-                                                             DescriptorHeapType type);
+  DescriptorLinearAllocator init_descriptor_linear_allocator(
+    const GraphicsDevice* device,
+    u32 size,
+    DescriptorHeapType type
+  );
   
   void reset_descriptor_linear_allocator(DescriptorLinearAllocator* allocator);
   void destroy_descriptor_linear_allocator(DescriptorLinearAllocator* allocator);
@@ -330,30 +329,36 @@ namespace gfx
   };
   
   Descriptor alloc_descriptor(DescriptorPool* pool);
-  void free_descriptor(DescriptorPool* heap, Descriptor* descriptor);
+  void       free_descriptor(DescriptorPool* heap, Descriptor* descriptor);
 
   Descriptor alloc_descriptor(DescriptorLinearAllocator* allocator);
 
   
-  void init_buffer_cbv(const GraphicsDevice* device,
-                       Descriptor* descriptor,
-                       const GpuBuffer* buffer,
-                       u64 offset,
-                       u32 size);
+  void init_buffer_cbv(
+    const GraphicsDevice* device,
+    Descriptor* descriptor,
+    const GpuBuffer* buffer,
+    u64 offset,
+    u32 size
+  );
   
-  void init_buffer_srv(const GraphicsDevice* device,
-                       Descriptor* descriptor,
-                       const GpuBuffer* buffer,
-                       u32 first_element,
-                       u32 num_elements,
-                       u32 stride);
+  void init_buffer_srv(
+    const GraphicsDevice* device,
+    Descriptor* descriptor,
+    const GpuBuffer* buffer,
+    u32 first_element,
+    u32 num_elements,
+    u32 stride
+  );
   
-  void init_buffer_uav(const GraphicsDevice* device,
-                       Descriptor* descriptor,
-                       const GpuBuffer* buffer,
-                       u32 first_element,
-                       u32 num_elements,
-                       u32 stride);
+  void init_buffer_uav(
+    const GraphicsDevice* device,
+    Descriptor* descriptor,
+    const GpuBuffer* buffer,
+    u32 first_element,
+    u32 num_elements,
+    u32 stride
+  );
   
   void init_rtv(const GraphicsDevice* device, Descriptor* descriptor, const GpuImage* image);
   void init_dsv(const GraphicsDevice* device, Descriptor* descriptor, const GpuImage* image);
@@ -418,9 +423,11 @@ namespace gfx
     ID3D12StateObjectProperties* d3d12_properties = nullptr;
   };
 
-  RayTracingPSO init_ray_tracing_pipeline(const GraphicsDevice* device,
-                                          GpuShader ray_tracing_library,
-                                          const char* name);
+  RayTracingPSO init_ray_tracing_pipeline(
+    const GraphicsDevice* device,
+    GpuShader ray_tracing_library,
+    const char* name
+  );
   void destroy_ray_tracing_pipeline(RayTracingPSO* pipeline);
 
   struct ShaderTable
@@ -437,9 +444,11 @@ namespace gfx
     u64 hit_size = 0;
   };
 
-  ShaderTable init_shader_table(const GraphicsDevice* device,
-                                RayTracingPSO pipeline,
-                                const char* name);
+  ShaderTable init_shader_table(
+    const GraphicsDevice* device,
+    RayTracingPSO pipeline,
+    const char* name
+  );
   void destroy_shader_table(ShaderTable* shader_table);
 
   struct SwapChain
@@ -466,20 +475,22 @@ namespace gfx
   const GpuImage* swap_chain_acquire(SwapChain* swap_chain);
   void swap_chain_submit(SwapChain* swap_chain, const GraphicsDevice* device, const GpuImage* rtv);
   
-  void cmd_set_descriptor_heaps(CmdList* cmd, const DescriptorPool* heaps, u32 num_heaps);
-  void cmd_set_descriptor_heaps(CmdList* cmd, Span<const DescriptorLinearAllocator*> heaps);
-  void cmd_set_primitive_topology(CmdList* cmd, D3D_PRIMITIVE_TOPOLOGY topology = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-  void cmd_set_graphics_root_signature(CmdList* cmd);
-  void cmd_set_compute_root_signature(CmdList* cmd);
+  void set_descriptor_heaps(CmdList* cmd, const DescriptorPool* heaps, u32 num_heaps);
+  void set_descriptor_heaps(CmdList* cmd, Span<const DescriptorLinearAllocator*> heaps);
+  void set_primitive_topology(CmdList* cmd, D3D_PRIMITIVE_TOPOLOGY topology = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+  void set_graphics_root_signature(CmdList* cmd);
+  void set_compute_root_signature(CmdList* cmd);
   
-  void init_imgui_ctx(const GraphicsDevice* device,
-                      const SwapChain* swap_chain,
-                      HWND window,
-                      DescriptorLinearAllocator* cbv_srv_uav_heap);
+  void init_imgui_ctx(
+    const GraphicsDevice* device,
+    const SwapChain* swap_chain,
+    HWND window,
+    DescriptorLinearAllocator* cbv_srv_uav_heap
+  );
   void destroy_imgui_ctx();
   void imgui_begin_frame();
   void imgui_end_frame();
-  void cmd_imgui_render(CmdList* cmd);
+  void imgui_render(CmdList* cmd);
 }
 
 

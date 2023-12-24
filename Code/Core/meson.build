@@ -1,14 +1,28 @@
 include_dir = include_directories(
   '../',
-  'Engine/Vendor', # TODO(Brandon): This is a giant hack that I am putting in place to get assimp to compile...
 )
 
 fs = import('fs')
 cc = meson.get_compiler('cpp')
 
+lib_directory = '/Lib/Debug/'
+if get_option('buildtype') == 'debug'
+  engine_lib_dirs = '/Lib/Debug/'
+else
+  engine_lib_dirs = '/Lib/Release/'
+endif
+
+#########################################################################################
+
 foundation_src = [
+  'Foundation/assets.cpp',
+  'Foundation/assets.h',
   'Foundation/context.cpp',
   'Foundation/context.h',
+  'Foundation/filesystem.cpp',
+  'Foundation/filesystem.h',
+  'Foundation/hash.cpp',
+  'Foundation/hash.h',
   'Foundation/memory.cpp',
   'Foundation/memory.h',
   'Foundation/pool_allocator.cpp',
@@ -38,6 +52,8 @@ foundation = shared_library(
   include_directories: include_dir,
   cpp_args: ['-DFOUNDATION_EXPORT', '-DUNICODE'],
 )
+
+#########################################################################################
 
 python = find_program(meson.project_source_root() + '/Bin/python-3.12.0/python.exe')
 dxc_path = meson.project_source_root() + '/Code/Core/Bin/dxc/dxc.exe'
@@ -112,43 +128,25 @@ engine_src = [
 ]
 
 engine_dlls = [
-  'assimp-vc143-mtd',
 ]
 
 engine_libs = [
   'DirectXTK',
 ]
 
-engine_additional_files = {
-  'Engine/Lib/D3D12Core.dll':      'D3D12Core.dll',
-  'Engine/Lib/D3D12Core.pdb':      'D3D12Core.pdb',
-  'Engine/Lib/D3D12SDKLayers.dll': 'D3D12SDKLayers.dll',
-  'Engine/Lib/D3D12SDKLayers.pdb': 'D3D12SDKLayers.pdb',
-}
-
-
-engine_lib_dirs = []
-if get_option('buildtype') == 'debug'
-  engine_lib_dirs += meson.project_source_root() + '/Code/Core/Engine/Lib/Debug/'
-else
-  engine_lib_dirs += meson.project_source_root() + '/Code/Core/Engine/Lib/Release/'
-endif
+engine_lib_dir = meson.project_source_root() + '/Code/Core/Engine' + lib_directory
 
 # TODO(Brandon): This is ugly as shit because fs.copyfile creates an _entire_ vsln project...
 # I think the correct solution here is to treat them like
 engine_dependencies = []
 foreach dll : engine_dlls
-  engine_dependencies += cc.find_library(dll, dirs: engine_lib_dirs)
-  fs.copyfile(engine_lib_dirs[0] + dll + '.dll', dll + '.dll')
-  fs.copyfile(engine_lib_dirs[0] + dll + '.pdb', dll + '.pdb')
+  engine_dependencies += cc.find_library(dll, dirs: engine_lib_dir)
+  fs.copyfile(engine_lib_dir + dll + '.dll', dll + '.dll')
+  fs.copyfile(engine_lib_dir + dll + '.pdb', dll + '.pdb')
 endforeach
 
 foreach lib : engine_libs
-  engine_dependencies += cc.find_library(lib, dirs: engine_lib_dirs)
-endforeach
-
-foreach src, dst : engine_additional_files
-  fs.copyfile(meson.project_source_root() + '/Code/Core/' + src, dst)
+  engine_dependencies += cc.find_library(lib, dirs: engine_lib_dir)
 endforeach
 
 engine = executable(
@@ -161,3 +159,58 @@ engine = executable(
   cpp_args: ['-DUNICODE'],
   win_subsystem: 'windows',
 )
+
+#########################################################################################
+
+asset_builder_src = [
+  'Tools/AssetBuilder/main.cpp',
+  'Tools/AssetBuilder/model_importer.cpp',
+  'Tools/AssetBuilder/model_importer.h',
+]
+
+asset_builder_dlls = [
+  'assimp-vc143-mtd',
+]
+
+asset_builder_libs = [
+]
+
+asset_builder_lib_dir = meson.project_source_root() + '/Code/Core/Tools/AssetBuilder' + lib_directory
+
+# TODO(Brandon): This is ugly as shit because fs.copyfile creates an _entire_ vsln project...
+# I think the correct solution here is to treat them like
+asset_builder_dependencies = []
+foreach dll : asset_builder_dlls
+  asset_builder_dependencies += cc.find_library(dll, dirs: asset_builder_lib_dir)
+  fs.copyfile(asset_builder_lib_dir + dll + '.dll', dll + '.dll')
+  fs.copyfile(asset_builder_lib_dir + dll + '.pdb', dll + '.pdb')
+endforeach
+
+foreach lib : asset_builder_libs
+  asset_builder_dependencies += cc.find_library(lib, dirs: asset_builder_lib_dir)
+endforeach
+
+asset_builder = executable(
+  'AssetBuilder',
+  asset_builder_src,
+
+  include_directories: include_directories('../', 'Tools/AssetBuilder/Vendor'),
+  link_with: foundation,
+  dependencies: asset_builder_dependencies,
+  cpp_args: ['-DUNICODE'],
+)
+
+#########################################################################################
+
+additional_files = {
+  'Engine/Lib/D3D12Core.dll':      'D3D12Core.dll',
+  'Engine/Lib/D3D12Core.pdb':      'D3D12Core.pdb',
+  'Engine/Lib/D3D12SDKLayers.dll': 'D3D12SDKLayers.dll',
+  'Engine/Lib/D3D12SDKLayers.pdb': 'D3D12SDKLayers.pdb',
+}
+
+foreach src, dst : additional_files
+  fs.copyfile(meson.project_source_root() + '/Code/Core/' + src, dst)
+endforeach
+
+#########################################################################################

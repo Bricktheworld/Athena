@@ -49,20 +49,26 @@ namespace gfx::render
       ret.last_frame_resources[i] = init_array<ID3D12Resource*>(MEMORY_ARENA_FWD, 256);
     }
 
-    ret.graphics_cmd_allocator = init_cmd_list_allocator(MEMORY_ARENA_FWD,
-                                                         device,
-                                                         &device->graphics_queue,
-                                                         64 * kFramesInFlight);
+    ret.graphics_cmd_allocator = init_cmd_list_allocator(
+      MEMORY_ARENA_FWD,
+      device,
+      &device->graphics_queue,
+      64 * kFramesInFlight
+    );
 
-    ret.compute_cmd_allocator  = init_cmd_list_allocator(MEMORY_ARENA_FWD,
-                                                         device,
-                                                         &device->compute_queue,
-                                                         16 * kFramesInFlight);
+    ret.compute_cmd_allocator = init_cmd_list_allocator(
+      MEMORY_ARENA_FWD,
+      device,
+      &device->compute_queue,
+      16 * kFramesInFlight
+    );
 
-    ret.copy_cmd_allocator     = init_cmd_list_allocator(MEMORY_ARENA_FWD,
-                                                         device,
-                                                         &device->copy_queue,
-                                                         8 * kFramesInFlight);
+    ret.copy_cmd_allocator = init_cmd_list_allocator(
+      MEMORY_ARENA_FWD,
+      device,
+      &device->copy_queue,
+      8 * kFramesInFlight
+    );
     return ret;
   }
 
@@ -571,11 +577,12 @@ namespace gfx::render
   }
 
   static void
-  execute_d3d12_cmd(const GraphicsDevice* device,
-                    CmdList* list,
-                    const RenderGraphCmd& cmd,
-                    CompiledResourceMap* compiled_map)
-  {
+  execute_d3d12_cmd(
+    const GraphicsDevice* device,
+    CmdList* list,
+    const RenderGraphCmd& cmd,
+    CompiledResourceMap* compiled_map
+  ) {
     switch(cmd.type)
     {
       case RenderGraphCmdType::kGraphicsBindShaderResources:
@@ -800,10 +807,10 @@ namespace gfx::render
       case RenderGraphCmdType::kDrawImGuiOnTop:
       {
         const auto& args = cmd.draw_imgui_on_top;
-        cmd_set_descriptor_heaps(list, {args.descriptor_linear_allocator});
+        set_descriptor_heaps(list, {args.descriptor_linear_allocator});
         ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), list->d3d12_list);
 
-        cmd_set_descriptor_heaps(list, {compiled_map->cbv_srv_uav_descriptor_allocator,
+        set_descriptor_heaps(list, {compiled_map->cbv_srv_uav_descriptor_allocator,
                                         compiled_map->sampler_allocator});
       } break;
       default: UNREACHABLE;
@@ -811,11 +818,12 @@ namespace gfx::render
   }
 
   static void
-  execute_d3d12_transition(CmdList* cmd_list,
-                           ResourceHandle resource,
-                           const CompiledResourceMap* compiled_map,
-                           D3D12_RESOURCE_STATES next_state)
-  {
+  execute_d3d12_transition(
+    CmdList* cmd_list,
+    ResourceHandle resource,
+    const CompiledResourceMap* compiled_map,
+    D3D12_RESOURCE_STATES next_state
+  ) {
     PhysicalResource* physical = deref_resource(resource, compiled_map);
     ID3D12Resource* d3d12_resource = get_d3d12_resource(physical);
 
@@ -834,11 +842,12 @@ namespace gfx::render
   }
 
   static void
-  execute_d3d12_transition(CmdList* cmd_list,
-                           ResourceHandle resource,
-                           const CompiledResourceMap* compiled_map,
-                           const RenderPass& pass)
-  {
+  execute_d3d12_transition(
+    CmdList* cmd_list,
+    ResourceHandle resource,
+    const CompiledResourceMap* compiled_map,
+    const RenderPass& pass
+  ) {
     D3D12_RESOURCE_STATES next_state = *unwrap(hash_table_find(&pass.resource_states, resource));
     execute_d3d12_transition(cmd_list, resource, compiled_map, next_state);
   }
@@ -878,12 +887,13 @@ namespace gfx::render
   }
 
   void
-  execute_render_graph(MEMORY_ARENA_PARAM,
-                       const GraphicsDevice* device,
-                       RenderGraph* graph,
-                       TransientResourceCache* cache,
-                       u32 frame_index)
-  {
+  execute_render_graph(
+    MEMORY_ARENA_PARAM,
+    const GraphicsDevice* device,
+    RenderGraph* graph,
+    TransientResourceCache* cache,
+    u32 frame_index
+  ) {
     USE_SCRATCH_ARENA();
     auto dependency_levels = init_array<DependencyLevel>(SCRATCH_ARENA_PASS, graph->render_passes.size);
     for (size_t i = 0; i < graph->render_passes.size; i++)
@@ -1062,17 +1072,17 @@ namespace gfx::render
           CmdList list = alloc_cmd_list(allocator);
 //          PIXBeginEvent(list.d3d12_list, kPIXRenderPassColor, "Render Pass %s", pass.name);
   
-          cmd_set_descriptor_heaps(&list, {compiled_map.cbv_srv_uav_descriptor_allocator,
+          set_descriptor_heaps(&list, {compiled_map.cbv_srv_uav_descriptor_allocator,
                                            compiled_map.sampler_allocator});
           if (pass.queue == kCmdQueueTypeGraphics)
           {
-            cmd_set_primitive_topology(&list);
-            cmd_set_graphics_root_signature(&list);
-            cmd_set_compute_root_signature(&list);
+            set_primitive_topology(&list);
+            set_graphics_root_signature(&list);
+            set_compute_root_signature(&list);
           }
           else if (pass.queue == kCmdQueueTypeCompute)
           {
-            cmd_set_compute_root_signature(&list);
+            set_compute_root_signature(&list);
           }
   
           for (const RenderGraphCmd& cmd : pass.cmd_buffer)
@@ -1340,10 +1350,11 @@ namespace gfx::render
   }
 
   void
-  cmd_om_set_render_targets(RenderPass* render_pass, 
-                            Span<Handle<GpuImage>> render_targets,
-                            Option<Handle<GpuImage>> depth_stencil_target)
-  {
+  cmd_om_set_render_targets(
+    RenderPass* render_pass, 
+    Span<Handle<GpuImage>> render_targets,
+    Option<Handle<GpuImage>> depth_stencil_target
+  ) {
     for (auto& target : render_targets)
     {
       render_pass_write(render_pass, target, D3D12_RESOURCE_STATE_RENDER_TARGET);
@@ -1362,10 +1373,11 @@ namespace gfx::render
   }
 
   void
-  cmd_clear_render_target_view(RenderPass* render_pass, 
-                               Handle<GpuImage>* render_target,
-                               Vec4 clear_color)
-  {
+  cmd_clear_render_target_view(
+    RenderPass* render_pass, 
+    Handle<GpuImage>* render_target,
+    Vec4 clear_color
+  ) {
     render_pass_write(render_pass, *render_target, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
     RenderGraphCmd cmd;
@@ -1376,12 +1388,13 @@ namespace gfx::render
   }
 
   void
-  cmd_clear_depth_stencil_view(RenderPass* render_pass, 
-                               Handle<GpuImage>* depth_stencil,
-                               D3D12_CLEAR_FLAGS clear_flags,
-                               f32 depth,
-                               u8 stencil)
-  {
+  cmd_clear_depth_stencil_view(
+    RenderPass* render_pass, 
+    Handle<GpuImage>* depth_stencil,
+    D3D12_CLEAR_FLAGS clear_flags,
+    f32 depth,
+    u8 stencil
+  ) {
     render_pass_write(render_pass, *depth_stencil, D3D12_RESOURCE_STATE_DEPTH_WRITE);
 
     RenderGraphCmd cmd;
@@ -1393,10 +1406,11 @@ namespace gfx::render
     push_cmd(render_pass, cmd);
   }
 
-  void cmd_clear_unordered_access_view_uint(RenderPass* render_pass,
-                                            Handle<GpuImage>* uav,
-                                            Span<u32> values)
-  {
+  void cmd_clear_unordered_access_view_uint(
+    RenderPass* render_pass,
+    Handle<GpuImage>* uav,
+    Span<u32> values
+  ) {
     ASSERT(values.size == 4);
     render_pass_write(render_pass, *uav, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
@@ -1411,10 +1425,11 @@ namespace gfx::render
     push_cmd(render_pass, cmd);
   }
   
-  void cmd_clear_unordered_access_view_float(RenderPass* render_pass,
-                                             Handle<GpuImage>* uav,
-                                             Span<f32> values)
-  {
+  void cmd_clear_unordered_access_view_float(
+    RenderPass* render_pass,
+    Handle<GpuImage>* uav,
+    Span<f32> values
+  ) {
     ASSERT(values.size == 4);
     render_pass_write(render_pass, *uav, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
@@ -1430,15 +1445,16 @@ namespace gfx::render
   }
 
   void
-  cmd_dispatch_rays(RenderPass* render_pass,
-                    const GpuBvh* bvh,
-                    const GpuBuffer* index_buffer,
-                    const GpuBuffer* vertex_buffer,
-                    ShaderTable shader_table,
-                    u32 x,
-                    u32 y,
-                    u32 z)
-  {
+  cmd_dispatch_rays(
+    RenderPass* render_pass,
+    const GpuBvh* bvh,
+    const GpuBuffer* index_buffer,
+    const GpuBuffer* vertex_buffer,
+    ShaderTable shader_table,
+    u32 x,
+    u32 y,
+    u32 z
+  ) {
     RenderGraphCmd cmd;
     cmd.type = RenderGraphCmdType::kDispatchRays;
     cmd.dispatch_rays.bvh = bvh;
