@@ -11,13 +11,13 @@
 namespace gfx::render
 {
   RenderGraph
-  init_render_graph(MEMORY_ARENA_PARAM)
+  init_render_graph(AllocHeap heap)
   {
     RenderGraph ret = {0};
-    ret.render_passes = init_array<RenderPass>(MEMORY_ARENA_FWD, 64);
-    ret.imported_resources = init_hash_table<ResourceHandle, PhysicalResource>(MEMORY_ARENA_FWD, 32);
-    ret.transient_resources = init_hash_table<ResourceHandle, TransientResourceDesc>(MEMORY_ARENA_FWD, 32);
-    ret.resource_list = init_array<ResourceHandle>(MEMORY_ARENA_FWD, 64);
+    ret.render_passes = init_array<RenderPass>(heap, 64);
+    ret.imported_resources = init_hash_table<ResourceHandle, PhysicalResource>(heap, 32);
+    ret.transient_resources = init_hash_table<ResourceHandle, TransientResourceDesc>(heap, 32);
+    ret.resource_list = init_array<ResourceHandle>(heap, 64);
     ret.handle_index = 0;
 
 
@@ -31,7 +31,7 @@ namespace gfx::render
   }
 
   TransientResourceCache
-  init_transient_resource_cache(MEMORY_ARENA_PARAM, const GraphicsDevice* device)
+  init_transient_resource_cache(AllocHeap heap, const GraphicsDevice* device)
   {
     TransientResourceCache ret = {0};
     ret.local_heap = init_gpu_linear_allocator(device, MiB(400), kGpuHeapTypeLocal);
@@ -46,25 +46,25 @@ namespace gfx::render
 
     for (u8 i = 0; i < kFramesInFlight; i++)
     {
-      ret.last_frame_resources[i] = init_array<ID3D12Resource*>(MEMORY_ARENA_FWD, 256);
+      ret.last_frame_resources[i] = init_array<ID3D12Resource*>(heap, 256);
     }
 
     ret.graphics_cmd_allocator = init_cmd_list_allocator(
-      MEMORY_ARENA_FWD,
+      heap,
       device,
       &device->graphics_queue,
       64 * kFramesInFlight
     );
 
     ret.compute_cmd_allocator = init_cmd_list_allocator(
-      MEMORY_ARENA_FWD,
+      heap,
       device,
       &device->compute_queue,
       16 * kFramesInFlight
     );
 
     ret.copy_cmd_allocator = init_cmd_list_allocator(
-      MEMORY_ARENA_FWD,
+      heap,
       device,
       &device->copy_queue,
       8 * kFramesInFlight
@@ -92,24 +92,28 @@ namespace gfx::render
   }
 
   RenderPass*
-  add_render_pass(MEMORY_ARENA_PARAM, RenderGraph* graph, CmdQueueType queue, const char* name)
+  add_render_pass(AllocHeap heap, RenderGraph* graph, CmdQueueType queue, const char* name)
   {
     RenderPass* ret = array_add(&graph->render_passes);
 
-    ret->allocator = sub_alloc_memory_arena(MEMORY_ARENA_FWD, KiB(16));
+    static constexpr size_t kCommandAllocatorSize = KiB(16);
+    ret->allocator = init_linear_allocator(
+      HEAP_ALLOC_ALIGNED(heap, kCommandAllocatorSize, 1),
+      kCommandAllocatorSize
+    );
 
-    ret->cmd_buffer = init_array<RenderGraphCmd>(MEMORY_ARENA_FWD, 1024);
-    ret->read_resources = init_array<ResourceHandle>(MEMORY_ARENA_FWD, 16);
-    ret->write_resources = init_array<ResourceHandle>(MEMORY_ARENA_FWD, 16);
-    ret->resource_states = init_hash_table<ResourceHandle, D3D12_RESOURCE_STATES>(MEMORY_ARENA_FWD, 32);
+    ret->cmd_buffer      = init_array<RenderGraphCmd>(heap, 1024);
+    ret->read_resources  = init_array<ResourceHandle>(heap, 16);
+    ret->write_resources = init_array<ResourceHandle>(heap, 16);
+    ret->resource_states = init_hash_table<ResourceHandle, D3D12_RESOURCE_STATES>(heap, 32);
 
     ret->pass_id = u32(graph->render_passes.size) - 1;
     ret->queue = queue;
 
     // TODO(Brandon): We should allocate these when we're actually compiling, instead of here
     // to save on memory.
-    ret->passes_to_sync_with = init_array<RenderPassId>(MEMORY_ARENA_FWD, 64);
-    ret->synchronization_index = init_array<RenderPassId>(MEMORY_ARENA_FWD, 64);
+    ret->passes_to_sync_with   = init_array<RenderPassId>(heap, 64);
+    ret->synchronization_index = init_array<RenderPassId>(heap, 64);
     ret->name = name;
 
     return ret;
@@ -311,17 +315,18 @@ namespace gfx::render
   static void
   build_dependency_list(RenderGraph* graph, Array<DependencyLevel>* out_dependency_levels)
   {
-    USE_SCRATCH_ARENA();
+    ScratchAllocator scratch_arena = alloc_scratch_arena(); // USE_SCRATCH_ARENA();
+    defer { free_scratch_arena(&scratch_arena); };
 
     ASSERT(graph->render_passes.size > 0);
     ASSERT(out_dependency_levels->size == graph->render_passes.size);
 
-    auto topological_list = init_array<RenderPassId>(SCRATCH_ARENA_PASS, graph->render_passes.size);
-    auto adjacency_list = init_array<Array<RenderPassId>>(SCRATCH_ARENA_PASS, graph->render_passes.size);
+    auto topological_list = init_array<RenderPassId>(scratch_arena, graph->render_passes.size);
+    auto adjacency_list = init_array<Array<RenderPassId>>(scratch_arena, graph->render_passes.size);
     for (size_t i = 0; i < graph->render_passes.size; i++)
     {
       Array<RenderPassId>* pass_adjacency_list = array_add(&adjacency_list); 
-      *pass_adjacency_list = init_array<RenderPassId>(SCRATCH_ARENA_PASS, graph->render_passes.size);
+      *pass_adjacency_list = init_array<RenderPassId>(scratch_arena, graph->render_passes.size);
 
       RenderPass* pass = &graph->render_passes[i];
       for (RenderPass& other : graph->render_passes)
@@ -355,10 +360,12 @@ namespace gfx::render
     }
 
     {
-      USE_SCRATCH_ARENA();
-      auto visited = init_array<bool>(SCRATCH_ARENA_PASS, graph->render_passes.size);
+      ScratchAllocator scratch_arena = alloc_scratch_arena();
+      defer { free_scratch_arena(&scratch_arena); };
+
+      auto visited = init_array<bool>(scratch_arena, graph->render_passes.size);
       zero_array(&visited, visited.capacity);
-      auto on_stack = init_array<bool>(SCRATCH_ARENA_PASS, graph->render_passes.size);
+      auto on_stack = init_array<bool>(scratch_arena, graph->render_passes.size);
       zero_array(&on_stack, on_stack.capacity);
   
       bool is_cyclic = false;
@@ -377,9 +384,10 @@ namespace gfx::render
     reverse_array(&topological_list);
 
     {
-      USE_SCRATCH_ARENA();
+      ScratchAllocator scratch_arena = alloc_scratch_arena();
+      defer { free_scratch_arena(&scratch_arena); };
 
-      auto longest_distances = init_array<u64>(SCRATCH_ARENA_PASS, topological_list.size);
+      auto longest_distances = init_array<u64>(scratch_arena, topological_list.size);
       zero_array(&longest_distances, longest_distances.capacity);
 
       u64 dependency_level_count = 1;
@@ -407,7 +415,6 @@ namespace gfx::render
     }
 
     {
-      USE_SCRATCH_ARENA();
       u64 queue_execution_indices[kCmdQueueTypeCount]{0};
   
       u64 global_execution_index = 0;
@@ -588,9 +595,12 @@ namespace gfx::render
       case RenderGraphCmdType::kGraphicsBindShaderResources:
       case RenderGraphCmdType::kComputeBindShaderResources:
       {
+        ScratchAllocator scratch_arena = alloc_scratch_arena();
+        defer { free_scratch_arena(&scratch_arena); };
+
         const auto& args = cmd.graphics_bind_shader_resources;
-        USE_SCRATCH_ARENA();
-        auto root_consts = init_array<u32>(SCRATCH_ARENA_PASS, args.resources.size);
+
+        auto root_consts = init_array<u32>(scratch_arena, args.resources.size);
 
         for (const ShaderResource& shader_resource : args.resources)
         {
@@ -692,9 +702,11 @@ namespace gfx::render
       } break;
       case RenderGraphCmdType::kOMSetRenderTargets:
       {
+        ScratchAllocator scratch_arena = alloc_scratch_arena();
+        defer { free_scratch_arena(&scratch_arena); };
+
         const auto& args = cmd.om_set_render_targets;
-        USE_SCRATCH_ARENA();
-        auto rtvs = init_array<D3D12_CPU_DESCRIPTOR_HANDLE>(SCRATCH_ARENA_PASS, args.render_targets.size);
+        auto rtvs = init_array<D3D12_CPU_DESCRIPTOR_HANDLE>(scratch_arena, args.render_targets.size);
         for (Handle<GpuImage> img : args.render_targets)
         {
           Descriptor* descriptor = get_descriptor(device, img, kDescriptorTypeRtv, compiled_map, None);
@@ -888,26 +900,27 @@ namespace gfx::render
 
   void
   execute_render_graph(
-    MEMORY_ARENA_PARAM,
     const GraphicsDevice* device,
     RenderGraph* graph,
     TransientResourceCache* cache,
     u32 frame_index
   ) {
-    USE_SCRATCH_ARENA();
-    auto dependency_levels = init_array<DependencyLevel>(SCRATCH_ARENA_PASS, graph->render_passes.size);
+    ScratchAllocator scratch_arena = alloc_scratch_arena();
+    defer { free_scratch_arena(&scratch_arena); };
+
+    auto dependency_levels = init_array<DependencyLevel>(scratch_arena, graph->render_passes.size);
     for (size_t i = 0; i < graph->render_passes.size; i++)
     {
       DependencyLevel* level = array_add(&dependency_levels); 
-      level->passes = init_array<RenderPassId>(SCRATCH_ARENA_PASS, graph->render_passes.size);
+      level->passes = init_array<RenderPassId>(scratch_arena, graph->render_passes.size);
     }
 
     build_dependency_list(graph, &dependency_levels);
     
     u64 total_resource_count = graph->transient_resources.used + graph->imported_resources.used;
     CompiledResourceMap compiled_map = {0};
-    compiled_map.resource_map   = init_hash_table<ResourceHandle,  PhysicalResource>(SCRATCH_ARENA_PASS, total_resource_count);
-    compiled_map.descriptor_map = init_hash_table<PhysicalDescriptorKey, Descriptor>(SCRATCH_ARENA_PASS, total_resource_count * 5 / 4);
+    compiled_map.resource_map   = init_hash_table<ResourceHandle,  PhysicalResource>(scratch_arena, total_resource_count);
+    compiled_map.descriptor_map = init_hash_table<PhysicalDescriptorKey, Descriptor>(scratch_arena, total_resource_count * 5 / 4);
 
     u64 buffer_count = 0;
     u64 image_count = 0;
@@ -925,8 +938,8 @@ namespace gfx::render
       }
     }
 
-    auto gpu_buffers = init_array<GpuBuffer>(SCRATCH_ARENA_PASS, buffer_count);
-    auto gpu_images = init_array<GpuImage>(SCRATCH_ARENA_PASS, image_count);
+    auto gpu_buffers = init_array<GpuBuffer>(scratch_arena, buffer_count);
+    auto gpu_images = init_array<GpuImage>(scratch_arena, image_count);
     GpuLinearAllocator* local_heap = &cache->local_heap;
     GpuLinearAllocator* upload_heap = &cache->upload_heaps[frame_index];
     compiled_map.cbv_srv_uav_descriptor_allocator = &cache->cbv_srv_uav_allocators[frame_index];
@@ -950,8 +963,10 @@ namespace gfx::render
     reset_descriptor_linear_allocator(compiled_map.sampler_allocator);
 
     {
-      USE_SCRATCH_ARENA();
-      auto additional_flags = init_hash_table<ResourceHandle, D3D12_RESOURCE_FLAGS>(SCRATCH_ARENA_PASS, total_resource_count);
+      ScratchAllocator scratch_arena = alloc_scratch_arena();
+      defer { free_scratch_arena(&scratch_arena); };
+
+      auto additional_flags = init_hash_table<ResourceHandle, D3D12_RESOURCE_FLAGS>(scratch_arena, total_resource_count);
       for (DependencyLevel dependency_level : dependency_levels)
       {
         for (RenderPassId pass_id : dependency_level.passes)
@@ -1057,11 +1072,13 @@ namespace gfx::render
         submit_cmd_lists(allocator, { cmd_list });
       }
       {
-        USE_SCRATCH_ARENA();
+        ScratchAllocator scratch_arena = alloc_scratch_arena();
+        defer { free_scratch_arena(&scratch_arena); };
+
         Array<CmdList> cmd_lists[kCmdQueueTypeCount];
         for (u32 queue_type = 0; queue_type < kCmdQueueTypeCount; queue_type++)
         {
-          cmd_lists[queue_type] = init_array<CmdList>(SCRATCH_ARENA_PASS, dependency_level.passes.size);
+          cmd_lists[queue_type] = init_array<CmdList>(scratch_arena, dependency_level.passes.size);
         }
   
         for (RenderPassId pass_id : dependency_level.passes)
@@ -1171,12 +1188,18 @@ namespace gfx::render
     if (type == kCmdQueueTypeGraphics)
     {
       cmd.type = RenderGraphCmdType::kGraphicsBindShaderResources;
-      cmd.graphics_bind_shader_resources.resources = init_array<ShaderResource>(&render_pass->allocator, resources);
+      cmd.graphics_bind_shader_resources.resources = init_array<ShaderResource>(
+        render_pass->allocator,
+        resources
+      );
     }
     else if (type == kCmdQueueTypeCompute)
     {
       cmd.type = RenderGraphCmdType::kComputeBindShaderResources;
-      cmd.compute_bind_shader_resources.resources = init_array<ShaderResource>(&render_pass->allocator, resources);
+      cmd.compute_bind_shader_resources.resources = init_array<ShaderResource>(
+        render_pass->allocator,
+        resources
+      );
     } else { UNREACHABLE; }
 
     for (const ShaderResource& shader_resource : resources)
@@ -1367,7 +1390,7 @@ namespace gfx::render
 
     RenderGraphCmd cmd;
     cmd.type = RenderGraphCmdType::kOMSetRenderTargets;
-    cmd.om_set_render_targets.render_targets = init_array<Handle<GpuImage>>(&render_pass->allocator, render_targets);
+    cmd.om_set_render_targets.render_targets = init_array<Handle<GpuImage>>(render_pass->allocator, render_targets);
     cmd.om_set_render_targets.depth_stencil_target = depth_stencil_target;
     push_cmd(render_pass, cmd);
   }

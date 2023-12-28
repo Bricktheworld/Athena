@@ -18,8 +18,9 @@ struct Pool
 // memory arena.
 template <typename T>
 Pool<T>
-init_pool(MEMORY_ARENA_PARAM, size_t size = 0)
+init_pool(AllocHeap heap, size_t size)
 {
+#if 0
   if (size == 0)
   {
     // This is just a safety check, it will almost
@@ -30,10 +31,12 @@ init_pool(MEMORY_ARENA_PARAM, size_t size = 0)
     // be an issue for alignment.
     size = memory_arena->size / 2;
   }
+#endif
+  ASSERT(size > 0);
 
   Pool<T> ret = {0};
-  ret.pool = push_memory_arena<T>(MEMORY_ARENA_FWD, size);
-  ret.free = push_memory_arena<T*>(MEMORY_ARENA_FWD, size);
+  ret.pool = HEAP_ALLOC(T, heap, size); // push_memory_arena<T>(MEMORY_ARENA_FWD, size);
+  ret.free = HEAP_ALLOC(T*, heap, size); // push_memory_arena<T*>(MEMORY_ARENA_FWD, size);
 
   zero_memory(ret.pool, sizeof(T) * size);
   for (size_t i = 0; i < size; i++)

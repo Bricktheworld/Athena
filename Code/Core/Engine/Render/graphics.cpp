@@ -1,7 +1,8 @@
-#include "Core/Engine/job_system.h"
+#include "Core/Foundation/context.h"
 
+#include "Core/Engine/memory.h"
+#include "Core/Engine/job_system.h"
 #include "Core/Engine/Render/graphics.h"
-#include "Core/Foundation/memory.h"
 
 #include <windows.h>
 #include <d3dcompiler.h>
@@ -163,13 +164,14 @@ is_fence_complete(Fence* fence, FenceValue value)
 void
 gfx::yield_for_fence_value(Fence* fence, FenceValue value)
 {
+  UNREACHABLE;
   if (is_fence_complete(fence, value))
     return;
 
-  yield_async([&]()
-  {
-    block_for_fence_value(fence, value);
-  });
+//  yield_async([&]()
+//  {
+//    block_for_fence_value(fence, value);
+//  });
 }
 
 void
@@ -230,7 +232,7 @@ gfx::cmd_queue_signal(const CmdQueue* queue, Fence* fence)
 
 CmdListAllocator
 gfx::init_cmd_list_allocator(
-  MEMORY_ARENA_PARAM,
+  AllocHeap heap,
   const GraphicsDevice* device,
   const CmdQueue* queue,
   u16 pool_size
@@ -239,8 +241,8 @@ gfx::init_cmd_list_allocator(
   CmdListAllocator ret = {0};
   ret.d3d12_queue = queue->d3d12_queue;
   ret.fence = init_fence(device);
-  ret.allocators = init_ring_queue<CmdAllocator>(MEMORY_ARENA_FWD, pool_size);
-  ret.lists = init_ring_queue<ID3D12GraphicsCommandList4*>(MEMORY_ARENA_FWD, pool_size);
+  ret.allocators = init_ring_queue<CmdAllocator>(heap, pool_size);
+  ret.lists = init_ring_queue<ID3D12GraphicsCommandList4*>(heap, pool_size);
 
   CmdAllocator allocator = {0};
   for (u16 i = 0; i < pool_size; i++)
@@ -311,8 +313,9 @@ gfx::submit_cmd_lists(CmdListAllocator* allocator, Span<CmdList> lists, Option<F
 {
   FenceValue ret = 0;
 
-  USE_SCRATCH_ARENA();
-  auto d3d12_cmd_lists = init_array<ID3D12CommandList*>(SCRATCH_ARENA_PASS, lists.size);
+  ScratchAllocator scratch_arena = alloc_scratch_arena();
+  defer { free_scratch_arena(&scratch_arena); };
+  auto d3d12_cmd_lists = init_array<ID3D12CommandList*>(scratch_arena, lists.size);
 
   for (CmdList list : lists)
   {
@@ -401,7 +404,7 @@ gfx::destroy_gpu_linear_allocator(GpuLinearAllocator* allocator)
 }
 
 GraphicsDevice
-gfx::init_graphics_device(MEMORY_ARENA_PARAM)
+gfx::init_graphics_device()
 {
 #ifdef DEBUG_LAYER
   ID3D12Debug* debug_interface = nullptr;
@@ -421,20 +424,26 @@ gfx::init_graphics_device(MEMORY_ARENA_PARAM)
 
   ret.graphics_queue = init_cmd_queue(&ret, kCmdQueueTypeGraphics);
 
-  ret.graphics_cmd_allocator = init_cmd_list_allocator(MEMORY_ARENA_FWD,
-                                                      &ret,
-                                                      &ret.graphics_queue,
-                                                      kFramesInFlight * 16);
+  ret.graphics_cmd_allocator = init_cmd_list_allocator(
+    g_InitHeap,
+    &ret,
+    &ret.graphics_queue,
+    kFramesInFlight * 16
+  );
   ret.compute_queue = init_cmd_queue(&ret, kCmdQueueTypeCompute);
-  ret.compute_cmd_allocator = init_cmd_list_allocator(MEMORY_ARENA_FWD,
-                                                      &ret,
-                                                      &ret.compute_queue,
-                                                      kFramesInFlight * 8);
+  ret.compute_cmd_allocator = init_cmd_list_allocator(
+    g_InitHeap,
+    &ret,
+    &ret.compute_queue,
+    kFramesInFlight * 8
+  );
   ret.copy_queue = init_cmd_queue(&ret, kCmdQueueTypeCopy);
-  ret.copy_cmd_allocator = init_cmd_list_allocator(MEMORY_ARENA_FWD,
-                                                  &ret,
-                                                  &ret.copy_queue,
-                                                  kFramesInFlight * 8);
+  ret.copy_cmd_allocator = init_cmd_list_allocator(
+    g_InitHeap,
+    &ret,
+    &ret.copy_queue,
+    kFramesInFlight * 8
+  );
 
   return ret;
 }
@@ -741,12 +750,12 @@ init_d3d12_descriptor_heap(const GraphicsDevice* device, u32 size, DescriptorHea
 }
 
 DescriptorPool
-gfx::init_descriptor_pool(MEMORY_ARENA_PARAM, const GraphicsDevice* device, u32 size, DescriptorHeapType type)
+gfx::init_descriptor_pool(AllocHeap heap, const GraphicsDevice* device, u32 size, DescriptorHeapType type)
 {
   DescriptorPool ret = {0};
   ret.num_descriptors = size;
   ret.type = type;
-  ret.free_descriptors = init_ring_queue<u32>(MEMORY_ARENA_FWD, size);
+  ret.free_descriptors = init_ring_queue<u32>(heap, size);
   ret.d3d12_heap = init_d3d12_descriptor_heap(device, size, type);
 
   ret.descriptor_size = device->d3d12->GetDescriptorHandleIncrementSize(get_d3d12_descriptor_type(type));
@@ -1405,7 +1414,7 @@ alloc_back_buffers_from_swap_chain(
 
 
 SwapChain
-gfx::init_swap_chain(MEMORY_ARENA_PARAM, HWND window, const GraphicsDevice* device)
+gfx::init_swap_chain(HWND window, const GraphicsDevice* device)
 {
   auto* factory = init_factory();
   defer { COM_RELEASE(factory); };
@@ -1451,7 +1460,7 @@ gfx::init_swap_chain(MEMORY_ARENA_PARAM, HWND window, const GraphicsDevice* devi
 
   for (u32 i = 0; i < ARRAY_LENGTH(ret.back_buffers); i++)
   {
-    ret.back_buffers[i] = push_memory_arena<GpuImage>(MEMORY_ARENA_FWD);
+    ret.back_buffers[i] = HEAP_ALLOC(GpuImage, g_InitHeap, 1);
   }
 //  ret.depth_buffer = push_memory_arena<GpuImage>(MEMORY_ARENA_FWD);
 
@@ -1537,8 +1546,9 @@ gfx::swap_chain_submit(SwapChain* swap_chain, const GraphicsDevice* device, cons
 void
 gfx::set_descriptor_heaps(CmdList* cmd, const DescriptorPool* heaps, u32 num_heaps)
 {
-  USE_SCRATCH_ARENA();
-  auto d3d12_heaps = init_array<ID3D12DescriptorHeap*>(SCRATCH_ARENA_PASS, num_heaps);
+  ScratchAllocator scratch_arena = alloc_scratch_arena();
+  defer { free_scratch_arena(&scratch_arena); };
+  auto d3d12_heaps = init_array<ID3D12DescriptorHeap*>(scratch_arena, num_heaps);
   for (u32 i = 0; i < num_heaps; i++)
   {
     *array_add(&d3d12_heaps) = heaps[i].d3d12_heap;
@@ -1550,8 +1560,9 @@ gfx::set_descriptor_heaps(CmdList* cmd, const DescriptorPool* heaps, u32 num_hea
 void
 gfx::set_descriptor_heaps(CmdList* cmd, Span<const DescriptorLinearAllocator*> heaps)
 {
-  USE_SCRATCH_ARENA();
-  auto d3d12_heaps = init_array<ID3D12DescriptorHeap*>(SCRATCH_ARENA_PASS, heaps.size);
+  ScratchAllocator scratch_arena = alloc_scratch_arena();
+  defer { free_scratch_arena(&scratch_arena); };
+  auto d3d12_heaps = init_array<ID3D12DescriptorHeap*>(scratch_arena, heaps.size);
   for (u32 i = 0; i < heaps.size; i++)
   {
     *array_add(&d3d12_heaps) = heaps[i]->d3d12_heap;

@@ -10,7 +10,7 @@ static constexpr u32 kModelAssetVersion = 1;
 
 check_return bool
 asset_builder::import_model(
-  MEMORY_ARENA_PARAM,
+  AllocHeap heap,
   const char* path,
   const char* project_root,
   ImportedModel* out_imported_model,
@@ -69,7 +69,7 @@ asset_builder::import_model(
   ImportedModel imported_model = {0};
   imported_model.num_mesh_insts = assimp_model->mNumMeshes;
 
-  imported_model.mesh_insts = push_memory_arena<ImportedMeshInst>(MEMORY_ARENA_FWD, imported_model.num_mesh_insts);
+  imported_model.mesh_insts = HEAP_ALLOC(ImportedMeshInst, heap, imported_model.num_mesh_insts);
 
   for (u32 imesh = 0; imesh < assimp_model->mNumMeshes; imesh++)
   {
@@ -79,8 +79,8 @@ asset_builder::import_model(
 
     ImportedMeshInst* mesh_inst = imported_model.mesh_insts + imesh;
 
-    Vertex* vertices = push_memory_arena<Vertex>(MEMORY_ARENA_FWD, num_vertices);
-    u32*    indices  = push_memory_arena<u32>   (MEMORY_ARENA_FWD, num_indices);
+    Vertex* vertices = HEAP_ALLOC(Vertex, heap, num_vertices);
+    u32*    indices  = HEAP_ALLOC(u32,    heap, num_indices );
 
 
     const aiVector3D kAssimpZero3D(0.0f, 0.0f, 0.0f);
@@ -174,12 +174,10 @@ asset_builder::dump_imported_model(ImportedModel model)
 }
 
 check_return bool 
-asset_builder::write_model_to_asset(
-  MEMORY_ARENA_PARAM,
-  AssetId asset_id,
-  const char* project_root,
-  const ImportedModel& model
-) {
+asset_builder::write_model_to_asset(AssetId asset_id, const char* project_root, const ImportedModel& model)
+{
+  ScratchAllocator scratch_arena = alloc_scratch_arena();
+  defer { free_scratch_arena(&scratch_arena); };
   u64 total_vertex_count = 0;
   u64 total_index_count  = 0;
   for (u32 imesh_inst = 0; imesh_inst < model.num_mesh_insts; imesh_inst++)
@@ -195,14 +193,14 @@ asset_builder::write_model_to_asset(
                           sizeof(Vertex)     * total_vertex_count +
                           sizeof(u32)        * total_index_count;
 
-  u8* buffer = push_memory_arena<u8>(MEMORY_ARENA_FWD, output_size);
+  u8* buffer = HEAP_ALLOC(u8, scratch_arena, output_size);
   u32 offset = 0;
 
 
   ModelAsset model_asset = {0};
   model_asset.metadata.magic_number = kAssetMagicNumber;
   model_asset.metadata.version      = kModelAssetVersion;
-  model_asset.metadata.asset_type   = kAssetTypeModel,
+  model_asset.metadata.asset_type   = AssetType::kModel,
   model_asset.metadata.asset_hash   = asset_id;
   model_asset.num_mesh_insts        = model.num_mesh_insts;
   model_asset.mesh_insts            = sizeof(ModelAsset);

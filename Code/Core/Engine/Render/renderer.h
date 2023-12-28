@@ -23,10 +23,11 @@ struct UploadContext
   gfx::CmdListAllocator cmd_list_allocator;
   gfx::CmdList cmd_list;
   const gfx::GraphicsDevice* device = nullptr;
-  MemoryArena cpu_upload_arena;
+//  MemoryArena cpu_upload_arena;
+  LinearAllocator cpu_upload_arena;
 };
 
-void init_global_upload_context(MEMORY_ARENA_PARAM, const gfx::GraphicsDevice* device);
+void init_global_upload_context(const gfx::GraphicsDevice* device);
 void destroy_global_upload_context();
 
 struct ShaderManager
@@ -199,7 +200,6 @@ struct Renderer
 };
 
 Renderer init_renderer(
-  MEMORY_ARENA_PARAM,
   const gfx::GraphicsDevice* device,
   const gfx::SwapChain* swap_chain,
   const ShaderManager& shader_manager,
@@ -208,7 +208,7 @@ Renderer init_renderer(
 void destroy_renderer(Renderer* renderer);
 
 
-void begin_renderer_recording(MEMORY_ARENA_PARAM, Renderer* renderer);
+void begin_renderer_recording(Renderer* renderer);
 void submit_mesh(Renderer* renderer, RenderMeshInst mesh);
 
 struct Camera
@@ -218,7 +218,6 @@ struct Camera
   f32 yaw   = 0;
 };
 void execute_render(
-  MEMORY_ARENA_PARAM,
   Renderer* renderer,
   const gfx::GraphicsDevice* device,
   gfx::SwapChain* swap_chain,
@@ -266,10 +265,10 @@ struct Scene
   Array<interlop::PointLight> point_lights;
   Camera                      camera;
   interlop::DirectionalLight  directional_light;
-  MemoryArena                 scene_object_heap;
+  LinearAllocator             scene_object_allocator;
 };
 
-Scene init_scene(MEMORY_ARENA_PARAM, const gfx::GraphicsDevice* device);
+Scene init_scene(AllocHeap heap, const gfx::GraphicsDevice* device);
 
 SceneObject* add_scene_object(
   Scene* scene,

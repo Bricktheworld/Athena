@@ -103,9 +103,13 @@ engine_shader_table = custom_target(
 
 engine_src = [
   # 'Engine/fibers.masm',
+  'Engine/asset_streaming.cpp',
+  'Engine/asset_streaming.h',
   'Engine/job_system.cpp',
   'Engine/job_system.h',
   'Engine/main.cpp',
+  'Engine/memory.cpp',
+  'Engine/memory.h',
 
   'Engine/Render/graphics.cpp',
   'Engine/Render/graphics.h',
@@ -166,6 +170,10 @@ asset_builder_src = [
   'Tools/AssetBuilder/main.cpp',
   'Tools/AssetBuilder/model_importer.cpp',
   'Tools/AssetBuilder/model_importer.h',
+  'Tools/AssetBuilder/material_importer.cpp',
+  'Tools/AssetBuilder/material_importer.h',
+  'Tools/AssetBuilder/texture_importer.cpp',
+  'Tools/AssetBuilder/texture_importer.h',
 ]
 
 asset_builder_dlls = [

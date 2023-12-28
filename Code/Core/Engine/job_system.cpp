@@ -1,3 +1,4 @@
+#if 0
 #include "Core/Foundation/profiling.h"
 
 #include "Core/Engine/job_system.h"
@@ -578,3 +579,5 @@ kill_job_system(JobSystem* job_system)
 {
   job_system->should_exit = true;
 }
+
+#endif

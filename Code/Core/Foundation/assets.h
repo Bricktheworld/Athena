@@ -30,27 +30,27 @@ static const u32 kAssetMagicNumber = crc32("ATHENA_ASSET", 12);
 FOUNDATION_API AssetId path_to_asset_id(const char* path);
 FOUNDATION_API fs::FileStream open_built_asset_file(AssetId asset);
 
-enum TextureFormat 
+enum struct TextureFormat 
 {
 };
 
-enum ShaderType : u8
+enum struct ShaderType : u8
 {
-  kShaderTypeVertex,
-  kShaderTypePixel,
-  kShaderTypeCompute,
+  kVertex,
+  kPixel,
+  kCompute,
 };
 
-enum AssetType : u32
+enum struct AssetType : u32
 {
-  kAssetTypeModel,
-  kAssetTypeTexture,
-  kAssetTypeShader,
-  KAssetTypeMaterial,
+  kModel,
+  kTypeTexture,
+  kShader,
+  KMaterial,
 
-  kAssetTypeCount,
+  kCount,
 
-  kAssetTypeUnknown,
+  kUnknown,
 };
 
 
@@ -75,7 +75,7 @@ enum struct AssetLoadResult : u32
 FOUNDATION_API AssetType get_asset_type(const void* buffer, size_t size);
 
 FOUNDATION_API check_return AssetLoadResult load_model(
-  MEMORY_ARENA_PARAM,
+  AllocHeap heap,
   const void* buffer,
   size_t size,
   ModelData* out_model

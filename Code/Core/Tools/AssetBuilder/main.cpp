@@ -3,18 +3,21 @@
 
 #include "Core/Tools/AssetBuilder/model_importer.h"
 
+static AllocHeap g_InitHeap;
+static FreeHeap  g_OSHeap;
+
 static check_return bool
-build_asset(MEMORY_ARENA_PARAM, const char* input_path, const char* project_root)
+build_asset(const char* input_path, const char* project_root)
 {
   asset_builder::ImportedModel imported_model;
   AssetId asset_id;
-  bool res = asset_builder::import_model(MEMORY_ARENA_FWD, input_path, project_root, &imported_model, &asset_id);
+  bool res = asset_builder::import_model(g_InitHeap, input_path, project_root, &imported_model, &asset_id);
   if (!res)
   {
     return false;
   }
 
-  res = asset_builder::write_model_to_asset(MEMORY_ARENA_FWD, asset_id, project_root, imported_model);
+  res = asset_builder::write_model_to_asset(asset_id, project_root, imported_model);
   if (!res)
   {
     return false;
@@ -23,10 +26,11 @@ build_asset(MEMORY_ARENA_PARAM, const char* input_path, const char* project_root
   return true;
 }
 
+
 // AssetBuilder.exe <input_path> <project_root_dir>
 int main(int argc, const char** argv)
 {
-  static constexpr size_t kHeapSize = MiB(128);
+  static constexpr size_t kInitHeapSize = MiB(128);
 
   if (argc != 3)
   {
@@ -41,14 +45,19 @@ int main(int argc, const char** argv)
   const char* input_path   = argv[0];
   const char* project_root = argv[1];
 
-  init_application_memory(kHeapSize);
-  defer { destroy_application_memory(); };
 
-  MemoryArena arena         = alloc_memory_arena(kHeapSize);
-  MemoryArena scratch_arena = sub_alloc_memory_arena(&arena, DEFAULT_SCRATCH_SIZE);
-  init_context(scratch_arena);
+  OSAllocator     os_allocator   = init_os_allocator();
 
-  bool res = build_asset(&arena, input_path, project_root);
+  g_OSHeap                       = os_allocator;
+
+  u8* init_memory                = HEAP_ALLOC(u8, g_OSHeap, kInitHeapSize);
+  LinearAllocator init_allocator = init_linear_allocator(init_memory, kInitHeapSize);
+
+  g_InitHeap                     = init_allocator;
+
+  init_context(g_InitHeap, g_OSHeap);
+
+  bool res = build_asset(input_path, project_root);
   if (!res)
   {
     printf("Asset builder failed!\n");

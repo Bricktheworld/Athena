@@ -121,15 +121,17 @@ private:
 
 template <typename K, typename V>
 inline HashTable<K, V>
-init_hash_table(MEMORY_ARENA_PARAM, u64 capacity)
+init_hash_table(AllocHeap heap, u64 capacity)
 {
   HashTable<K, V> ret = {};
 
   capacity = capacity * 4 / 3 + 15;
   ret.groups_size = capacity / 16;
-  ret.groups      = push_memory_arena<typename HashTable<K, V>::Group>(MEMORY_ARENA_FWD, ret.groups_size);
+  using GroupType = typename HashTable<K, V>::Group;
+  ret.groups      = HEAP_ALLOC(GroupType, heap, ret.groups_size);
   zero_memory(ret.groups, ret.groups_size * sizeof(typename HashTable<K, V>::Group));
-  ret.values      = push_memory_arena<V>(MEMORY_ARENA_FWD, capacity);
+  ret.values      = HEAP_ALLOC(V, heap, capacity);
+  zero_memory(ret.values, capacity * sizeof(V));
   ret.capacity    = capacity;
   ret.used        = 0;
 

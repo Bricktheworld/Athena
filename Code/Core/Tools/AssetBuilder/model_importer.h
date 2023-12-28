@@ -35,7 +35,7 @@ namespace asset_builder
   };
   
   check_return bool import_model(
-    MEMORY_ARENA_PARAM,
+    AllocHeap heap,
     const char* path,
     const char* project_root,
     ImportedModel* out_imported_model,
@@ -45,7 +45,6 @@ namespace asset_builder
   void dump_imported_model(ImportedModel model);
 
   check_return bool write_model_to_asset(
-    MEMORY_ARENA_PARAM,
     AssetId asset_id,
     const char* project_root,
     const ImportedModel& model

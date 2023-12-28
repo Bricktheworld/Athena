@@ -3,10 +3,10 @@
 
 struct RingBuffer
 {
-  byte* buffer = nullptr;
-  size_t size = 0;
-  size_t write = 0;
-  size_t read = 0;
+  u8*    buffer    = nullptr;
+  size_t size      = 0;
+  size_t write     = 0;
+  size_t read      = 0;
   size_t watermark = 0;
 };
 
@@ -14,7 +14,7 @@ struct RingBuffer
 // up the entire memory arena.
 // NOTE(Brandon): The size of this ring buffer is actually size - 1, so the maximum,
 // number of bytes will always be size - 1
-FOUNDATION_API RingBuffer init_ring_buffer(MEMORY_ARENA_PARAM, size_t alignment, size_t size = 0);
+FOUNDATION_API RingBuffer init_ring_buffer(AllocHeap heap, size_t alignment, size_t size = 0);
 
 FOUNDATION_API check_return bool try_ring_buffer_push(RingBuffer* rb, const void* data, size_t size);
 FOUNDATION_API void ring_buffer_push(RingBuffer* rb, const void* data, size_t size);
@@ -32,14 +32,14 @@ struct RingQueue
 
 template <typename T>
 inline RingQueue<T>
-init_ring_queue(MEMORY_ARENA_PARAM, size_t size)
+init_ring_queue(AllocHeap heap, size_t size)
 {
   ASSERT(size > 0);
   // TODO(Brandon): ??? Shouldn't it just be 1?
   size += 2;
 
   RingQueue<T> ret = {0};
-  ret.buffer = init_ring_buffer(MEMORY_ARENA_FWD, alignof(T), sizeof(T) * size);
+  ret.buffer = init_ring_buffer(heap, alignof(T), sizeof(T) * size);
 
   return ret;
 }

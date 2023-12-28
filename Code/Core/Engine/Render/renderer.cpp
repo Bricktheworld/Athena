@@ -1,3 +1,4 @@
+#include "Core/Engine/memory.h"
 #include "Core/Engine/Render/Renderer.h"
 
 #include "Core/Engine/Shaders/interlop.hlsli"
@@ -34,10 +35,14 @@ destroy_shader_manager(ShaderManager* shader_manager)
 }
 
 Renderer
-init_renderer(MEMORY_ARENA_PARAM, const GraphicsDevice* device, const SwapChain* swap_chain, const ShaderManager& shader_manager, HWND window)
-{
+init_renderer(
+  const GraphicsDevice* device,
+  const SwapChain* swap_chain,
+  const ShaderManager& shader_manager,
+  HWND window
+) {
   Renderer ret = {0};
-  ret.transient_resource_cache = init_transient_resource_cache(MEMORY_ARENA_FWD, device);
+  ret.transient_resource_cache = init_transient_resource_cache(g_InitHeap, device);
 
   GraphicsPipelineDesc fullscreen_pipeline_desc = 
   {
@@ -158,9 +163,9 @@ build_acceleration_structures(gfx::GraphicsDevice* device, Scene* scene)
 
 
 void
-begin_renderer_recording(MEMORY_ARENA_PARAM, Renderer* renderer)
+begin_renderer_recording(Renderer* renderer)
 {
-  renderer->meshes = init_array<RenderMeshInst>(MEMORY_ARENA_FWD, 128);
+  renderer->meshes = init_array<RenderMeshInst>(g_FrameHeap, 128);
 }
 
 void
@@ -198,18 +203,18 @@ draw_debug()
 }
 
 void
-execute_render(MEMORY_ARENA_PARAM,
-               Renderer* renderer,
-               const gfx::GraphicsDevice* device,
-               gfx::SwapChain* swap_chain,
-               Camera* camera,
-               const gfx::GpuBuffer& vertex_buffer,
-               const gfx::GpuBuffer& index_buffer,
-               const gfx::GpuBvh& bvh,
-               const RenderOptions& render_options,
-               const interlop::DirectionalLight& directional_light)
-{
-  RenderGraph graph = init_render_graph(MEMORY_ARENA_FWD);
+execute_render(
+  Renderer* renderer,
+  const gfx::GraphicsDevice* device,
+  gfx::SwapChain* swap_chain,
+  Camera* camera,
+  const gfx::GpuBuffer& vertex_buffer,
+  const gfx::GpuBuffer& index_buffer,
+  const gfx::GpuBvh& bvh,
+  const RenderOptions& render_options,
+  const interlop::DirectionalLight& directional_light
+) {
+  RenderGraph graph = init_render_graph(g_FrameHeap);
 
   Handle<GpuImage> render_buffers[RenderBuffers::kCount];
 
@@ -244,7 +249,7 @@ execute_render(MEMORY_ARENA_PARAM,
   Handle<GpuBuffer> scene_buffer = create_buffer(&graph, "Scene Buffer", scene);
 
   // Render GBuffers
-  RenderPass* geometry_pass = add_render_pass(MEMORY_ARENA_FWD, &graph, kCmdQueueTypeGraphics, "Geometry Pass");
+  RenderPass* geometry_pass = add_render_pass(g_FrameHeap, &graph, kCmdQueueTypeGraphics, "Geometry Pass");
 
   for (u32 i = RenderBuffers::kGBufferMaterialId; i <= RenderBuffers::kGBufferNormalRGBRoughnessA; i++)
   {
@@ -290,7 +295,7 @@ execute_render(MEMORY_ARENA_PARAM,
   Handle<GpuImage> probe_irradiance = import_image(&graph, &renderer->probe_irradiance);
   Handle<GpuImage> probe_distance   = import_image(&graph, &renderer->probe_distance);
   {
-    RenderPass* probe_tracing_pass = add_render_pass(MEMORY_ARENA_FWD, &graph, kCmdQueueTypeGraphics, "Probe Tracing");
+    RenderPass* probe_tracing_pass = add_render_pass(g_FrameHeap, &graph, kCmdQueueTypeGraphics, "Probe Tracing");
 
     interlop::ProbeTraceRTResources probe_trace_resources = 
     {
@@ -314,7 +319,7 @@ execute_render(MEMORY_ARENA_PARAM,
   }
 
   {
-    RenderPass* probe_blending_pass = add_render_pass(MEMORY_ARENA_FWD, &graph, kCmdQueueTypeGraphics, "Probe Blending");
+    RenderPass* probe_blending_pass = add_render_pass(g_FrameHeap, &graph, kCmdQueueTypeGraphics, "Probe Blending");
     interlop::ProbeBlendingCSResources probe_blend_resources = 
     {
       .vol_desc = vol_desc_buffer,
@@ -329,7 +334,7 @@ execute_render(MEMORY_ARENA_PARAM,
   }
 
   {
-    RenderPass* probe_distance_blending_pass = add_render_pass(MEMORY_ARENA_FWD, &graph, kCmdQueueTypeGraphics, "Probe Distance Blending");
+    RenderPass* probe_distance_blending_pass = add_render_pass(g_FrameHeap, &graph, kCmdQueueTypeGraphics, "Probe Distance Blending");
     interlop::ProbeDistanceBlendingCSResources probe_blend_resources = 
     {
       .vol_desc = vol_desc_buffer,
@@ -344,7 +349,7 @@ execute_render(MEMORY_ARENA_PARAM,
   }
 
   {
-    RenderPass* standard_brdf_rt_pass = add_render_pass(MEMORY_ARENA_FWD, &graph, kCmdQueueTypeGraphics, "Standard Brdf RT");
+    RenderPass* standard_brdf_rt_pass = add_render_pass(g_FrameHeap, &graph, kCmdQueueTypeGraphics, "Standard Brdf RT");
     interlop::StandardBrdfRTResources standard_brdf_rt_resources = 
     {
       .scene                          = scene_buffer,
@@ -383,7 +388,7 @@ execute_render(MEMORY_ARENA_PARAM,
   
     Handle<GpuBuffer> dof_options_buffer = create_buffer(&graph, "Depth of Field Options", dof_options);
   
-    RenderPass* coc_pass = add_render_pass(MEMORY_ARENA_FWD, &graph, kCmdQueueTypeGraphics, "CoC Generation");
+    RenderPass* coc_pass = add_render_pass(g_FrameHeap, &graph, kCmdQueueTypeGraphics, "CoC Generation");
   
     interlop::DofCocComputeResources dof_coc_resources =
     {
@@ -397,7 +402,7 @@ execute_render(MEMORY_ARENA_PARAM,
     cmd_dispatch(coc_pass, fullres_dispatch_x, fullres_dispatch_y, 1);
 
 #if 0
-    RenderPass* coc_dilate_pass = add_render_pass(MEMORY_ARENA_FWD, &graph, kCmdQueueTypeGraphics, "CoC Dilate");
+    RenderPass* coc_dilate_pass = add_render_pass(g_FrameHeap, &graph, kCmdQueueTypeGraphics, "CoC Dilate");
   
     interlop::DofCocDilateComputeResources dof_coc_dilate_resources =
     {
@@ -409,7 +414,7 @@ execute_render(MEMORY_ARENA_PARAM,
     cmd_dispatch(coc_dilate_pass, fullres_dispatch_x, fullres_dispatch_y, 1);
 #endif
 
-    RenderPass* horiz_pass = add_render_pass(MEMORY_ARENA_FWD, &graph, kCmdQueueTypeGraphics, "Dof Blur Horizontal");
+    RenderPass* horiz_pass = add_render_pass(g_FrameHeap, &graph, kCmdQueueTypeGraphics, "Dof Blur Horizontal");
     interlop::DofBlurHorizComputeResources dof_blur_horiz_resources = 
     {
       .color_buffer      = RENDER_BUFFER(kHDRLighting),
@@ -427,7 +432,7 @@ execute_render(MEMORY_ARENA_PARAM,
     cmd_compute_bind_shader_resources(horiz_pass, dof_blur_horiz_resources);
     cmd_dispatch(horiz_pass, quarterres_dispatch_x, quarterres_dispatch_y, 2);
 
-    RenderPass* vert_pass = add_render_pass(MEMORY_ARENA_FWD, &graph, kCmdQueueTypeGraphics, "Dof Blur Vertical");
+    RenderPass* vert_pass = add_render_pass(g_FrameHeap, &graph, kCmdQueueTypeGraphics, "Dof Blur Vertical");
     interlop::DofBlurVertComputeResources dof_blur_vert_resources = 
     {
       .coc_buffer        = RENDER_BUFFER(kDoFCoC),
@@ -447,7 +452,7 @@ execute_render(MEMORY_ARENA_PARAM,
     cmd_compute_bind_shader_resources(vert_pass, dof_blur_vert_resources);
     cmd_dispatch(vert_pass, quarterres_dispatch_x, quarterres_dispatch_y, 2);
 
-    RenderPass* composite_pass = add_render_pass(MEMORY_ARENA_FWD, &graph, kCmdQueueTypeGraphics, "Dof Composite");
+    RenderPass* composite_pass = add_render_pass(g_FrameHeap, &graph, kCmdQueueTypeGraphics, "Dof Composite");
     interlop::DofCompositeComputeResources dof_composite_resources = 
     {
       .coc_buffer   = RENDER_BUFFER(kDoFCoC),
@@ -469,7 +474,7 @@ execute_render(MEMORY_ARENA_PARAM,
 
   // Debug passes will output to the output buffer separately and overwrite anything in it.
   bool using_debug = false;
-  RenderPass* debug_pass = add_render_pass(MEMORY_ARENA_FWD, &graph, kCmdQueueTypeGraphics, "Debug Pass");
+  RenderPass* debug_pass = add_render_pass(g_FrameHeap, &graph, kCmdQueueTypeGraphics, "Debug Pass");
   switch(render_options.debug_view)
   {
     case kDebugViewGBufferMaterialID:
@@ -506,7 +511,7 @@ execute_render(MEMORY_ARENA_PARAM,
   const GpuImage* back_buffer = swap_chain_acquire(swap_chain);
   Handle<GpuImage> graph_back_buffer = import_back_buffer(&graph, back_buffer);
 
-  RenderPass* output_pass = add_render_pass(MEMORY_ARENA_FWD, &graph, kCmdQueueTypeGraphics, "Output Pass");
+  RenderPass* output_pass = add_render_pass(g_FrameHeap, &graph, kCmdQueueTypeGraphics, "Output Pass");
   cmd_clear_render_target_view(output_pass, &graph_back_buffer, Vec4(0.0f, 0.0f, 0.0f, 1.0f));
   cmd_om_set_render_targets(output_pass, {graph_back_buffer}, None);
   cmd_set_graphics_pso(output_pass, &renderer->post_processing_pipeline);
@@ -516,7 +521,7 @@ execute_render(MEMORY_ARENA_PARAM,
   cmd_draw_imgui_on_top(output_pass, &renderer->imgui_descriptor_heap);
 
   // Hand off to the GPU
-  execute_render_graph(MEMORY_ARENA_FWD, device, &graph, &renderer->transient_resource_cache, swap_chain->back_buffer_index);
+  execute_render_graph(device, &graph, &renderer->transient_resource_cache, swap_chain->back_buffer_index);
 
   swap_chain_submit(swap_chain, device, back_buffer);
 
@@ -525,12 +530,17 @@ execute_render(MEMORY_ARENA_PARAM,
 }
 
 Scene
-init_scene(MEMORY_ARENA_PARAM, const gfx::GraphicsDevice* device)
+init_scene(AllocHeap heap, const gfx::GraphicsDevice* device)
 {
   Scene ret = {0};
-  ret.scene_objects = init_array<SceneObject>(MEMORY_ARENA_FWD, 128);
-  ret.point_lights  = init_array<interlop::PointLight>(MEMORY_ARENA_FWD, 128);
-  ret.scene_object_heap = sub_alloc_memory_arena(MEMORY_ARENA_FWD, MiB(8));
+  ret.scene_objects = init_array<SceneObject>(heap, 128);
+  ret.point_lights  = init_array<interlop::PointLight>(heap, 128);
+  static constexpr size_t kSceneObjectHeapSize = MiB(8);
+  ret.scene_object_allocator = init_linear_allocator(
+    HEAP_ALLOC_ALIGNED(heap, kSceneObjectHeapSize, 1),
+    kSceneObjectHeapSize
+  );
+
   GpuBufferDesc vertex_uber_desc = {0};
   vertex_uber_desc.size = MiB(512);
 
@@ -550,17 +560,21 @@ init_scene(MEMORY_ARENA_PARAM, const gfx::GraphicsDevice* device)
 static UploadContext g_upload_context;
 
 void
-init_global_upload_context(MEMORY_ARENA_PARAM, const gfx::GraphicsDevice* device)
+init_global_upload_context(const gfx::GraphicsDevice* device)
 {
   GpuBufferDesc staging_desc = {0};
   staging_desc.size = MiB(32);
 
   g_upload_context.staging_buffer = alloc_gpu_buffer_no_heap(device, staging_desc, kGpuHeapTypeUpload, "Staging Buffer");
   g_upload_context.staging_offset = 0;
-  g_upload_context.cmd_list_allocator = init_cmd_list_allocator(MEMORY_ARENA_FWD, device, &device->copy_queue, 16);
+  g_upload_context.cmd_list_allocator = init_cmd_list_allocator(g_InitHeap, device, &device->copy_queue, 16);
   g_upload_context.cmd_list = alloc_cmd_list(&g_upload_context.cmd_list_allocator);
   g_upload_context.device = device;
-  g_upload_context.cpu_upload_arena = sub_alloc_memory_arena(MEMORY_ARENA_FWD, MiB(512));
+  static constexpr u64 kCpuUploadArenaSize = MiB(4);
+  g_upload_context.cpu_upload_arena = init_linear_allocator(
+    HEAP_ALLOC_ALIGNED(g_InitHeap, kCpuUploadArenaSize, 1), 
+    kCpuUploadArenaSize
+  );
 }
 
 void
@@ -699,16 +713,16 @@ mesh_import_scene(const aiScene* assimp_scene, Array<RenderMeshInst>* out,  Scen
 #endif
 
 static RenderModel
-init_render_model(MEMORY_ARENA_PARAM, const ModelData& model, Scene* scene, const ShaderManager& shader_manager)
+init_render_model(AllocHeap heap, const ModelData& model, Scene* scene, const ShaderManager& shader_manager)
 {
   RenderModel ret = {0};
-  ret.mesh_insts = init_array<RenderMeshInst>(MEMORY_ARENA_FWD, model.mesh_insts.size);
+  ret.mesh_insts = init_array<RenderMeshInst>(heap, model.mesh_insts.size);
   for (u32 imesh_inst = 0; imesh_inst < model.mesh_insts.size; imesh_inst++)
   {
     const MeshInstData* src = &model.mesh_insts[imesh_inst];
     RenderMeshInst* dst = array_add(&ret.mesh_insts);
 
-    reset_memory_arena(&g_upload_context.cpu_upload_arena);
+    reset_linear_allocator(&g_upload_context.cpu_upload_arena);
 
     u32 vertex_buffer_offset = alloc_into_vertex_uber(scene, src->vertices.size);
 
@@ -729,7 +743,7 @@ init_render_model(MEMORY_ARENA_PARAM, const ModelData& model, Scene* scene, cons
 
     dst->gbuffer_pso = init_graphics_pipeline(g_upload_context.device, graphics_pipeline_desc, "Mesh PSO");
 
-    u32* indices = push_memory_arena<u32>(&g_upload_context.cpu_upload_arena, dst->index_count);
+    u32* indices = HEAP_ALLOC(u32, (AllocHeap)g_upload_context.cpu_upload_arena, dst->index_count);
 
     for (u32 iindex = 0; iindex < dst->index_count; iindex++)
     {
@@ -764,7 +778,7 @@ add_scene_object(
 ) {
   SceneObject* ret = array_add(&scene->scene_objects);
   ret->flags = kSceneObjectMesh;
-  ret->model = init_render_model(&scene->scene_object_heap, model, scene, shader_manager);
+  ret->model = init_render_model(scene->scene_object_allocator, model, scene, shader_manager);
 
   return ret;
 }

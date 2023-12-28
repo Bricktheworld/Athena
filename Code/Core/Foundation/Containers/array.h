@@ -116,10 +116,10 @@ struct Array<typename T, 0>
 
 template <typename T>
 inline Array<T, 0>
-init_array(MEMORY_ARENA_PARAM, size_t capacity)
+init_array(AllocHeap heap, size_t capacity)
 {
   Array<T, 0> ret = {0};
-  ret.memory = push_memory_arena<T>(MEMORY_ARENA_FWD, capacity);
+  ret.memory = HEAP_ALLOC(T, heap, capacity);
   ret.capacity = capacity;
   ret.size = 0;
   return ret;
@@ -127,9 +127,9 @@ init_array(MEMORY_ARENA_PARAM, size_t capacity)
 
 template <typename T>
 inline Array<T, 0>
-init_array_uninitialized(MEMORY_ARENA_PARAM, size_t size)
+init_array_uninitialized(AllocHeap heap, size_t size)
 {
-  Array<T, 0> ret = init_array<T>(MEMORY_ARENA_FWD, size);
+  Array<T, 0> ret = init_array<T>(heap, size);
   ret.size = size;
   return ret;
 }
@@ -253,10 +253,10 @@ array_copy(Array<T, S>* dst, const Span<T>& src)
 
 template <typename T>
 inline Array<T>
-init_array(MEMORY_ARENA_PARAM, const Span<T>& src)
+init_array(AllocHeap heap, const Span<T>& src)
 {
   ASSERT(src.memory != nullptr);
-  auto ret = init_array<T>(MEMORY_ARENA_FWD, src.size);
+  auto ret = init_array<T>(heap, src.size);
   array_copy(&ret, src);
   return ret;
 }

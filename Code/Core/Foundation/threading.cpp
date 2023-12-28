@@ -6,7 +6,7 @@
 
 struct ThreadEntryProcParams
 {
-  MemoryArena memory_arena = {0};
+  AllocHeap heap = {0};
   ThreadProc proc = nullptr;
   void* user_param = nullptr;
 };
@@ -18,23 +18,24 @@ thread_entry_proc(LPVOID void_param)
   ThreadEntryProcParams params = *reinterpret_cast<ThreadEntryProcParams*>(void_param);
   // We no longer want anything inside of this memory arena,
   // since it has all been copied out now.
-//  reset_memory_arena(&params.memory_arena);
 
-  init_context(params.memory_arena);
+  UNREACHABLE;
+  // init_context(params.heap);
 
   u32 res = params.proc(params.user_param);
   return res;
 }
 
 Thread
-create_thread(MemoryArena scratch_arena,
-              size_t stack_size,
-              ThreadProc proc,
-              void* param,
-              u8 core_index)
-{
-  auto* params = push_memory_arena<ThreadEntryProcParams>(&scratch_arena);
-  params->memory_arena = scratch_arena;
+create_thread(
+  AllocHeap scratch_heap,
+  size_t stack_size,
+  ThreadProc proc,
+  void* param,
+  u8 core_index
+) {
+  ThreadEntryProcParams* params = HEAP_ALLOC(ThreadEntryProcParams, scratch_heap, 1);
+  params->heap = scratch_heap;
   params->proc = proc;
   params->user_param = param;
 
@@ -79,10 +80,10 @@ join_threads(const Thread* threads, u32 count)
 {
   ASSERT(count <= MAXIMUM_WAIT_OBJECTS);
 
-  MemoryArena arena = alloc_scratch_arena();
-  defer { free_scratch_arena(&arena); };
+  ScratchAllocator scratch_allocator = alloc_scratch_arena();
+  defer { free_scratch_arena(&scratch_allocator); };
 
-  Array<HANDLE> handles = init_array<HANDLE>(&arena, count);
+  Array<HANDLE> handles = init_array<HANDLE>(scratch_allocator, count);
   for (size_t i = 0; i < count; i++)
   {
     *array_add(&handles) = threads[i].handle;

@@ -5,10 +5,12 @@
 #include "Core/Foundation/profiling.h"
 #include "Core/Foundation/filesystem.h"
 
+#include "Core/Engine/memory.h"
+#include "Core/Engine/job_system.h"
+
 #include "Core/Engine/Render/graphics.h"
 #include "Core/Engine/Render/renderer.h"
 #include "Core/Engine/Render/render_graph.h"
-#include "Core/Engine/job_system.h"
 
 #include "Core/Engine/Vendor/imgui/imgui.h"
 #include "Core/Engine/Vendor/imgui/imgui_impl_win32.h"
@@ -147,7 +149,7 @@ draw_debug(RenderOptions* out_render_options,
 }
 
 static void
-application_entry(MEMORY_ARENA_PARAM, HINSTANCE instance, int show_code, JobSystem* job_system)
+application_entry(HINSTANCE instance, int show_code)
 {
 //  SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
@@ -187,43 +189,42 @@ application_entry(MEMORY_ARENA_PARAM, HINSTANCE instance, int show_code, JobSyst
   ShowWindow(window, show_code);
   UpdateWindow(window);
 
-  GraphicsDevice graphics_device = init_graphics_device(MEMORY_ARENA_FWD);
+  GraphicsDevice graphics_device = init_graphics_device();
   defer { destroy_graphics_device(&graphics_device); };
-  SwapChain swap_chain = init_swap_chain(MEMORY_ARENA_FWD, window, &graphics_device);
+  SwapChain swap_chain = init_swap_chain(window, &graphics_device);
   defer { destroy_swap_chain(&swap_chain); };
-  init_global_upload_context(MEMORY_ARENA_FWD, &graphics_device);
+  init_global_upload_context(&graphics_device);
   defer { destroy_global_upload_context(); };
 
   ShaderManager shader_manager = init_shader_manager(&graphics_device);
   defer { destroy_shader_manager(&shader_manager); };
 
-  Renderer renderer = init_renderer(MEMORY_ARENA_FWD, &graphics_device, &swap_chain, shader_manager, window);
+  Renderer renderer = init_renderer(&graphics_device, &swap_chain, shader_manager, window);
   defer { destroy_renderer(&renderer); };
 
-  Scene scene       = init_scene(MEMORY_ARENA_FWD, &graphics_device);
+  Scene scene       = init_scene(g_InitHeap, &graphics_device);
 
   SceneObject* sponza = nullptr;
   {
-    MemoryArena temp_arena = sub_alloc_memory_arena(MEMORY_ARENA_FWD, MiB(32));
-    defer { reset_memory_arena(&temp_arena); };
+    ScratchAllocator scratch_arena = alloc_scratch_arena();
+    defer { free_scratch_arena(&scratch_arena); };
 
     fs::FileStream sponza_built_file = open_built_asset_file(path_to_asset_id("Assets/Source/sponza/Sponza.gltf"));
     defer { fs::close_file(&sponza_built_file); };
 
     u64 buf_size = fs::get_file_size(sponza_built_file);
-    u8* buf = push_memory_arena<u8>(&temp_arena, buf_size);
+    u8* buf = HEAP_ALLOC(u8, scratch_arena, buf_size); // push_memory_arena<u8>(&temp_arena, buf_size);
 
     ASSERT(fs::read_file(sponza_built_file, buf, buf_size));
+
     ModelData model;
-    AssetLoadResult res = load_model(&temp_arena, buf, buf_size, &model);
+    AssetLoadResult res = load_model(scratch_arena, buf, buf_size, &model);
     ASSERT(res == AssetLoadResult::kOk);
 
     sponza = add_scene_object(&scene, shader_manager, model, kVS_Basic, kPS_BasicNormalGloss);
   }
 
   build_acceleration_structures(&graphics_device, &scene);
-
-  MemoryArena frame_arena = sub_alloc_memory_arena(MEMORY_ARENA_FWD, MiB(4));
 
   DirectX::Keyboard d3d12_keyboard;
   DirectX::Mouse d3d12_mouse;
@@ -234,7 +235,7 @@ application_entry(MEMORY_ARENA_PARAM, HINSTANCE instance, int show_code, JobSyst
   bool done = false;
   while (!done)
   {
-    reset_memory_arena(&frame_arena);
+    reset_frame_heap();
 
     MSG message;
     while (PeekMessageW(&message, 0, 0, 0, PM_REMOVE))
@@ -304,23 +305,24 @@ application_entry(MEMORY_ARENA_PARAM, HINSTANCE instance, int show_code, JobSyst
 
 //    blocking_kick_closure_job(kJobPriorityMedium, [&]()
 //    {
-    begin_renderer_recording(&frame_arena, &renderer);
+    begin_renderer_recording(&renderer);
     submit_scene(scene, &renderer);
-    execute_render(&frame_arena,
-                  &renderer,
-                  &graphics_device,
-                  &swap_chain,
-                  &scene.camera,
-                  scene.vertex_uber_buffer,
-                  scene.index_uber_buffer,
-                  scene.bvh,
-                  render_options,
-                  scene.directional_light);
+    execute_render(
+      &renderer,
+      &graphics_device,
+      &swap_chain,
+      &scene.camera,
+      scene.vertex_uber_buffer,
+      scene.index_uber_buffer,
+      scene.bvh,
+      render_options,
+      scene.directional_light
+    );
 //    });
   }
 
   wait_for_device_idle(&graphics_device);
-  kill_job_system(job_system);
+//  kill_job_system(job_system);
 }
 
 int APIENTRY
@@ -337,23 +339,24 @@ WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, int show_code
   // TODO(Brandon): lol
   static constexpr size_t kHeapSize = GiB(2);
 
-  init_application_memory(kHeapSize);
-  defer { destroy_application_memory(); };
+  init_engine_memory();
+  defer { destroy_engine_memory(); };
+
 
 //  run_all_tests();
 
-  MemoryArena arena = alloc_memory_arena(MiB(64));
+//  MemoryArena arena = alloc_memory_arena(MiB(64));
+//
+//  MemoryArena scratch_arena = sub_alloc_memory_arena(&arena, DEFAULT_SCRATCH_SIZE);
+  init_context(g_InitHeap, g_OverflowHeap);
 
-  MemoryArena scratch_arena = sub_alloc_memory_arena(&arena, DEFAULT_SCRATCH_SIZE);
-  init_context(scratch_arena);
+//  JobSystem* job_system = init_job_system(&arena, 512);
+//  Array<Thread> threads = spawn_job_system_workers(&arena, job_system);
 
-  JobSystem* job_system = init_job_system(&arena, 512);
-  Array<Thread> threads = spawn_job_system_workers(&arena, job_system);
+//  MemoryArena game_memory = alloc_memory_arena(GiB(2) - MiB(64));
 
-  MemoryArena game_memory = alloc_memory_arena(GiB(2) - MiB(64));
-
-  application_entry(&game_memory, instance, show_code, job_system);
-  join_threads(threads.memory, static_cast<u32>(threads.size));
+  application_entry(instance, show_code);
+//  join_threads(threads.memory, static_cast<u32>(threads.size));
 
   return 0;
 }

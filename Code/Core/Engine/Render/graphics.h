@@ -82,7 +82,7 @@ namespace gfx
   };
   
   CmdListAllocator init_cmd_list_allocator(
-    MEMORY_ARENA_PARAM,
+    AllocHeap heap,
     const GraphicsDevice* device,
     const CmdQueue* queue,
     u16 pool_size
@@ -107,7 +107,7 @@ namespace gfx
     CmdListAllocator copy_cmd_allocator;
   };
   
-  GraphicsDevice init_graphics_device(MEMORY_ARENA_PARAM);
+  GraphicsDevice init_graphics_device();
   void destroy_graphics_device(GraphicsDevice* device);
 
   void wait_for_device_idle(GraphicsDevice* device);
@@ -289,7 +289,7 @@ namespace gfx
   };
   
   DescriptorPool init_descriptor_pool(
-    MEMORY_ARENA_PARAM,
+    AllocHeap heap,
     const GraphicsDevice* device,
     u32 size,
     DescriptorHeapType type
@@ -469,7 +469,7 @@ namespace gfx
     bool fullscreen = false;
   };
   
-  SwapChain init_swap_chain(MEMORY_ARENA_PARAM, HWND window, const GraphicsDevice* device);
+  SwapChain init_swap_chain(HWND window, const GraphicsDevice* device);
   void destroy_swap_chain(SwapChain* swap_chain);
   
   const GpuImage* swap_chain_acquire(SwapChain* swap_chain);

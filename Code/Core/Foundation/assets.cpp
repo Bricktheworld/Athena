@@ -47,13 +47,13 @@ get_asset_type(const void* buffer, size_t size)
 {
   if (size < sizeof(AssetMetadata))
   {
-    return kAssetTypeUnknown;
+    return AssetType::kUnknown;
   }
   AssetMetadata* metadata = (AssetMetadata*)buffer;
 
   if (metadata->magic_number != kAssetMagicNumber)
   {
-    return kAssetTypeUnknown;
+    return AssetType::kUnknown;
   }
 
   return metadata->asset_type;
@@ -67,7 +67,7 @@ get_asset_type(const void* buffer, size_t size)
 #endif
 
 AssetLoadResult
-load_model(MEMORY_ARENA_PARAM, const void* buffer, size_t size, ModelData* out_model)
+load_model(AllocHeap heap, const void* buffer, size_t size, ModelData* out_model)
 {
   const u8* buf = (const u8*)buffer;
 
@@ -75,8 +75,8 @@ load_model(MEMORY_ARENA_PARAM, const void* buffer, size_t size, ModelData* out_m
 
   VALIDATE_ASSET_SIZE(size, expected_size); 
 
-  ModelAsset*           model_asset = (ModelAsset*          )(buf);
-  if (model_asset->metadata.asset_type != kAssetTypeModel)
+  ModelAsset*           model_asset = (ModelAsset*)buf;
+  if (model_asset->metadata.asset_type != AssetType::kModel)
   {
     return AssetLoadResult::kErrMismatchedAssetType;
   }
@@ -90,7 +90,7 @@ load_model(MEMORY_ARENA_PARAM, const void* buffer, size_t size, ModelData* out_m
   expected_size += sizeof(ModelAsset::MeshInst) * model_asset->num_mesh_insts;
   VALIDATE_ASSET_SIZE(size, expected_size);
 
-  out_model->mesh_insts = init_array<MeshInstData>(MEMORY_ARENA_FWD, model_asset->num_mesh_insts);
+  out_model->mesh_insts = init_array<MeshInstData>(heap, model_asset->num_mesh_insts);
 
   for (u32 imesh_inst = 0; imesh_inst < model_asset->num_mesh_insts; imesh_inst++)
   {
@@ -102,8 +102,8 @@ load_model(MEMORY_ARENA_PARAM, const void* buffer, size_t size, ModelData* out_m
     VALIDATE_ASSET_SIZE(size, src->vertices + vertex_buffer_size);
     VALIDATE_ASSET_SIZE(size, src->indices  + index_buffer_size);
 
-    dst->vertices = init_array_uninitialized<Vertex>(MEMORY_ARENA_FWD, src->num_vertices);
-    dst->indices  = init_array_uninitialized<u32>   (MEMORY_ARENA_FWD, src->num_indices);
+    dst->vertices = init_array_uninitialized<Vertex>(heap, src->num_vertices);
+    dst->indices  = init_array_uninitialized<u32>   (heap, src->num_indices);
 
     const u8* vertex_buffer = buf + src->vertices;
     const u8* index_buffer  = buf + src->indices;

@@ -1,16 +1,12 @@
 #include "Core/Foundation/Containers/ring_buffer.h"
 
 RingBuffer
-init_ring_buffer(MEMORY_ARENA_PARAM, size_t alignment, size_t size)
+init_ring_buffer(AllocHeap heap, size_t alignment, size_t size)
 {
   RingBuffer ret = {0};
-  if (size == 0)
-  {
-    size = memory_arena->size;
-    ASSERT(size != 0);
-  }
+  ASSERT(size != 0);
 
-  ret.buffer = static_cast<byte*>(push_memory_arena_aligned(MEMORY_ARENA_FWD, size, alignment));
+  ret.buffer = HEAP_ALLOC_ALIGNED(heap, size, alignment);
   ret.size = size;
   ret.write = 0;
   ret.read = 0;

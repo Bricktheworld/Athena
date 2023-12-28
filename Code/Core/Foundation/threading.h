@@ -10,11 +10,13 @@ struct Thread
   DWORD id = 0;
 };
 
-FOUNDATION_API Thread create_thread(MemoryArena scratch_arena,
-                     size_t stack_size,
-                     ThreadProc proc,
-                     void* param,
-                     u8 core_index);
+FOUNDATION_API Thread create_thread(
+  AllocHeap scratch_heap,
+  size_t stack_size,
+  ThreadProc proc,
+  void* param,
+  u8 core_index
+);
 FOUNDATION_API void destroy_thread(Thread* thread);
 FOUNDATION_API u32 get_num_physical_cores();
 FOUNDATION_API void set_thread_name(const Thread* thread, const wchar_t* name);

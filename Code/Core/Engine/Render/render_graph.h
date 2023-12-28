@@ -431,7 +431,7 @@ namespace gfx::render
   struct RenderPass
   {
     RenderPassId pass_id = 0;
-    MemoryArena allocator;
+    LinearAllocator allocator;
 
     Array<RenderGraphCmd> cmd_buffer;
     Array<ResourceHandle> read_resources;
@@ -463,22 +463,25 @@ namespace gfx::render
     u32 handle_index = 0;
   };
 
-  RenderGraph init_render_graph(MEMORY_ARENA_PARAM);
+  RenderGraph init_render_graph(AllocHeap heap);
 
-  TransientResourceCache init_transient_resource_cache(MEMORY_ARENA_PARAM, const GraphicsDevice* device);
+  TransientResourceCache init_transient_resource_cache(AllocHeap heap, const GraphicsDevice* device);
   void destroy_transient_resource_cache(TransientResourceCache* cache);
 
-  RenderPass* add_render_pass(MEMORY_ARENA_PARAM,
-                              RenderGraph* graph,
-                              CmdQueueType queue,
-                              const char* name);
+  RenderPass* add_render_pass(
+    AllocHeap heap,
+    RenderGraph* graph,
+    CmdQueueType queue,
+    const char* name
+  );
 
   // Invalidates all render passes and submits them.
-  void execute_render_graph(MEMORY_ARENA_PARAM,
-                            const GraphicsDevice* device,
-                            RenderGraph* render_graph,
-                            TransientResourceCache* cache,
-                            u32 frame_index);
+  void execute_render_graph(
+    const GraphicsDevice* device,
+    RenderGraph* render_graph,
+    TransientResourceCache* cache,
+    u32 frame_index
+  );
 
   Handle<GpuImage>  create_image(RenderGraph* graph, const char* name, GpuImageDesc desc);
   Handle<Sampler>   create_sampler(RenderGraph* graph, const char* name);
