@@ -730,10 +730,12 @@ perspective_infinite_reverse_lh(f32 fov_y_rads, f32 aspect_ratio, f32 z_near)
   f32 h = cos_fov / sin_fov;
   f32 w = h / aspect_ratio;
 
-  return Mat4::columns(Vec4(w, 0.0, 0.0, 0.0),
-                       Vec4(0.0, h, 0.0, 0.0),
-                       Vec4(0.0, 0.0, 0.0, 1.0),
-                       Vec4(0.0, 0.0, z_near, 0.0));
+  return Mat4::columns(
+    Vec4(w, 0.0, 0.0, 0.0),
+    Vec4(0.0, h, 0.0, 0.0),
+    Vec4(0.0, 0.0, 0.0, 1.0),
+    Vec4(0.0, 0.0, z_near, 0.0)
+  );
 }
 
 inline Mat4 pass_by_register
@@ -742,10 +744,12 @@ look_at_lh(Vec3 eye, Vec3 dir, Vec3 up)
   Vec3 z = normalize_f32(dir);
   Vec3 x = normalize_f32(cross_f32(up, z));
   Vec3 y = cross_f32(z, x);
-  return Mat4::columns(Vec4(x.x, y.x, z.x, 0.0f),
-                       Vec4(x.y, y.y, z.y, 0.0f),
-                       Vec4(x.z, y.z, z.z, 0.0f),
-                       Vec4(-dot_f32(x, eye), -dot_f32(y, eye), -dot_f32(z, eye), 1.0f));
+  return Mat4::columns(
+    Vec4(x.x, y.x, z.x, 0.0f),
+    Vec4(x.y, y.y, z.y, 0.0f),
+    Vec4(x.z, y.z, z.z, 0.0f),
+    Vec4(-dot_f32(x, eye), -dot_f32(y, eye), -dot_f32(z, eye), 1.0f)
+  );
 }
 
 inline Mat4

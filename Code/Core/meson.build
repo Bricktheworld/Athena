@@ -23,6 +23,7 @@ foundation_src = [
   'Foundation/filesystem.h',
   'Foundation/hash.cpp',
   'Foundation/hash.h',
+  'Foundation/math.h',
   'Foundation/memory.cpp',
   'Foundation/memory.h',
   'Foundation/pool_allocator.cpp',
@@ -153,9 +154,13 @@ foreach lib : engine_libs
   engine_dependencies += cc.find_library(lib, dirs: engine_lib_dir)
 endforeach
 
+windows = import('windows')
+resources = windows.compile_resources('Engine/Resources/athena.rc', depend_files: 'Engine/Resources/athena_512x512.ico')
+
 engine = executable(
   'Engine',
   engine_src,
+  resources,
 
   include_directories: include_dir,
   link_with: foundation,

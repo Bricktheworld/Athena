@@ -143,6 +143,19 @@ draw_debug(RenderOptions* out_render_options,
 
   ImGui::InputFloat3("Camera Position", (f32*)&out_camera->world_pos);
 
+  static Vec2 bezier_size  = Vec2(36.0f, 36.0f);
+  ImGui::DragFloat2("Bezier Size", (f32*)&bezier_size, 0.2f);
+
+  ImDrawList* draw_list = ImGui::GetWindowDrawList();
+  const ImVec2 p = ImGui::GetCursorScreenPos();
+  f32 x = p.x;
+  f32 y = p.y;
+
+  ImVec2 cp4[4] = { ImVec2(x, y), ImVec2(x + bezier_size.x * 0.5f, y), ImVec2(x + bezier_size.x * 0.5f, y + bezier_size.y), ImVec2(x + bezier_size.x, y + bezier_size.y) };
+  draw_list->AddBezierCubic(cp4[0], cp4[1], cp4[2], cp4[3], IM_COL32_WHITE, 1.0f);
+//  draw_list->PathLineTo(ImVec2(10.0f, 10.0f));
+//  draw_list->PathStroke(IM_COL32(1.0f, 1.0f, 1.0f, 1.0f));
+
   ImGui::End();
 
   ImGui::Render();
@@ -153,12 +166,15 @@ application_entry(HINSTANCE instance, int show_code)
 {
 //  SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
+  HICON icon = LoadIconA(instance, MAKEINTRESOURCEA(1));
+
   WNDCLASSEXW wc = {};
   wc.cbSize = sizeof(wc);
   wc.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
   wc.lpfnWndProc = &window_proc;
   wc.hInstance = instance;
   wc.lpszClassName = CLASS_NAME;
+  wc.hIcon = icon;
 
   RegisterClassExW(&wc);
 
@@ -342,21 +358,9 @@ WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, int show_code
   init_engine_memory();
   defer { destroy_engine_memory(); };
 
-
-//  run_all_tests();
-
-//  MemoryArena arena = alloc_memory_arena(MiB(64));
-//
-//  MemoryArena scratch_arena = sub_alloc_memory_arena(&arena, DEFAULT_SCRATCH_SIZE);
   init_context(g_InitHeap, g_OverflowHeap);
 
-//  JobSystem* job_system = init_job_system(&arena, 512);
-//  Array<Thread> threads = spawn_job_system_workers(&arena, job_system);
-
-//  MemoryArena game_memory = alloc_memory_arena(GiB(2) - MiB(64));
-
   application_entry(instance, show_code);
-//  join_threads(threads.memory, static_cast<u32>(threads.size));
 
   return 0;
 }

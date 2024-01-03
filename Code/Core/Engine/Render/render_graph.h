@@ -551,23 +551,29 @@ namespace gfx::render
     cmd_ray_tracing_bind_shader_resources(render_pass, Span(shader_resources, num_resources));
   }
 
-  void cmd_draw_instanced(RenderPass* render_pass,
-                          u32 vertex_count_per_instance,
-                          u32 instance_count,
-                          u32 start_vertex_location,
-                          u32 start_instance_location);
+  void cmd_draw_instanced(
+    RenderPass* render_pass,
+    u32 vertex_count_per_instance,
+    u32 instance_count,
+    u32 start_vertex_location,
+    u32 start_instance_location
+  );
 
-  void cmd_draw_indexed_instanced(RenderPass* render_pass,
-                                  u32 index_count_per_instance,
-                                  u32 instance_count,
-                                  u32 start_index_location,
-                                  s32 base_vertex_location,
-                                  u32 start_instance_location);
+  void cmd_draw_indexed_instanced(
+    RenderPass* render_pass,
+    u32 index_count_per_instance,
+    u32 instance_count,
+    u32 start_index_location,
+    s32 base_vertex_location,
+    u32 start_instance_location
+  );
 
-  void cmd_dispatch(RenderPass* render_pass,
-                    u32 thread_group_count_x,
-                    u32 thread_group_count_y,
-                    u32 thread_group_count_z);
+  void cmd_dispatch(
+    RenderPass* render_pass,
+    u32 thread_group_count_x,
+    u32 thread_group_count_y,
+    u32 thread_group_count_z
+  );
 
   void cmd_ia_set_primitive_topology(RenderPass* render_pass, D3D12_PRIMITIVE_TOPOLOGY primitive_topology);
 
@@ -585,23 +591,31 @@ namespace gfx::render
 
   void cmd_set_ray_tracing_pso(RenderPass* render_pass, const RayTracingPSO* ray_tracing_pso);
 
-  void cmd_ia_set_index_buffer(RenderPass* render_pass,
-                               const GpuBuffer* index_buffer,
-                               DXGI_FORMAT format = DXGI_FORMAT_R16_UINT);
+  void cmd_ia_set_index_buffer(
+    RenderPass* render_pass,
+    const GpuBuffer* index_buffer,
+    DXGI_FORMAT format = DXGI_FORMAT_R16_UINT
+  );
 
-  void cmd_om_set_render_targets(RenderPass* render_pass, 
-                                 Span<Handle<GpuImage>> render_targets,
-                                 Option<Handle<GpuImage>> depth_stencil_target);
+  void cmd_om_set_render_targets(
+    RenderPass* render_pass, 
+    Span<Handle<GpuImage>> render_targets,
+    Option<Handle<GpuImage>> depth_stencil_target
+  );
 
-  void cmd_clear_render_target_view(RenderPass* render_pass, 
-                                    Handle<GpuImage>* render_target,
-                                    Vec4 clear_color);
+  void cmd_clear_render_target_view(
+    RenderPass* render_pass, 
+    Handle<GpuImage>* render_target,
+    Vec4 clear_color
+  );
 
-  void cmd_clear_depth_stencil_view(RenderPass* render_pass, 
-                                    Handle<GpuImage>* depth_stencil,
-                                    D3D12_CLEAR_FLAGS clear_flags,
-                                    f32 depth,
-                                    u8 stencil);
+  void cmd_clear_depth_stencil_view(
+    RenderPass* render_pass, 
+    Handle<GpuImage>* depth_stencil,
+    D3D12_CLEAR_FLAGS clear_flags,
+    f32 depth,
+    u8 stencil
+  );
   
 //  void cmd_clear_unordered_access_view_uint(RenderPass* render_pass,
 //                                            Handle<GpuImage>* uav,
@@ -619,14 +633,16 @@ namespace gfx::render
 //                                             Handle<GpuBuffer>* uav,
 //                                             const f32* values);
 
-  void cmd_dispatch_rays(RenderPass* render_pass,
-                         const GpuBvh* bvh,
-                         const GpuBuffer* index_buffer,
-                         const GpuBuffer* vertex_buffer,
-                         ShaderTable shader_table,
-                         u32 x,
-                         u32 y,
-                         u32 z);
+  void cmd_dispatch_rays(
+    RenderPass* render_pass,
+    const GpuBvh* bvh,
+    const GpuBuffer* index_buffer,
+    const GpuBuffer* vertex_buffer,
+    ShaderTable shader_table,
+    u32 x,
+    u32 y,
+    u32 z
+  );
 
   void cmd_draw_imgui_on_top(RenderPass* render_pass, const DescriptorLinearAllocator* descriptor_linear_allocator);
 }

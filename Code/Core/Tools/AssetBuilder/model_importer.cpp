@@ -16,7 +16,7 @@ asset_builder::import_model(
   ImportedModel* out_imported_model,
   AssetId* out_asset_id
 ) {
-  AssetId asset_id = path_to_asset_id(path); // crc32(path, strlen(path));
+  AssetId asset_id = path_to_asset_id(path);
   char full_path[512];
   snprintf(full_path, 512, "%s/%s", project_root, path);
 
