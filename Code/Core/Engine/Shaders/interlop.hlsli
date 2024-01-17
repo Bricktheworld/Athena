@@ -4,12 +4,11 @@
 #ifdef __cplusplus
 #define CONSTANT_BUFFER alignas(256) 
 
-#define CBV(T) gfx::render::Cbv<T>
-#define SRV(T) gfx::render::Srv<T>
-#define UAV(T) gfx::render::Uav<T>
-#define SAMPLER gfx::render::Sampler
-using GpuImage = gfx::GpuImage;
-using GpuBvh   = gfx::GpuBvh;
+#define CBV(T) Cbv<T>
+#define SRV(T) Srv<T>
+#define UAV(T) Uav<T>
+using GpuImage = GpuImage;
+using GpuBvh   = GpuBvh;
 
 #else
 #define CONSTANT_BUFFER
@@ -26,7 +25,6 @@ struct GpuBvh;
 #define SRV(T) u32
 #define CBV(T) u32
 #define UAV(T) u32
-#define SAMPLER u32
 
 #endif
 

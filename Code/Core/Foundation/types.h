@@ -3,7 +3,9 @@
 #include <stdio.h>
 #include <windows.h>
 #include <immintrin.h>
+#include <intrin.h>
 #include <initializer_list>
+#include <utility>
 
 typedef int8_t s8;
 typedef int16_t s16;
@@ -105,6 +107,24 @@ dbg(const char* fmt, ...)
   va_end(args);
 
   return res;
+}
+
+inline u16 
+count_num_bits(u16 val)
+{
+  return __popcnt16(val);
+}
+
+inline u32 
+count_num_bits(u32 val)
+{
+  return __popcnt(val);
+}
+
+inline u64 
+count_num_bits(u64 val)
+{
+  return __popcnt64(val);
 }
 
 #if 0

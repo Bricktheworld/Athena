@@ -97,8 +97,6 @@ static constexpr const wchar_t* WINDOW_NAME = L"Athena";
 
 static constexpr u64 INCREMENT_AMOUNT = 10000;
 
-using namespace gfx;
-
 static void
 draw_debug(RenderOptions* out_render_options,
            interlop::DirectionalLight* out_directional_light,
@@ -317,23 +315,27 @@ application_entry(HINSTANCE instance, int show_code)
     if (done)
       break;
 
-    draw_debug(&render_options, &scene.directional_light, &scene.camera);
+//    draw_debug(&render_options, &scene.directional_light, &scene.camera);
 
 //    blocking_kick_closure_job(kJobPriorityMedium, [&]()
 //    {
     begin_renderer_recording(&renderer);
     submit_scene(scene, &renderer);
-    execute_render(
-      &renderer,
-      &graphics_device,
-      &swap_chain,
-      &scene.camera,
-      scene.vertex_uber_buffer,
-      scene.index_uber_buffer,
-      scene.bvh,
-      render_options,
-      scene.directional_light
-    );
+
+    const GpuImage* back_buffer = swap_chain_acquire(&swap_chain);
+    execute_render_graph(&renderer.graph, &graphics_device, back_buffer, swap_chain.back_buffer_index);
+    swap_chain_submit(&swap_chain, &graphics_device, back_buffer);
+//    execute_render(
+//      &renderer,
+//      &graphics_device,
+//      &swap_chain,
+//      &scene.camera,
+//      scene.vertex_uber_buffer,
+//      scene.index_uber_buffer,
+//      scene.bvh,
+//      render_options,
+//      scene.directional_light
+//    );
 //    });
   }
 

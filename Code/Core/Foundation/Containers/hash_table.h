@@ -193,7 +193,9 @@ hash_table_insert(HashTable<K, V>* table, const K& key)
 
         table->used++;
   
-        return &table->values[group_index * 16 + i];
+        V* ret = &table->values[group_index * 16 + i];
+        zero_memory(ret, sizeof(V));
+        return ret;
       }
     }
 

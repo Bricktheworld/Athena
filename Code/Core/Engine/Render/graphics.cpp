@@ -20,8 +20,6 @@
 #define DEBUG_LAYER
 #endif
 
-using namespace gfx;
-
 static IDXGIFactory7*
 init_factory()
 {
@@ -114,7 +112,7 @@ init_fence(ID3D12Device2* d3d12_dev)
 }
 
 Fence
-gfx::init_fence(const GraphicsDevice* device)
+init_fence(const GraphicsDevice* device)
 {
   Fence ret = {0};
   HASSERT(device->d3d12->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&ret.d3d12_fence)));
@@ -130,7 +128,7 @@ gfx::init_fence(const GraphicsDevice* device)
 }
 
 void
-gfx::destroy_fence(Fence* fence)
+destroy_fence(Fence* fence)
 {
   CloseHandle(fence->cpu_event);
   COM_RELEASE(fence->d3d12_fence);
@@ -162,7 +160,7 @@ is_fence_complete(Fence* fence, FenceValue value)
 }
 
 void
-gfx::yield_for_fence_value(Fence* fence, FenceValue value)
+yield_for_fence_value(Fence* fence, FenceValue value)
 {
   UNREACHABLE;
   if (is_fence_complete(fence, value))
@@ -175,7 +173,7 @@ gfx::yield_for_fence_value(Fence* fence, FenceValue value)
 }
 
 void
-gfx::block_for_fence_value(Fence* fence, FenceValue value)
+block_for_fence_value(Fence* fence, FenceValue value)
 {
   ASSERT(!fence->already_waiting);
   if (is_fence_complete(fence, value))
@@ -190,7 +188,7 @@ gfx::block_for_fence_value(Fence* fence, FenceValue value)
 }
 
 CmdQueue
-gfx::init_cmd_queue(const GraphicsDevice* device, CmdQueueType type)
+init_cmd_queue(const GraphicsDevice* device, CmdQueueType type)
 {
   CmdQueue ret = {0};
 
@@ -208,7 +206,7 @@ gfx::init_cmd_queue(const GraphicsDevice* device, CmdQueueType type)
 }
 
 void
-gfx::destroy_cmd_queue(CmdQueue* queue)
+destroy_cmd_queue(CmdQueue* queue)
 {
   COM_RELEASE(queue->d3d12_queue);
 
@@ -216,13 +214,13 @@ gfx::destroy_cmd_queue(CmdQueue* queue)
 }
 
 void
-gfx::cmd_queue_gpu_wait_for_fence(const CmdQueue* queue, Fence* fence, FenceValue value)
+cmd_queue_gpu_wait_for_fence(const CmdQueue* queue, Fence* fence, FenceValue value)
 {
   HASSERT(queue->d3d12_queue->Wait(fence->d3d12_fence, value));
 }
 
 FenceValue
-gfx::cmd_queue_signal(const CmdQueue* queue, Fence* fence)
+cmd_queue_signal(const CmdQueue* queue, Fence* fence)
 {
   FenceValue value = inc_fence(fence);
   HASSERT(queue->d3d12_queue->Signal(fence->d3d12_fence, value));
@@ -231,7 +229,7 @@ gfx::cmd_queue_signal(const CmdQueue* queue, Fence* fence)
 
 
 CmdListAllocator
-gfx::init_cmd_list_allocator(
+init_cmd_list_allocator(
   AllocHeap heap,
   const GraphicsDevice* device,
   const CmdQueue* queue,
@@ -270,7 +268,7 @@ gfx::init_cmd_list_allocator(
 }
 
 void
-gfx::destroy_cmd_list_allocator(CmdListAllocator* allocator)
+destroy_cmd_list_allocator(CmdListAllocator* allocator)
 {
   destroy_fence(&allocator->fence);
 
@@ -290,7 +288,7 @@ gfx::destroy_cmd_list_allocator(CmdListAllocator* allocator)
 }
 
 CmdList
-gfx::alloc_cmd_list(CmdListAllocator* allocator)
+alloc_cmd_list(CmdListAllocator* allocator)
 {
   CmdList ret = {0};
   CmdAllocator cmd_allocator = {0};
@@ -309,7 +307,7 @@ gfx::alloc_cmd_list(CmdListAllocator* allocator)
 }
 
 FenceValue
-gfx::submit_cmd_lists(CmdListAllocator* allocator, Span<CmdList> lists, Option<Fence*> fence)
+submit_cmd_lists(CmdListAllocator* allocator, Span<CmdList> lists, Option<Fence*> fence)
 {
   FenceValue ret = 0;
 
@@ -362,7 +360,7 @@ get_d3d12_heap_type(GpuHeapType type)
 }
 
 GpuResourceHeap
-gfx::init_gpu_resource_heap(const GraphicsDevice* device, u64 size, GpuHeapType type)
+init_gpu_resource_heap(const GraphicsDevice* device, u64 size, GpuHeapType type)
 {
   D3D12_HEAP_DESC desc = {0};
   desc.SizeInBytes = size;
@@ -382,14 +380,14 @@ gfx::init_gpu_resource_heap(const GraphicsDevice* device, u64 size, GpuHeapType 
 }
 
 void
-gfx::destroy_gpu_resource_heap(GpuResourceHeap* heap)
+destroy_gpu_resource_heap(GpuResourceHeap* heap)
 {
   COM_RELEASE(heap->d3d12_heap);
   zero_memory(heap, sizeof(GpuResourceHeap));
 }
 
 GpuLinearAllocator
-gfx::init_gpu_linear_allocator(const GraphicsDevice* device, u64 size, GpuHeapType type)
+init_gpu_linear_allocator(const GraphicsDevice* device, u64 size, GpuHeapType type)
 {
   GpuLinearAllocator ret = {0};
   ret.heap = init_gpu_resource_heap(device, size, type);
@@ -398,13 +396,13 @@ gfx::init_gpu_linear_allocator(const GraphicsDevice* device, u64 size, GpuHeapTy
 }
 
 void
-gfx::destroy_gpu_linear_allocator(GpuLinearAllocator* allocator)
+destroy_gpu_linear_allocator(GpuLinearAllocator* allocator)
 {
   destroy_gpu_resource_heap(&allocator->heap);
 }
 
 GraphicsDevice
-gfx::init_graphics_device()
+init_graphics_device()
 {
 #ifdef DEBUG_LAYER
   ID3D12Debug* debug_interface = nullptr;
@@ -449,7 +447,7 @@ gfx::init_graphics_device()
 }
 
 void
-gfx::wait_for_device_idle(GraphicsDevice* device)
+wait_for_device_idle(GraphicsDevice* device)
 {
   FenceValue value = cmd_queue_signal(&device->graphics_queue, &device->graphics_cmd_allocator.fence);
   block_for_fence_value(&device->graphics_cmd_allocator.fence, value);
@@ -462,7 +460,7 @@ gfx::wait_for_device_idle(GraphicsDevice* device)
 }
 
 void
-gfx::destroy_graphics_device(GraphicsDevice* device)
+destroy_graphics_device(GraphicsDevice* device)
 {
   destroy_cmd_list_allocator(&device->graphics_cmd_allocator);
   destroy_cmd_list_allocator(&device->compute_cmd_allocator);
@@ -477,7 +475,7 @@ gfx::destroy_graphics_device(GraphicsDevice* device)
 }
 
 bool
-gfx::is_depth_format(DXGI_FORMAT format)
+is_depth_format(DXGI_FORMAT format)
 {
   return format == DXGI_FORMAT_D32_FLOAT ||
         format == DXGI_FORMAT_D16_UNORM ||
@@ -497,7 +495,7 @@ get_typeless_depth_format(DXGI_FORMAT format)
 }
 
 GpuImage
-gfx::alloc_gpu_image_2D_no_heap(const GraphicsDevice* device, GpuImageDesc desc, const char* name)
+alloc_gpu_image_2D_no_heap(const GraphicsDevice* device, GpuImageDesc desc, const char* name)
 {
   GpuImage ret = {0};
   ret.desc = desc;
@@ -550,58 +548,66 @@ gfx::alloc_gpu_image_2D_no_heap(const GraphicsDevice* device, GpuImageDesc desc,
 }
 
 void
-gfx::free_gpu_image(GpuImage* image)
+free_gpu_image(GpuImage* image)
 {
   COM_RELEASE(image->d3d12_image);
   zero_memory(image, sizeof(GpuImage));
 }
 
+static D3D12_RESOURCE_DESC
+d3d12_resource_desc(GpuImageDesc desc)
+{
+  D3D12_RESOURCE_DESC resource_desc;
+  resource_desc.Dimension            = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+  resource_desc.Format               = desc.format;
+  resource_desc.Alignment            = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+  resource_desc.Width                = desc.width;
+  resource_desc.Height               = desc.height;
+  resource_desc.DepthOrArraySize     = 1;
+  resource_desc.MipLevels            = 1;
+  resource_desc.SampleDesc.Count     = 1;
+  resource_desc.SampleDesc.Quality   = 0;
+  resource_desc.Layout               = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+  resource_desc.Flags                = desc.flags;
+
+  return resource_desc;
+}
+
 GpuImage
-gfx::alloc_gpu_image_2D(
+alloc_gpu_image_2D(
   const GraphicsDevice* device,
   GpuLinearAllocator* allocator,
   GpuImageDesc desc,
   const char* name
 ) {
   GpuImage ret = {0};
-  ret.desc = desc;
+  ret.desc     = desc;
 
-  D3D12_RESOURCE_DESC resource_desc;
-  resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-  resource_desc.Format = desc.format;
-  resource_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
-  resource_desc.Width = desc.width;
-  resource_desc.Height = desc.height;
-  resource_desc.DepthOrArraySize = 1;
-  resource_desc.MipLevels = 1;
-  resource_desc.SampleDesc.Count = 1;
-  resource_desc.SampleDesc.Quality = 0;
-  resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-  resource_desc.Flags = desc.flags;
-
-  D3D12_CLEAR_VALUE clear_value;
-  D3D12_CLEAR_VALUE* p_clear_value = nullptr;
-  clear_value.Format = desc.format;
-  if (is_depth_format(desc.format))
-  {
-    resource_desc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
-    clear_value.DepthStencil.Depth   = desc.depth_clear_value;
-    clear_value.DepthStencil.Stencil = desc.stencil_clear_value;
-    p_clear_value = &clear_value;
-  }
-  else if (desc.flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET)
-  {
-    clear_value.Color[0] = desc.color_clear_value.x;
-    clear_value.Color[1] = desc.color_clear_value.y;
-    clear_value.Color[2] = desc.color_clear_value.z;
-    clear_value.Color[3] = desc.color_clear_value.w;
-    p_clear_value = &clear_value;
-  }
+  D3D12_RESOURCE_DESC resource_desc   = d3d12_resource_desc(desc);
 
   D3D12_RESOURCE_ALLOCATION_INFO info = device->d3d12->GetResourceAllocationInfo(0, 1, &resource_desc);
 
   u64 new_pos = ALIGN_POW2(allocator->pos, info.Alignment) + info.SizeInBytes;
   ASSERT(new_pos <= allocator->heap.size);
+
+  D3D12_CLEAR_VALUE clear_value;
+  D3D12_CLEAR_VALUE* p_clear_value   = nullptr;
+  clear_value.Format                 = desc.format;
+  if (is_depth_format(desc.format))
+  {
+    resource_desc.Flags             |= D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+    clear_value.DepthStencil.Depth   = desc.depth_clear_value;
+    clear_value.DepthStencil.Stencil = desc.stencil_clear_value;
+    p_clear_value                    = &clear_value;
+  }
+  else if (desc.flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET)
+  {
+    clear_value.Color[0]             = desc.color_clear_value.x;
+    clear_value.Color[1]             = desc.color_clear_value.y;
+    clear_value.Color[2]             = desc.color_clear_value.z;
+    clear_value.Color[3]             = desc.color_clear_value.w;
+    p_clear_value                    = &clear_value;
+  }
 
   u64 allocation_offset = ALIGN_POW2(allocator->pos, info.Alignment);
   HASSERT(device->d3d12->CreatePlacedResource(allocator->heap.d3d12_heap,
@@ -620,7 +626,7 @@ gfx::alloc_gpu_image_2D(
 }
 
 GpuBuffer
-gfx::alloc_gpu_buffer_no_heap(
+alloc_gpu_buffer_no_heap(
   const GraphicsDevice* device,
   GpuBufferDesc desc,
   GpuHeapType type,
@@ -652,14 +658,14 @@ gfx::alloc_gpu_buffer_no_heap(
 }
 
 void
-gfx::free_gpu_buffer(GpuBuffer* buffer)
+free_gpu_buffer(GpuBuffer* buffer)
 {
   COM_RELEASE(buffer->d3d12_buffer);
   zero_memory(buffer, sizeof(GpuBuffer));
 }
 
 GpuBuffer
-gfx::alloc_gpu_buffer(
+alloc_gpu_buffer(
   const GraphicsDevice* device,
   GpuLinearAllocator* allocator,
   GpuBufferDesc desc,
@@ -731,10 +737,10 @@ static ID3D12DescriptorHeap*
 init_d3d12_descriptor_heap(const GraphicsDevice* device, u32 size, DescriptorHeapType type)
 {
   D3D12_DESCRIPTOR_HEAP_DESC desc;
-  desc.Type = get_d3d12_descriptor_type(type);
-  desc.NumDescriptors = size;
-  desc.NodeMask = 1;
-  desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+  desc.Type              = get_d3d12_descriptor_type(type);
+  desc.NumDescriptors    = size;
+  desc.NodeMask          = 1;
+  desc.Flags             = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
 
   bool is_shader_visible = descriptor_type_is_shader_visible(type);
 
@@ -750,7 +756,7 @@ init_d3d12_descriptor_heap(const GraphicsDevice* device, u32 size, DescriptorHea
 }
 
 DescriptorPool
-gfx::init_descriptor_pool(AllocHeap heap, const GraphicsDevice* device, u32 size, DescriptorHeapType type)
+init_descriptor_pool(AllocHeap heap, const GraphicsDevice* device, u32 size, DescriptorHeapType type)
 {
   DescriptorPool ret = {0};
   ret.num_descriptors = size;
@@ -774,18 +780,20 @@ gfx::init_descriptor_pool(AllocHeap heap, const GraphicsDevice* device, u32 size
 }
 
 void
-gfx::destroy_descriptor_pool(DescriptorPool* pool)
+destroy_descriptor_pool(DescriptorPool* pool)
 {
   COM_RELEASE(pool->d3d12_heap);
   zero_memory(pool, sizeof(DescriptorPool));
 }
 
 DescriptorLinearAllocator
-gfx::init_descriptor_linear_allocator(
+init_descriptor_linear_allocator(
   const GraphicsDevice* device,
   u32 size,
   DescriptorHeapType type
 ) {
+  ASSERT(size > 0);
+
   DescriptorLinearAllocator ret = {0};
   ret.pos = 0;
   ret.num_descriptors = size;
@@ -793,7 +801,7 @@ gfx::init_descriptor_linear_allocator(
   ret.d3d12_heap = init_d3d12_descriptor_heap(device, size, type);
 
   ret.descriptor_size = device->d3d12->GetDescriptorHandleIncrementSize(get_d3d12_descriptor_type(type));
-  ret.cpu_start = ret.d3d12_heap->GetCPUDescriptorHandleForHeapStart();
+  ret.cpu_start       = ret.d3d12_heap->GetCPUDescriptorHandleForHeapStart();
   if (descriptor_type_is_shader_visible(type))
   {
     ret.gpu_start = ret.d3d12_heap->GetGPUDescriptorHandleForHeapStart();
@@ -803,20 +811,20 @@ gfx::init_descriptor_linear_allocator(
 }
 
 void
-gfx::reset_descriptor_linear_allocator(DescriptorLinearAllocator* allocator)
+reset_descriptor_linear_allocator(DescriptorLinearAllocator* allocator)
 {
   allocator->pos = 0;
 }
 
 void
-gfx::destroy_descriptor_linear_allocator(DescriptorLinearAllocator* allocator)
+destroy_descriptor_linear_allocator(DescriptorLinearAllocator* allocator)
 {
   COM_RELEASE(allocator->d3d12_heap);
   zero_memory(allocator, sizeof(DescriptorLinearAllocator));
 }
 
 Descriptor
-gfx::alloc_descriptor(DescriptorPool* pool)
+alloc_descriptor(DescriptorPool* pool)
 {
   u32 index = 0;
   ring_queue_pop(&pool->free_descriptors, &index);
@@ -838,7 +846,7 @@ gfx::alloc_descriptor(DescriptorPool* pool)
 }
 
 void
-gfx::free_descriptor(DescriptorPool* pool, Descriptor* descriptor)
+free_descriptor(DescriptorPool* pool, Descriptor* descriptor)
 {
   ASSERT(descriptor->cpu_handle.ptr >= pool->cpu_start.ptr);
   ASSERT(descriptor->index < pool->num_descriptors);
@@ -847,7 +855,7 @@ gfx::free_descriptor(DescriptorPool* pool, Descriptor* descriptor)
 }
 
 Descriptor
-gfx::alloc_descriptor(DescriptorLinearAllocator* allocator)
+alloc_descriptor(DescriptorLinearAllocator* allocator)
 {
   Descriptor ret = {0};
   u32 index = allocator->pos++;
@@ -869,7 +877,7 @@ gfx::alloc_descriptor(DescriptorLinearAllocator* allocator)
 
 
 void
-gfx::init_rtv(const GraphicsDevice* device, Descriptor* descriptor, const GpuImage* image)
+init_rtv(const GraphicsDevice* device, Descriptor* descriptor, const GpuImage* image)
 {
   ASSERT(descriptor->type == kDescriptorHeapTypeRtv);
 
@@ -880,7 +888,7 @@ gfx::init_rtv(const GraphicsDevice* device, Descriptor* descriptor, const GpuIma
 }
 
 void
-gfx::init_dsv(const GraphicsDevice* device, Descriptor* descriptor, const GpuImage* image)
+init_dsv(const GraphicsDevice* device, Descriptor* descriptor, const GpuImage* image)
 {
   ASSERT(descriptor->type == kDescriptorHeapTypeDsv);
 
@@ -895,7 +903,7 @@ gfx::init_dsv(const GraphicsDevice* device, Descriptor* descriptor, const GpuIma
 }
 
 void
-gfx::init_buffer_srv(
+init_buffer_srv(
   const GraphicsDevice* device,
   Descriptor* descriptor,
   const GpuBuffer* buffer,
@@ -923,7 +931,7 @@ buffer_is_aligned(const GpuBuffer* buffer, u64 alignment, u64 offset = 0)
 }
 
 void
-gfx::init_buffer_cbv(
+init_buffer_cbv(
   const GraphicsDevice* device,
   Descriptor* descriptor,
   const GpuBuffer* buffer,
@@ -940,7 +948,7 @@ gfx::init_buffer_cbv(
 }
 
 void
-gfx::init_buffer_uav(
+init_buffer_uav(
   const GraphicsDevice* device,
   Descriptor* descriptor,
   const GpuBuffer* buffer,
@@ -962,7 +970,7 @@ gfx::init_buffer_uav(
 }
 
 void
-gfx::init_image_2D_srv(const GraphicsDevice* device, Descriptor* descriptor, const GpuImage* image)
+init_image_2D_srv(const GraphicsDevice* device, Descriptor* descriptor, const GpuImage* image)
 {
   ASSERT(descriptor->type == kDescriptorHeapTypeCbvSrvUav);
 
@@ -990,7 +998,7 @@ gfx::init_image_2D_srv(const GraphicsDevice* device, Descriptor* descriptor, con
 }
 
 void
-gfx::init_image_2D_uav(const GraphicsDevice* device, Descriptor* descriptor, const GpuImage* image)
+init_image_2D_uav(const GraphicsDevice* device, Descriptor* descriptor, const GpuImage* image)
 {
   ASSERT(descriptor->type == kDescriptorHeapTypeCbvSrvUav);
 
@@ -1008,7 +1016,7 @@ gfx::init_image_2D_uav(const GraphicsDevice* device, Descriptor* descriptor, con
 }
 
 void
-gfx::init_sampler(const GraphicsDevice* device, Descriptor* descriptor)
+init_sampler(const GraphicsDevice* device, Descriptor* descriptor)
 {
   ASSERT(descriptor->type == kDescriptorHeapTypeSampler);
 
@@ -1025,7 +1033,7 @@ gfx::init_sampler(const GraphicsDevice* device, Descriptor* descriptor)
 }
 
 void
-gfx::init_bvh_srv(const GraphicsDevice* device, Descriptor* descriptor, const GpuBvh* bvh)
+init_bvh_srv(const GraphicsDevice* device, Descriptor* descriptor, const GpuBvh* bvh)
 {
   ASSERT(descriptor->type == kDescriptorHeapTypeCbvSrvUav);
 
@@ -1064,7 +1072,7 @@ init_root_signature(const GraphicsDevice* device, ID3DBlob* blob)
 }
 
 GpuShader
-gfx::load_shader_from_file(const GraphicsDevice* device, const wchar_t* path)
+load_shader_from_file(const GraphicsDevice* device, const wchar_t* path)
 {
   GpuShader ret = {0};
   HASSERT(D3DReadFileToBlob(path, &ret.d3d12_shader));
@@ -1073,7 +1081,7 @@ gfx::load_shader_from_file(const GraphicsDevice* device, const wchar_t* path)
 }
 
 GpuShader
-gfx::load_shader_from_memory(const GraphicsDevice* device, const u8* src, size_t size)
+load_shader_from_memory(const GraphicsDevice* device, const u8* src, size_t size)
 {
   GpuShader ret = {0};
 
@@ -1087,13 +1095,13 @@ gfx::load_shader_from_memory(const GraphicsDevice* device, const u8* src, size_t
 }
 
 void
-gfx::destroy_shader(GpuShader* shader)
+destroy_shader(GpuShader* shader)
 {
   COM_RELEASE(shader->d3d12_shader);
 }
 
 GraphicsPSO
-gfx::init_graphics_pipeline(
+init_graphics_pipeline(
   const GraphicsDevice* device,
   GraphicsPipelineDesc desc,
   const char* name
@@ -1161,14 +1169,14 @@ gfx::init_graphics_pipeline(
 }
 
 void
-gfx::destroy_graphics_pipeline(GraphicsPSO* pipeline)
+destroy_graphics_pipeline(GraphicsPSO* pipeline)
 {
   COM_RELEASE(pipeline->d3d12_pso);
   zero_memory(pipeline, sizeof(GraphicsPSO));
 }
 
 ComputePSO
-gfx::init_compute_pipeline(const GraphicsDevice* device, GpuShader compute_shader, const char* name)
+init_compute_pipeline(const GraphicsDevice* device, GpuShader compute_shader, const char* name)
 {
   ComputePSO ret;
   D3D12_COMPUTE_PIPELINE_STATE_DESC desc;
@@ -1184,14 +1192,14 @@ gfx::init_compute_pipeline(const GraphicsDevice* device, GpuShader compute_shade
 }
 
 void
-gfx::destroy_compute_pipeline(ComputePSO* pipeline)
+destroy_compute_pipeline(ComputePSO* pipeline)
 {
   COM_RELEASE(pipeline->d3d12_pso);
   zero_memory(pipeline, sizeof(ComputePSO));
 }
 
 GpuBvh
-gfx::init_acceleration_structure(
+init_acceleration_structure(
   GraphicsDevice* device,
   const GpuBuffer& vertex_uber_buffer,
   u32 vertex_count,
@@ -1317,7 +1325,7 @@ gfx::init_acceleration_structure(
 }
 
 void
-gfx::destroy_acceleration_structure(GpuBvh* bvh)
+destroy_acceleration_structure(GpuBvh* bvh)
 {
   free_gpu_buffer(&bvh->instance_desc_buffer);
   free_gpu_buffer(&bvh->bottom_bvh);
@@ -1326,7 +1334,7 @@ gfx::destroy_acceleration_structure(GpuBvh* bvh)
 }
 
 RayTracingPSO
-gfx::init_ray_tracing_pipeline(const GraphicsDevice* device, GpuShader ray_tracing_library, const char* name)
+init_ray_tracing_pipeline(const GraphicsDevice* device, GpuShader ray_tracing_library, const char* name)
 {
   RayTracingPSO ret;
 
@@ -1343,14 +1351,14 @@ gfx::init_ray_tracing_pipeline(const GraphicsDevice* device, GpuShader ray_traci
 }
 
 void
-gfx::destroy_ray_tracing_pipeline(RayTracingPSO* pipeline)
+destroy_ray_tracing_pipeline(RayTracingPSO* pipeline)
 {
   COM_RELEASE(pipeline->d3d12_pso);
   zero_memory(pipeline, sizeof(RayTracingPSO));
 }
 
 ShaderTable
-gfx::init_shader_table(const GraphicsDevice* device, RayTracingPSO pipeline, const char* name)
+init_shader_table(const GraphicsDevice* device, RayTracingPSO pipeline, const char* name)
 {
   ShaderTable ret = {0};
 
@@ -1388,7 +1396,7 @@ gfx::init_shader_table(const GraphicsDevice* device, RayTracingPSO pipeline, con
 }
 
 void
-gfx::destroy_shader_table(ShaderTable* shader_table)
+destroy_shader_table(ShaderTable* shader_table)
 {
   free_gpu_buffer(&shader_table->buffer);
   zero_memory(shader_table, sizeof(ShaderTable));
@@ -1414,7 +1422,7 @@ alloc_back_buffers_from_swap_chain(
 
 
 SwapChain
-gfx::init_swap_chain(HWND window, const GraphicsDevice* device)
+init_swap_chain(HWND window, const GraphicsDevice* device)
 {
   auto* factory = init_factory();
   defer { COM_RELEASE(factory); };
@@ -1501,7 +1509,7 @@ gfx::init_swap_chain(HWND window, const GraphicsDevice* device)
 }
 
 void
-gfx::destroy_swap_chain(SwapChain* swap_chain)
+destroy_swap_chain(SwapChain* swap_chain)
 {
 //  destroy_descriptor_heap(&swap_chain->depth_stencil_view_heap);
 //  destroy_descriptor_heap(&swap_chain->render_target_view_heap);
@@ -1517,7 +1525,7 @@ gfx::destroy_swap_chain(SwapChain* swap_chain)
 
 
 const GpuImage*
-gfx::swap_chain_acquire(SwapChain* swap_chain)
+swap_chain_acquire(SwapChain* swap_chain)
 {
   u32 index = swap_chain->back_buffer_index;
   block_for_fence_value(&swap_chain->fence,
@@ -1527,7 +1535,7 @@ gfx::swap_chain_acquire(SwapChain* swap_chain)
 }
 
 void
-gfx::swap_chain_submit(SwapChain* swap_chain, const GraphicsDevice* device, const GpuImage* rtv)
+swap_chain_submit(SwapChain* swap_chain, const GraphicsDevice* device, const GpuImage* rtv)
 {
   u32 index = swap_chain->back_buffer_index;
   ASSERT(swap_chain->back_buffers[index] == rtv);
@@ -1544,7 +1552,7 @@ gfx::swap_chain_submit(SwapChain* swap_chain, const GraphicsDevice* device, cons
 
 
 void
-gfx::set_descriptor_heaps(CmdList* cmd, const DescriptorPool* heaps, u32 num_heaps)
+set_descriptor_heaps(CmdList* cmd, const DescriptorPool* heaps, u32 num_heaps)
 {
   ScratchAllocator scratch_arena = alloc_scratch_arena();
   defer { free_scratch_arena(&scratch_arena); };
@@ -1558,7 +1566,7 @@ gfx::set_descriptor_heaps(CmdList* cmd, const DescriptorPool* heaps, u32 num_hea
 }
 
 void
-gfx::set_descriptor_heaps(CmdList* cmd, Span<const DescriptorLinearAllocator*> heaps)
+set_descriptor_heaps(CmdList* cmd, Span<const DescriptorLinearAllocator*> heaps)
 {
   ScratchAllocator scratch_arena = alloc_scratch_arena();
   defer { free_scratch_arena(&scratch_arena); };
@@ -1572,27 +1580,27 @@ gfx::set_descriptor_heaps(CmdList* cmd, Span<const DescriptorLinearAllocator*> h
 }
 
 void
-gfx::set_graphics_root_signature(CmdList* cmd)
+set_graphics_root_signature(CmdList* cmd)
 {
   ASSERT(g_root_signature != nullptr);
   cmd->d3d12_list->SetGraphicsRootSignature(g_root_signature);
 }
 
 void
-gfx::set_compute_root_signature(CmdList* cmd)
+set_compute_root_signature(CmdList* cmd)
 {
   ASSERT(g_root_signature != nullptr);
   cmd->d3d12_list->SetComputeRootSignature(g_root_signature);
 }
 
 void
-gfx::set_primitive_topology(CmdList* cmd, D3D_PRIMITIVE_TOPOLOGY topology)
+set_primitive_topology(CmdList* cmd, D3D_PRIMITIVE_TOPOLOGY topology)
 {
   cmd->d3d12_list->IASetPrimitiveTopology(topology);
 }
 
 void
-gfx::init_imgui_ctx(
+init_imgui_ctx(
   const GraphicsDevice* device,
   const SwapChain* swap_chain,
   HWND window,
@@ -1619,14 +1627,14 @@ gfx::init_imgui_ctx(
 }
 
 void
-gfx::destroy_imgui_ctx()
+destroy_imgui_ctx()
 {
   ImGui_ImplDX12_Shutdown();
   ImGui_ImplWin32_Shutdown();
 }
 
 void
-gfx::imgui_begin_frame()
+imgui_begin_frame()
 {
   ImGui_ImplDX12_NewFrame();
   ImGui_ImplWin32_NewFrame();
@@ -1634,13 +1642,13 @@ gfx::imgui_begin_frame()
 }
 
 void
-gfx::imgui_end_frame()
+imgui_end_frame()
 {
   ImGui::Render();
 }
 
 void
-gfx::imgui_render(CmdList* cmd)
+imgui_render(CmdList* cmd)
 {
   ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), cmd->d3d12_list);
 }

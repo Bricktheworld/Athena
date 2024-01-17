@@ -49,6 +49,7 @@ alloc_scratch_arena()
   ScratchAllocator ret = {0};
   ret.allocated = 0;
   ret.backing_allocator = &tls_ctx.scratch_allocator;
+  ret.expected_start = ret.backing_allocator->pos;
 
   return ret;
 }
@@ -60,6 +61,9 @@ free_scratch_arena(ScratchAllocator* self)
 
 //  reset_memory_arena(MEMORY_ARENA_FWD);
   pop_stack(self->backing_allocator, self->allocated);
+
+  // If you hit this assertion, you're passing the scratch arena to functions that themselves use a scratch arena
+  ASSERT(self->expected_start == self->backing_allocator->pos);
 }
 
 void*

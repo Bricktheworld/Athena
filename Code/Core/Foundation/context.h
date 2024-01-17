@@ -14,6 +14,7 @@ FOUNDATION_API void* scratch_alloc(void* scratch_allocator, size_t size, size_t 
 struct ScratchAllocator
 {
   u64             allocated         = 0;
+  uintptr_t       expected_start    = 0;
   StackAllocator* backing_allocator = nullptr;
 
   operator AllocHeap()

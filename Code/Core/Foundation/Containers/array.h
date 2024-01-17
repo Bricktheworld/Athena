@@ -119,8 +119,8 @@ inline Array<T, 0>
 init_array(AllocHeap heap, size_t capacity)
 {
   Array<T, 0> ret = {0};
-  ret.memory = HEAP_ALLOC(T, heap, capacity);
-  ret.capacity = capacity;
+  ret.memory      = HEAP_ALLOC(T, heap, capacity);
+  ret.capacity    = capacity;
   ret.size = 0;
   return ret;
 }
@@ -139,9 +139,9 @@ inline Array<T, 0>
 init_array(void* buffer, size_t capacity)
 {
   Array<T, 0> ret = {0};
-  ret.memory = buffer;
-  ret.capacity = capacity / sizeof(T);
-  ret.size = 0;
+  ret.memory      = buffer;
+  ret.capacity    = capacity / sizeof(T);
+  ret.size        = 0;
   return ret;
 }
 
@@ -193,7 +193,7 @@ array_remove(Array<T, S>* arr, size_t index)
 
 template <typename T, typename F, size_t S>
 inline Option<size_t>
-array_find_predicate(Array<T, S>* arr, F predicate)
+array_find_predicate(const Array<T, S>* arr, F predicate)
 {
   ASSERT(arr->memory != nullptr);
   for (u32 i = 0; i < arr->size; i++)
@@ -208,6 +208,20 @@ array_find_predicate(Array<T, S>* arr, F predicate)
 template <typename T, typename F, size_t S>
 inline Option<T*>
 array_find_value_predicate(Array<T, S>* arr, F predicate)
+{
+  ASSERT(arr->memory != nullptr);
+  for (u32 i = 0; i < arr->size; i++)
+  {
+    if (predicate((const Array<T, S>*)&arr->memory[i]))
+      return &arr->memory[i];
+  }
+
+  return None;
+}
+
+template <typename T, typename F, size_t S>
+inline Option<const T*>
+array_find_value_predicate(const Array<T, S>* arr, F predicate)
 {
   ASSERT(arr->memory != nullptr);
   for (u32 i = 0; i < arr->size; i++)
@@ -261,8 +275,8 @@ init_array(AllocHeap heap, const Span<T>& src)
   return ret;
 }
 
-#define array_find(arr, pred) array_find_predicate(arr, [&](auto* it) { return pred; })
-#define array_find_value(arr, pred) array_find_value_predicate(arr, [&](auto* it) { return pred; })
+#define array_find(arr, pred) array_find_predicate(arr, [&](auto* it) -> bool { return pred; })
+#define array_find_value(arr, pred) array_find_value_predicate(arr, [&](auto* it) -> bool { return pred; })
 
 template <typename T, size_t S>
 inline void
@@ -295,6 +309,15 @@ zero_array(Array<T, S>* arr)
 {
   ASSERT(arr->memory != nullptr);
   zero_array(arr, MAX(arr->capacity, S));
+}
+
+template <typename T>
+inline Array<T, 0>
+init_array_zeroed(AllocHeap heap, size_t size)
+{
+  Array<T, 0> ret = init_array<T>(heap, size);
+  zero_array(&ret);
+  return ret;
 }
 
 template <typename T, size_t S>

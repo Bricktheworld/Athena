@@ -1,6 +1,7 @@
 #pragma once
 #include "Core/Foundation/types.h"
 #include "Core/Foundation/memory.h"
+#include "Core/Foundation/context.h"
 
 void init_engine_memory();
 void destroy_engine_memory();

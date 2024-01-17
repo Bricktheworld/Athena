@@ -18,29 +18,29 @@ constant f32 kZNear = 0.1f;
 
 struct UploadContext
 {
-  gfx::GpuBuffer staging_buffer;
+  GpuBuffer staging_buffer;
   u64 staging_offset = 0;
-  gfx::CmdListAllocator cmd_list_allocator;
-  gfx::CmdList cmd_list;
-  const gfx::GraphicsDevice* device = nullptr;
+  CmdListAllocator cmd_list_allocator;
+  CmdList cmd_list;
+  const GraphicsDevice* device = nullptr;
 //  MemoryArena cpu_upload_arena;
   LinearAllocator cpu_upload_arena;
 };
 
-void init_global_upload_context(const gfx::GraphicsDevice* device);
+void init_global_upload_context(const GraphicsDevice* device);
 void destroy_global_upload_context();
 
 struct ShaderManager
 {
-  gfx::GpuShader shaders[kEngineShaderCount];
+  GpuShader shaders[kEngineShaderCount];
 };
 
-ShaderManager init_shader_manager(const gfx::GraphicsDevice* device);
+ShaderManager init_shader_manager(const GraphicsDevice* device);
 void destroy_shader_manager(ShaderManager* shader_manager);
 
 struct RenderMeshInst
 {
-  gfx::GraphicsPSO gbuffer_pso;
+  GraphicsPSO gbuffer_pso;
   u32 index_buffer_offset = 0;
   u32 index_count;
   EngineShaderIndex vertex_shader   = kVS_Basic;
@@ -165,43 +165,45 @@ struct RenderOptions
 
 struct Renderer
 {
-  gfx::render::TransientResourceCache transient_resource_cache;
-  gfx::GraphicsPSO fullscreen_pipeline;
-  gfx::GraphicsPSO post_processing_pipeline;
+//  TransientResourceCache transient_resource_cache;
+  RenderGraph graph;
 
-  gfx::ComputePSO dof_coc_pipeline;
-  gfx::ComputePSO dof_coc_dilate_pipeline;
-  gfx::ComputePSO dof_blur_horiz_pipeline;
-  gfx::ComputePSO dof_blur_vert_pipeline;
-  gfx::ComputePSO dof_composite_pipeline;
+  GraphicsPSO fullscreen_pipeline;
+  GraphicsPSO post_processing_pipeline;
 
-//  gfx::ComputePSO debug_gbuffer_pipeline;
-  gfx::RayTracingPSO pipeline;
+  ComputePSO dof_coc_pipeline;
+  ComputePSO dof_coc_dilate_pipeline;
+  ComputePSO dof_blur_horiz_pipeline;
+  ComputePSO dof_blur_vert_pipeline;
+  ComputePSO dof_composite_pipeline;
 
-  gfx::RayTracingPSO standard_brdf_rt_pipeline;
-  gfx::ShaderTable   standard_brdf_rt_shader_table;
+//  ComputePSO debug_gbuffer_pipeline;
+  RayTracingPSO pipeline;
 
-  gfx::RayTracingPSO probe_trace_rt_pipeline;
-  gfx::ShaderTable   probe_trace_rt_shader_table;
+  RayTracingPSO standard_brdf_rt_pipeline;
+  ShaderTable   standard_brdf_rt_shader_table;
 
-  gfx::ComputePSO probe_blending_cs_pipeline;
-  gfx::ComputePSO probe_distance_blending_cs_pipeline;
-//  gfx::ComputePSO debug_probe_cs_pipeline;
+  RayTracingPSO probe_trace_rt_pipeline;
+  ShaderTable   probe_trace_rt_shader_table;
 
-  gfx::DescriptorLinearAllocator imgui_descriptor_heap;
+  ComputePSO probe_blending_cs_pipeline;
+  ComputePSO probe_distance_blending_cs_pipeline;
+//  ComputePSO debug_probe_cs_pipeline;
+
+  DescriptorLinearAllocator imgui_descriptor_heap;
 
 	interlop::DDGIVolDesc ddgi_vol_desc;
-  gfx::GpuImage probe_ray_data;
-  gfx::GpuImage probe_irradiance;
-  gfx::GpuImage probe_distance;
-  gfx::GpuImage probe_offset;
+  GpuImage probe_ray_data;
+  GpuImage probe_irradiance;
+  GpuImage probe_distance;
+  GpuImage probe_offset;
 
   Array<RenderMeshInst> meshes;
 };
 
 Renderer init_renderer(
-  const gfx::GraphicsDevice* device,
-  const gfx::SwapChain* swap_chain,
+  const GraphicsDevice* device,
+  const SwapChain* swap_chain,
   const ShaderManager& shader_manager,
   HWND window
 );
@@ -219,12 +221,12 @@ struct Camera
 };
 void execute_render(
   Renderer* renderer,
-  const gfx::GraphicsDevice* device,
-  gfx::SwapChain* swap_chain,
+  const GraphicsDevice* device,
+  SwapChain* swap_chain,
   Camera* camera,
-  const gfx::GpuBuffer& vertex_buffer,
-  const gfx::GpuBuffer& index_buffer,
-  const gfx::GpuBvh& bvh,
+  const GpuBuffer& vertex_buffer,
+  const GpuBuffer& index_buffer,
+  const GpuBvh& bvh,
   const RenderOptions& render_options,
   const interlop::DirectionalLight& directional_light
 );
@@ -252,14 +254,14 @@ struct Scene
 {
   // TODO(Brandon): In the future, we don't really want to linear allocate these buffers.
   // We want uber buffers, but we want to be able to allocate and free vertices as we need.
-  gfx::GpuBuffer vertex_uber_buffer;
+  GpuBuffer vertex_uber_buffer;
   u32 vertex_uber_buffer_offset = 0;
-  gfx::GpuBuffer index_uber_buffer;
+  GpuBuffer index_uber_buffer;
   u32 index_uber_buffer_offset = 0;
 
-  gfx::GpuBuffer top_bvh;
-  gfx::GpuBuffer bottom_bvh;
-  gfx::GpuBvh bvh;
+  GpuBuffer top_bvh;
+  GpuBuffer bottom_bvh;
+  GpuBvh bvh;
   
   Array<SceneObject>          scene_objects;
   Array<interlop::PointLight> point_lights;
@@ -268,7 +270,7 @@ struct Scene
   LinearAllocator             scene_object_allocator;
 };
 
-Scene init_scene(AllocHeap heap, const gfx::GraphicsDevice* device);
+Scene init_scene(AllocHeap heap, const GraphicsDevice* device);
 
 SceneObject* add_scene_object(
   Scene* scene,
@@ -279,7 +281,7 @@ SceneObject* add_scene_object(
 );
 interlop::PointLight* add_point_light(Scene* scene);
 
-void build_acceleration_structures(gfx::GraphicsDevice* device, Scene* scene);
+void build_acceleration_structures(GraphicsDevice* device, Scene* scene);
 void submit_scene(const Scene& scene, Renderer* renderer);
 
 
