@@ -110,10 +110,10 @@ typedef u32 RenderPassId;
 
 struct ShaderResource
 {
-  u32 id                         = 0;
-  ResourceType type              = kResourceTypeImage;
-  DescriptorType descriptor_type = kDescriptorTypeUav;
-  u32 stride                     = 0;
+  u32            id                = 0;
+  ResourceType   type              = kResourceTypeImage;
+  DescriptorType descriptor_type   = kDescriptorTypeUav;
+  u16            temporal_lifetime = 0;
 };
 
 namespace priv
@@ -136,16 +136,17 @@ struct Uav
 {
   using U = priv::View<T>::kType;
 
-  u32                  id              = 0;
-  const ResourceType   type            = kResourceType<U>;
-  const DescriptorType descriptor_type = kDescriptorTypeUav;
-  const u32            stride          = sizeof(T);
+  u32                  id                = 0;
+  const ResourceType   type              = kResourceType<U>;
+  const DescriptorType descriptor_type   = kDescriptorTypeUav;
+  u16                  temporal_lifetime = 0;
 
-  Uav(RgWriteHandle<U> h) : id(h.id) {}
+  Uav(RgWriteHandle<U> h) : id(h.id), temporal_lifetime(h.temporal_lifetime) {}
 
-  Uav& operator=(RgHandle<U> h)
+  Uav& operator=(RgWriteHandle<U> h)
   {
-    id = h.id;
+    id                = h.id;
+    temporal_lifetime = h.temporal_lifetime;
     return *this;
   }
 };
@@ -156,16 +157,17 @@ struct Srv
 {
   using U = priv::View<T>::kType;
 
-  u32                  id              = 0;
-  const ResourceType   type            = kResourceType<U>;
-  const DescriptorType descriptor_type = kDescriptorTypeSrv;
-  const u32            stride          = sizeof(T);
+  u32                  id                = 0;
+  const ResourceType   type              = kResourceType<U>;
+  const DescriptorType descriptor_type   = kDescriptorTypeSrv;
+  u16                  temporal_lifetime = 0;
 
-  Srv(RgReadHandle<U> h) : id(h.id) {}
+  Srv(RgReadHandle<U> h) : id(h.id), temporal_lifetime(h.temporal_lifetime) {}
 
-  Srv& operator=(RgHandle<U> h)
+  Srv& operator=(RgReadHandle<U> h)
   {
-    id = h.id;
+    id                = h.id;
+    temporal_lifetime = h.temporal_lifetime;
     return *this;
   }
 };
@@ -174,16 +176,17 @@ static_assert(sizeof(Srv<u32>) == sizeof(ShaderResource));
 template <typename T>
 struct Cbv
 {
-  u32 id = 0;
-  const ResourceType type = kResourceTypeBuffer;
-  const DescriptorType descriptor_type = kDescriptorTypeCbv;
-  const u32 __padding__ = 0;
+  u32                  id                = 0;
+  const ResourceType   type              = kResourceTypeBuffer;
+  const DescriptorType descriptor_type   = kDescriptorTypeCbv;
+  u16                  temporal_lifetime = 0;
 
-  Cbv(RgReadHandle<GpuBuffer> h) : id(h.id) {}
+  Cbv(RgReadHandle<GpuBuffer> h) : id(h.id), temporal_lifetime(h.temporal_lifetime) {}
 
-  Cbv& operator=(RgHandle<GpuBuffer> h) 
+  Cbv& operator=(RgReadHandle<GpuBuffer> h) 
   {
-    id = h.id;
+    id                = h.id;
+    temporal_lifetime = h.temporal_lifetime;
     return *this;
   }
 };
@@ -201,8 +204,10 @@ struct RenderContext
 {
   const RenderGraph*    m_Graph      = nullptr;
   const GraphicsDevice* m_Device     = nullptr;
-  u32                   m_FrameIndex = 0;
   CmdList               m_CmdBuffer;
+
+  u32                   m_Width      = 0;
+  u32                   m_Height     = 0;
 
   void clear_depth_stencil_view(
     RgWriteHandle<GpuImage> depth_stencil,
@@ -213,7 +218,11 @@ struct RenderContext
 
   void clear_render_target_view(RgWriteHandle<GpuImage> render_target_view, const Vec4& rgba);
 
-  void draw_indexed_isntanced(
+  void set_graphics_pso(const GraphicsPSO* pso);
+  void set_compute_pso(const ComputePSO* pso);
+  void set_ray_tracing_pso(const RayTracingPSO* pso);
+
+  void draw_indexed_instanced(
     u32 index_count_per_instance,
     u32 instance_count,
     u32 start_index_location,
@@ -228,8 +237,11 @@ struct RenderContext
     u32 start_instance_location
   );
 
-  void ia_set_index_buffer(const GpuBuffer*        buffer, u32 size = 0);
-  void ia_set_index_buffer(RgReadHandle<GpuBuffer> buffer, u32 size = 0);
+  void dispatch(u32 x, u32 y, u32 z);
+  void dispatch_rays(const ShaderTable* shader_table, u32 x, u32 y, u32 z);
+
+  void ia_set_index_buffer(const GpuBuffer*        buffer, u32 stride, u32 size = 0);
+  void ia_set_index_buffer(RgReadHandle<GpuBuffer> buffer, u32 stride, u32 size = 0);
 
   void ia_set_primitive_topology(D3D12_PRIMITIVE_TOPOLOGY primitive_topology);
   
@@ -248,6 +260,8 @@ struct RenderContext
   );
 
   void om_set_render_targets(Span<RgWriteHandle<GpuImage>> rtvs, Option<RgWriteHandle<GpuImage>> dsv);
+  void rs_set_scissor_rect(s32 left, s32 top, s32 right, s32 bottom);
+  void rs_set_viewport(f32 left, f32 top, f32 width, f32 height);
 
   void set_compute_root_shader_resource_view(u32 root_parameter_index, const GpuBuffer*        buffer);
   void set_compute_root_shader_resource_view(u32 root_parameter_index, RgReadHandle<GpuBuffer> buffer);
@@ -255,9 +269,18 @@ struct RenderContext
   void set_graphics_root_shader_resource_view(u32 root_parameter_index, const GpuBuffer*        buffer);
   void set_graphics_root_shader_resource_view(u32 root_parameter_index, RgReadHandle<GpuBuffer> buffer);
 
-  void set_graphics_root_32bit_constants(u32 root_parameter_index, Span<u32> src, u32 dst_offset);
+  void set_compute_root_constant_buffer_view(u32 root_parameter_index, const GpuBuffer*        buffer);
+  void set_compute_root_constant_buffer_view(u32 root_parameter_index, RgReadHandle<GpuBuffer> buffer);
 
-  void graphics_bind_shader_resources(Span<ShaderResource> resources);
+  void set_graphics_root_constant_buffer_view(u32 root_parameter_index, const GpuBuffer*        buffer);
+  void set_graphics_root_constant_buffer_view(u32 root_parameter_index, RgReadHandle<GpuBuffer> buffer);
+
+  void set_graphics_root_32bit_constants(u32 root_parameter_index, Span<u32> src, u32 dst_offset);
+  void set_compute_root_32bit_constants(u32 root_parameter_index, Span<u32> src, u32 dst_offset);
+
+  void graphics_bind_shader_resources   (Span<ShaderResource> resources);
+  void compute_bind_shader_resources    (Span<ShaderResource> resources);
+  void ray_tracing_bind_shader_resources(Span<ShaderResource> resources);
 
   template <typename T>
   void graphics_bind_shader_resources(const T& resource)
@@ -269,7 +292,33 @@ struct RenderContext
     graphics_bind_shader_resources(Span(shader_resources, num_resources));
   }
 
-  void write_upload_buffer(RgHandle<GpuBuffer> dst, const void* src, u64 size);
+  template <typename T>
+  void compute_bind_shader_resources(const T& resource)
+  {
+    static_assert(sizeof(T) % sizeof(ShaderResource) == 0, "Invalid resource struct!");
+
+    const ShaderResource* shader_resources = (const ShaderResource*)&resource;
+    u32                   num_resources    = sizeof(T) / sizeof(ShaderResource);
+    compute_bind_shader_resources(Span(shader_resources, num_resources));
+  }
+
+  template <typename T>
+  void ray_tracing_bind_shader_resources(const T& resource)
+  {
+    static_assert(sizeof(T) % sizeof(ShaderResource) == 0, "Invalid resource struct!");
+
+    const ShaderResource* shader_resources = (const ShaderResource*)&resource;
+    u32                   num_resources    = sizeof(T) / sizeof(ShaderResource);
+    ray_tracing_bind_shader_resources(Span(shader_resources, num_resources));
+  }
+
+  // NOTE(Brandon): It is NOT a mistake that I am not using RgWriteHandle. As long as the
+  // buffer was created in an upload heap then you can write to it, since this is CPU writing
+  // and the graph doesn't care when you write to the buffer (since it doesn't affect how 
+  // the GPU runs its passes).
+  void write_cpu_upload_buffer(RgReadHandle<GpuBuffer> dst, const void* src, u64 size);
+  void write_cpu_upload_buffer(const GpuBuffer*        dst, const void* src, u64 size);
+  void write_cpu_upload_buffer(RgHandle<GpuBuffer>     dst, const void* src, u64 size);
 };
 
 typedef void (RenderHandler)(RenderContext* render_context, const void* data);
@@ -291,6 +340,7 @@ struct RgPassBuilder
 
   Array<ResourceAccessData> read_resources;
   Array<ResourceAccessData> write_resources;
+  Array<RenderPassId>       manual_dependencies;
 };
 
 struct RgBuilder
@@ -407,7 +457,6 @@ struct RenderGraph
   Array<GpuLinearAllocator>              temporal_heaps;
 
   RgDescriptorHeap                       descriptor_heap;
-  Array<RgDescriptorHeap>                temporal_descriptor_heap;
 
   HashTable<RgDescriptorKey, Descriptor> descriptor_map;
   HashTable<RgResourceKey,   GpuBuffer > buffer_map;
@@ -418,6 +467,10 @@ struct RenderGraph
   Array<RgResourceBarrier>               exit_barriers;
 
   CmdListAllocator                       cmd_allocator;
+
+  u32                                    frame_id = 0;
+  u32                                    width    = 0;
+  u32                                    height   = 0;
 };
 
 RgBuilder   init_rg_builder(AllocHeap heap, u32 width, u32 height);
@@ -537,7 +590,7 @@ RgHandle<GpuBuffer> rg_create_upload_buffer(
   RgBuilder* builder,
   const char* name,
   u64 size,
-  u32 stride
+  u32 stride = 0
 );
 
 RgHandle<GpuBuffer> rg_create_buffer_ex(

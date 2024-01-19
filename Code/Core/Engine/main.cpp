@@ -213,8 +213,11 @@ application_entry(HINSTANCE instance, int show_code)
   ShaderManager shader_manager = init_shader_manager(&graphics_device);
   defer { destroy_shader_manager(&shader_manager); };
 
-  Renderer renderer = init_renderer(&graphics_device, &swap_chain, shader_manager, window);
-  defer { destroy_renderer(&renderer); };
+  init_renderer(&graphics_device, &swap_chain, shader_manager, window);
+  defer { destroy_renderer(); };
+
+  init_unified_geometry_buffer(&graphics_device);
+  defer { destroy_unified_geometry_buffer(); };
 
   Scene scene       = init_scene(g_InitHeap, &graphics_device);
 
@@ -224,6 +227,7 @@ application_entry(HINSTANCE instance, int show_code)
     defer { free_scratch_arena(&scratch_arena); };
 
     fs::FileStream sponza_built_file = open_built_asset_file(path_to_asset_id("Assets/Source/sponza/Sponza.gltf"));
+//    fs::FileStream sponza_built_file = open_built_asset_file(path_to_asset_id("Assets/Source/cube.fbx"));
     defer { fs::close_file(&sponza_built_file); };
 
     u64 buf_size = fs::get_file_size(sponza_built_file);
@@ -238,7 +242,7 @@ application_entry(HINSTANCE instance, int show_code)
     sponza = add_scene_object(&scene, shader_manager, model, kVS_Basic, kPS_BasicNormalGloss);
   }
 
-  build_acceleration_structures(&graphics_device, &scene);
+  build_acceleration_structures(&graphics_device);
 
   DirectX::Keyboard d3d12_keyboard;
   DirectX::Mouse d3d12_mouse;
@@ -319,12 +323,13 @@ application_entry(HINSTANCE instance, int show_code)
 
 //    blocking_kick_closure_job(kJobPriorityMedium, [&]()
 //    {
-    begin_renderer_recording(&renderer);
-    submit_scene(scene, &renderer);
+    begin_renderer_recording();
+    submit_scene(scene);
 
     const GpuImage* back_buffer = swap_chain_acquire(&swap_chain);
-    execute_render_graph(&renderer.graph, &graphics_device, back_buffer, swap_chain.back_buffer_index);
+    execute_render_graph(&g_Renderer.graph, &graphics_device, back_buffer, swap_chain.back_buffer_index);
     swap_chain_submit(&swap_chain, &graphics_device, back_buffer);
+
 //    execute_render(
 //      &renderer,
 //      &graphics_device,

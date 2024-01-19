@@ -4,17 +4,18 @@
 #include "Core/Engine/job_system.h"
 #include "Core/Engine/Render/graphics.h"
 
-#include <windows.h>
-#include <d3dcompiler.h>
-//#include "pix3.h"
-#include "Core/Vendor/d3dx12.h"
 #include "Core/Engine/Vendor/imgui/imgui.h"
 #include "Core/Engine/Vendor/imgui/imgui_impl_win32.h"
 #include "Core/Engine/Vendor/imgui/imgui_impl_dx12.h"
+
+
+#include "Core/Vendor/d3dx12.h"
+#include <d3dcompiler.h>
 #pragma comment(lib, "d3d12.lib")
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "dxguid.lib")
 #pragma comment(lib, "d3dcompiler.lib")
+
 
 #ifdef DEBUG
 #define DEBUG_LAYER
@@ -541,7 +542,9 @@ alloc_gpu_image_2D_no_heap(const GraphicsDevice* device, GpuImageDesc desc, cons
                                                 IID_PPV_ARGS(&ret.d3d12_image)));
 
 //    ret.d3d12_image->SetName(name);
-  ret.d3d12_image->SetPrivateData(WKPDID_D3DDebugObjectName, (u32)strlen(name), name);
+  wchar_t wname[1024];
+  mbstowcs(wname, name, 1024);
+  ret.d3d12_image->SetName(wname);
   ret.state = desc.initial_state;
 
   return ret;
@@ -617,7 +620,9 @@ alloc_gpu_image_2D(
                                               p_clear_value,
                                               IID_PPV_ARGS(&ret.d3d12_image)));
 
-//    ret.d3d12_image->SetName(name);
+  wchar_t wname[1024];
+  mbstowcs(wname, name, 1024);
+  ret.d3d12_image->SetName(wname);
   ret.state = desc.initial_state;
 
   allocator->pos = new_pos;
@@ -644,7 +649,9 @@ alloc_gpu_buffer_no_heap(
                                                 desc.initial_state,
                                                 nullptr,
                                                 IID_PPV_ARGS(&ret.d3d12_buffer)));
-  ret.d3d12_buffer->SetPrivateData(WKPDID_D3DDebugObjectName, (u32)strlen(name), name);
+  wchar_t wname[1024];
+  mbstowcs(wname, name, 1024);
+  ret.d3d12_buffer->SetName(wname);
   ret.gpu_addr = ret.d3d12_buffer->GetGPUVirtualAddress();
   if (type == kGpuHeapTypeUpload)
   {
@@ -692,7 +699,10 @@ alloc_gpu_buffer(
                                               nullptr,
                                               IID_PPV_ARGS(&ret.d3d12_buffer)));
 
-//    ret.d3d12_buffer->SetName(name);
+  wchar_t wname[1024];
+  mbstowcs(wname, name, 1024);
+  ret.d3d12_buffer->SetName(wname);
+
   ret.gpu_addr = ret.d3d12_buffer->GetGPUVirtualAddress();
   if (allocator->heap.type == kGpuHeapTypeUpload)
   {
@@ -1591,12 +1601,6 @@ set_compute_root_signature(CmdList* cmd)
 {
   ASSERT(g_root_signature != nullptr);
   cmd->d3d12_list->SetComputeRootSignature(g_root_signature);
-}
-
-void
-set_primitive_topology(CmdList* cmd, D3D_PRIMITIVE_TOPOLOGY topology)
-{
-  cmd->d3d12_list->IASetPrimitiveTopology(topology);
 }
 
 void

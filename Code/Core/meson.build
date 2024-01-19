@@ -112,6 +112,8 @@ engine_src = [
   'Engine/memory.cpp',
   'Engine/memory.h',
 
+  'Engine/Render/blit.cpp',
+  'Engine/Render/blit.h',
   'Engine/Render/ddgi.cpp',
   'Engine/Render/ddgi.h',
   'Engine/Render/depth_of_field.cpp',
@@ -122,6 +124,8 @@ engine_src = [
   'Engine/Render/graphics.h',
   'Engine/Render/lighting.cpp',
   'Engine/Render/lighting.h',
+  'Engine/Render/misc.cpp',
+  'Engine/Render/misc.h',
   'Engine/Render/post_processing.cpp',
   'Engine/Render/post_processing.h',
   'Engine/Render/render_graph.cpp',

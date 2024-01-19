@@ -475,7 +475,6 @@ void swap_chain_submit(SwapChain* swap_chain, const GraphicsDevice* device, cons
 
 void set_descriptor_heaps(CmdList* cmd, const DescriptorPool* heaps, u32 num_heaps);
 void set_descriptor_heaps(CmdList* cmd, Span<const DescriptorLinearAllocator*> heaps);
-void set_primitive_topology(CmdList* cmd, D3D_PRIMITIVE_TOPOLOGY topology = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 void set_graphics_root_signature(CmdList* cmd);
 void set_compute_root_signature(CmdList* cmd);
 

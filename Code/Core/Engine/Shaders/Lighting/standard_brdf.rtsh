@@ -41,13 +41,15 @@ void ray_gen()
 	Texture2D<unorm float4>               gbuffer_diffuse_metallic = ResourceDescriptorHeap[rt_resources.gbuffer_diffuse_rgb_metallic_a];
 	Texture2D<float4>                     gbuffer_normal_roughness = ResourceDescriptorHeap[rt_resources.gbuffer_normal_rgb_roughness_a];
 
-	ConstantBuffer<interlop::Scene>       scene                    = ResourceDescriptorHeap[rt_resources.scene];
+//	ConstantBuffer<interlop::Scene>       scene                    = ResourceDescriptorHeap[rt_resources.scene];
+#if 0
 	ConstantBuffer<interlop::DDGIVolDesc> vol_desc                 = ResourceDescriptorHeap[rt_resources.vol_desc];
   Texture2DArray<float4>                probe_irradiance         = ResourceDescriptorHeap[rt_resources.probe_irradiance];
   Texture2DArray<float2>                probe_distance           = ResourceDescriptorHeap[rt_resources.probe_distance];
+#endif
 	RWTexture2D<float3>                   render_target            = ResourceDescriptorHeap[rt_resources.render_target];
 
-	interlop::DirectionalLight            directional_light = scene.directional_light;
+	interlop::DirectionalLight            directional_light        = g_SceneBuffer.directional_light;
 
 
   uint   material_id  = gbuffer_material_ids    [launch_index];
@@ -68,7 +70,7 @@ void ray_gen()
     0.001f
   );
 
-	float3 view_direction  = normalize(scene.camera_world_pos.xyz - ws_pos);
+	float3 view_direction  = normalize(g_SceneBuffer.camera_world_pos.xyz - ws_pos);
 
   float3 direct_lighting = evaluate_directional_light(
     directional_light.direction.xyz,
@@ -81,11 +83,13 @@ void ray_gen()
     1.0f
   ) * saturate(shadow_atten);
 
-  float3 cam_dir         = normalize(ws_pos - scene.camera_world_pos.xyz);
+  float3 cam_dir         = normalize(ws_pos - g_SceneBuffer.camera_world_pos.xyz);
+#if 0
   float3 surface_bias    = get_surface_bias(normal, cam_dir, vol_desc);
   float3 indirect        = get_vol_irradiance(ws_pos, surface_bias, normal, vol_desc, probe_irradiance, probe_distance);
+#endif
 
-  float3 irradiance      = direct_lighting + saturate(indirect);
+  float3 irradiance      = direct_lighting; //  + saturate(indirect);
   float3 lambertian      = evaluate_lambertian(1.0f);
 
 	float3 color           = payload.t < 0.0f ? float3(0.0f, 0.0f, 0.0f) : lambertian * irradiance;

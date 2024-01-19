@@ -8,14 +8,12 @@ shaders::BasicVSOut VS_Basic(uint vert_id: SV_VertexID)
 {
 	shaders::BasicVSOut ret;
 
-	StructuredBuffer<interlop::Vertex>  vertices  = ResourceDescriptorHeap[render_resources.vertices];
-	ConstantBuffer<interlop::Scene>     scene     = ResourceDescriptorHeap[render_resources.scene];
 	ConstantBuffer<interlop::Transform> transform = ResourceDescriptorHeap[render_resources.transform];
 
-	interlop::Vertex vertex = vertices[vert_id];
+	interlop::Vertex vertex = g_VertexBuffer[vert_id];
 
 	ret.world_pos = float4(vertex.position.xyz, 1.0f); //mul(transform.model, float4(vertex.position.xyz, 1.0f));
-	ret.ndc_pos   = mul(scene.view_proj, ret.world_pos);
+	ret.ndc_pos   = mul(g_SceneBuffer.view_proj, ret.world_pos);
 
 	float3x3 normal_matrix = (float3x3)transpose(transform.model_inverse);
 	// float3 tangent = normalize(mul(normal_matrix, vertex.tangent));

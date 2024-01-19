@@ -4,10 +4,12 @@
 struct PostProcessingParams
 {
   RgReadHandle<GpuImage>  hdr_buffer;
-  RgWriteHandle<GpuImage> back_buffer;
+  RgWriteHandle<GpuImage> dst;
 };
 
-void init_post_processing(
+RgHandle<GpuImage> init_tonemapped_buffer(RgBuilder* builder);
+
+RgHandle<GpuImage> init_post_processing(
   AllocHeap heap,
   RgBuilder* builder,
   const GraphicsDevice* device,

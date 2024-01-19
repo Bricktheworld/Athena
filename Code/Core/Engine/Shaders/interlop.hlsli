@@ -69,8 +69,6 @@ namespace interlop
 
   struct MaterialRenderResources
   {
-    SRV(Vertex)    vertices;
-    CBV(Scene)     scene;
     CBV(Transform) transform;
   };
 
@@ -268,15 +266,16 @@ namespace interlop
 
   struct StandardBrdfRTResources
   {
-    CBV(Scene)       scene;
     SRV(GpuImage)    gbuffer_material_ids;
     SRV(GpuImage)    gbuffer_world_pos;
     SRV(GpuImage)    gbuffer_diffuse_rgb_metallic_a;
     SRV(GpuImage)    gbuffer_normal_rgb_roughness_a;
 
+#if 0
 		CBV(DDGIVolDesc) vol_desc;
     SRV(GpuImage)    probe_irradiance;
     SRV(GpuImage)    probe_distance;
+#endif
 
     UAV(GpuImage)    render_target;
   };
