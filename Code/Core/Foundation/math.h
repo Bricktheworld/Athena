@@ -7,6 +7,12 @@
 static constexpr f32 kPI  = 3.1415926535897932f;
 static constexpr f32 k2PI = 6.2831853071795864f;
 
+inline s64
+modulo(s64 x, s64 mod)
+{
+  return (x % mod) % mod;
+}
+
 struct Vec2
 {
   Vec2() : x(0.0f), y(0.0f) {}

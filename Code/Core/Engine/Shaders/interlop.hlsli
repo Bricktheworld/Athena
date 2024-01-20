@@ -90,13 +90,18 @@ namespace interlop
     f32  intensity;
   };
 
-  struct StandardBRDFComputeResources
+  struct StandardBrdfComputeResources
   {
-    CBV(Scene)     scene;
     SRV(GpuImage)  gbuffer_material_ids;
     SRV(GpuImage)  gbuffer_world_pos;
     SRV(GpuImage)  gbuffer_diffuse_rgb_metallic_a;
     SRV(GpuImage)  gbuffer_normal_rgb_roughness_a;
+
+#if 0
+		CBV(DDGIVolDesc) vol_desc;
+    SRV(GpuImage)    probe_irradiance;
+    SRV(GpuImage)    probe_distance;
+#endif
 
     UAV(GpuImage)  render_target;
   };
@@ -231,11 +236,10 @@ namespace interlop
   struct ProbeTraceRTResources
   {
 		CBV(DDGIVolDesc) vol_desc;
-		CBV(Scene)       scene;
     SRV(GpuImage)    probe_irradiance;
     SRV(GpuImage)    probe_distance;
 
-		UAV(GpuImage)    out_ray_data;
+		UAV(GpuImage)    ray_data;
   };
 
   struct ProbeBlendingCSResources
@@ -271,11 +275,9 @@ namespace interlop
     SRV(GpuImage)    gbuffer_diffuse_rgb_metallic_a;
     SRV(GpuImage)    gbuffer_normal_rgb_roughness_a;
 
-#if 0
-		CBV(DDGIVolDesc) vol_desc;
-    SRV(GpuImage)    probe_irradiance;
-    SRV(GpuImage)    probe_distance;
-#endif
+		CBV(DDGIVolDesc) ddgi_vol_desc;
+    SRV(GpuImage)    ddgi_probe_irradiance;
+    SRV(GpuImage)    ddgi_probe_distance;
 
     UAV(GpuImage)    render_target;
   };

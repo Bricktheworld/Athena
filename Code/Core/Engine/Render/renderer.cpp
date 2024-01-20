@@ -50,6 +50,8 @@ init_renderer(
   HWND window
 ) {
   zero_memory(&g_Renderer, sizeof(g_Renderer));
+
+
   ScratchAllocator scratch_arena = alloc_scratch_arena();
   defer { free_scratch_arena(&scratch_arena); };
 
@@ -57,12 +59,14 @@ init_renderer(
 
   GBuffer   gbuffer = init_gbuffer(&builder);
 
-  init_frame_init_pass(scratch_arena, &builder, &gbuffer);
+  init_frame_init_pass(scratch_arena, &builder);
 
   init_gbuffer_static(scratch_arena, &builder, &gbuffer);
 
+  Ddgi ddgi = init_ddgi(scratch_arena, &builder);
+
   RgHandle<GpuImage> hdr_buffer  = init_hdr_buffer(&builder);
-  init_lighting(scratch_arena, &builder, device, gbuffer, &hdr_buffer);
+  init_lighting(scratch_arena, &builder, device, gbuffer, ddgi, &hdr_buffer);
 
   RgHandle<GpuImage> post_buffer = init_post_processing(scratch_arena, &builder, device, hdr_buffer);
 
@@ -92,6 +96,11 @@ init_renderer(
 
   g_Renderer.standard_brdf_pso = init_ray_tracing_pipeline(device, shader_manager.shaders[kRT_StandardBrdf], "Standard BRDF RT");
   g_Renderer.standard_brdf_st  = init_shader_table(device, g_Renderer.standard_brdf_pso, "Standard BRDF Shader Table");
+
+  g_Renderer.ddgi_probe_trace_pso = init_ray_tracing_pipeline(device, shader_manager.shaders[kRT_ProbeTrace], "Probe Trace RT");
+  g_Renderer.ddgi_probe_trace_st  = init_shader_table(device, g_Renderer.ddgi_probe_trace_pso, "Probe Trace Shader Table");
+
+  g_Renderer.ddgi_probe_blend_pso = init_compute_pipeline(device, shader_manager.shaders[kCS_ProbeBlending], "Probe Blending");
 
   g_Renderer.imgui_descriptor_heap = init_descriptor_linear_allocator(device, 1, kDescriptorHeapTypeCbvSrvUav);
   init_imgui_ctx(device, swap_chain, window, &g_Renderer.imgui_descriptor_heap);

@@ -91,14 +91,10 @@ get_d3d12_cmd_list_type(CmdQueueType type)
 {
   switch(type)
   {
-    case kCmdQueueTypeGraphics:
-      return D3D12_COMMAND_LIST_TYPE_DIRECT;
-    case kCmdQueueTypeCompute:
-      return D3D12_COMMAND_LIST_TYPE_COMPUTE;
-    case kCmdQueueTypeCopy:
-      return D3D12_COMMAND_LIST_TYPE_COPY;
-    default:
-      UNREACHABLE;
+    case kCmdQueueTypeGraphics: return D3D12_COMMAND_LIST_TYPE_DIRECT;
+    case kCmdQueueTypeCompute:  return D3D12_COMMAND_LIST_TYPE_COMPUTE;
+    case kCmdQueueTypeCopy:     return D3D12_COMMAND_LIST_TYPE_COPY;
+    default: UNREACHABLE;
   }
 }
 
@@ -246,8 +242,12 @@ init_cmd_list_allocator(
   CmdAllocator allocator = {0};
   for (u16 i = 0; i < pool_size; i++)
   {
-    HASSERT(device->d3d12->CreateCommandAllocator(get_d3d12_cmd_list_type(queue->type),
-                                                  IID_PPV_ARGS(&allocator.d3d12_allocator)));
+    HASSERT(
+      device->d3d12->CreateCommandAllocator(
+        get_d3d12_cmd_list_type(queue->type),
+        IID_PPV_ARGS(&allocator.d3d12_allocator)
+      )
+    );
     allocator.fence_value = 0;
     ring_queue_push(&ret.allocators, allocator);
   }
@@ -255,11 +255,15 @@ init_cmd_list_allocator(
   for (u16 i = 0; i < pool_size; i++)
   {
     ID3D12GraphicsCommandList4* list = nullptr;
-    HASSERT(device->d3d12->CreateCommandList(0,
-                                            get_d3d12_cmd_list_type(queue->type),
-                                            allocator.d3d12_allocator,
-                                            nullptr,
-                                            IID_PPV_ARGS(&list)));
+    HASSERT(
+      device->d3d12->CreateCommandList(
+        0,
+        get_d3d12_cmd_list_type(queue->type),
+        allocator.d3d12_allocator,
+        nullptr,
+        IID_PPV_ARGS(&list)
+      )
+    );
     list->Close();
     ring_queue_push(&ret.lists, list);
   }
@@ -534,12 +538,16 @@ alloc_gpu_image_2D_no_heap(const GraphicsDevice* device, GpuImageDesc desc, cons
     p_clear_value = &clear_value;
   }
 
-  HASSERT(device->d3d12->CreateCommittedResource(&heap_props,
-                                                D3D12_HEAP_FLAG_NONE,
-                                                &resource_desc,
-                                                desc.initial_state,
-                                                p_clear_value,
-                                                IID_PPV_ARGS(&ret.d3d12_image)));
+  HASSERT(
+    device->d3d12->CreateCommittedResource(
+      &heap_props,
+      D3D12_HEAP_FLAG_NONE,
+      &resource_desc,
+      desc.initial_state,
+      p_clear_value,
+      IID_PPV_ARGS(&ret.d3d12_image)
+    )
+  );
 
 //    ret.d3d12_image->SetName(name);
   wchar_t wname[1024];
@@ -561,17 +569,17 @@ static D3D12_RESOURCE_DESC
 d3d12_resource_desc(GpuImageDesc desc)
 {
   D3D12_RESOURCE_DESC resource_desc;
-  resource_desc.Dimension            = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-  resource_desc.Format               = desc.format;
-  resource_desc.Alignment            = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
-  resource_desc.Width                = desc.width;
-  resource_desc.Height               = desc.height;
-  resource_desc.DepthOrArraySize     = 1;
-  resource_desc.MipLevels            = 1;
-  resource_desc.SampleDesc.Count     = 1;
-  resource_desc.SampleDesc.Quality   = 0;
-  resource_desc.Layout               = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-  resource_desc.Flags                = desc.flags;
+  resource_desc.Dimension          = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+  resource_desc.Format             = desc.format;
+  resource_desc.Alignment          = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+  resource_desc.Width              = desc.width;
+  resource_desc.Height             = desc.height;
+  resource_desc.DepthOrArraySize   = 1;
+  resource_desc.MipLevels          = 1;
+  resource_desc.SampleDesc.Count   = 1;
+  resource_desc.SampleDesc.Quality = 0;
+  resource_desc.Layout             = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+  resource_desc.Flags              = desc.flags;
 
   return resource_desc;
 }
@@ -613,12 +621,16 @@ alloc_gpu_image_2D(
   }
 
   u64 allocation_offset = ALIGN_POW2(allocator->pos, info.Alignment);
-  HASSERT(device->d3d12->CreatePlacedResource(allocator->heap.d3d12_heap,
-                                              allocation_offset,
-                                              &resource_desc,
-                                              desc.initial_state,
-                                              p_clear_value,
-                                              IID_PPV_ARGS(&ret.d3d12_image)));
+  HASSERT(
+    device->d3d12->CreatePlacedResource(
+      allocator->heap.d3d12_heap,
+      allocation_offset,
+      &resource_desc,
+      desc.initial_state,
+      p_clear_value,
+      IID_PPV_ARGS(&ret.d3d12_image)
+    )
+  );
 
   wchar_t wname[1024];
   mbstowcs(wname, name, 1024);
@@ -692,12 +704,16 @@ alloc_gpu_buffer(
 
   auto resource_desc = CD3DX12_RESOURCE_DESC::Buffer(desc.size, desc.flags);
 
-  HASSERT(device->d3d12->CreatePlacedResource(allocator->heap.d3d12_heap,
-                                              allocator->pos,
-                                              &resource_desc,
-                                              desc.initial_state,
-                                              nullptr,
-                                              IID_PPV_ARGS(&ret.d3d12_buffer)));
+  HASSERT(
+    device->d3d12->CreatePlacedResource(
+      allocator->heap.d3d12_heap,
+      allocator->pos,
+      &resource_desc,
+      desc.initial_state,
+      nullptr,
+      IID_PPV_ARGS(&ret.d3d12_buffer)
+    )
+  );
 
   wchar_t wname[1024];
   mbstowcs(wname, name, 1024);
@@ -723,18 +739,12 @@ get_d3d12_descriptor_type(DescriptorHeapType type)
 {
   switch(type)
   {
-    case kDescriptorHeapTypeCbvSrvUav:
-      return D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    case kDescriptorHeapTypeSampler:
-      return D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER;
-    case kDescriptorHeapTypeRtv:
-      return D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-    case kDescriptorHeapTypeDsv:
-      return D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
-    default:
-      UNREACHABLE;
+    case kDescriptorHeapTypeCbvSrvUav: return D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    case kDescriptorHeapTypeSampler:   return D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER;
+    case kDescriptorHeapTypeRtv:       return D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+    case kDescriptorHeapTypeDsv:       return D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+    default: UNREACHABLE;
   }
-  return D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
 }
 
 static bool
@@ -891,9 +901,11 @@ init_rtv(const GraphicsDevice* device, Descriptor* descriptor, const GpuImage* i
 {
   ASSERT(descriptor->type == kDescriptorHeapTypeRtv);
 
-  device->d3d12->CreateRenderTargetView(image->d3d12_image,
-                                        nullptr,
-                                        descriptor->cpu_handle);
+  device->d3d12->CreateRenderTargetView(
+    image->d3d12_image,
+    nullptr,
+    descriptor->cpu_handle
+  );
 
 }
 
@@ -907,9 +919,11 @@ init_dsv(const GraphicsDevice* device, Descriptor* descriptor, const GpuImage* i
   desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
   desc.Flags = D3D12_DSV_FLAG_NONE;
   desc.Format = image->desc.format;
-  device->d3d12->CreateDepthStencilView(image->d3d12_image,
-                                        &desc,
-                                        descriptor->cpu_handle);
+  device->d3d12->CreateDepthStencilView(
+    image->d3d12_image,
+    &desc,
+    descriptor->cpu_handle
+  );
 }
 
 void
@@ -1065,13 +1079,15 @@ init_root_signature(const GraphicsDevice* device, ID3DBlob* blob)
     ID3DBlob* root_signature_blob = nullptr;
     defer { COM_RELEASE(root_signature_blob); };
 
-    HASSERT(D3DGetBlobPart(
-      blob->GetBufferPointer(),
-      blob->GetBufferSize(),
-      D3D_BLOB_ROOT_SIGNATURE,
-      0,
-      &root_signature_blob
-    ));
+    HASSERT(
+      D3DGetBlobPart(
+        blob->GetBufferPointer(),
+        blob->GetBufferSize(),
+        D3D_BLOB_ROOT_SIGNATURE,
+        0,
+        &root_signature_blob
+      )
+    );
     device->d3d12->CreateRootSignature(
       0,
       root_signature_blob->GetBufferPointer(),
@@ -1173,7 +1189,9 @@ init_graphics_pipeline(
 
   HASSERT(device->d3d12->CreateGraphicsPipelineState(&pso_desc, IID_PPV_ARGS(&ret.d3d12_pso)));
 
-//    ret.d3d12_pso->SetName(name);
+  wchar_t wname[1024];
+  mbstowcs(wname, name, 1024);
+  ret.d3d12_pso->SetName(wname);
 
   return ret;
 }
@@ -1197,6 +1215,10 @@ init_compute_pipeline(const GraphicsDevice* device, GpuShader compute_shader, co
   desc.CachedPSO.pCachedBlob = nullptr;
   desc.CachedPSO.CachedBlobSizeInBytes = 0;
   HASSERT(device->d3d12->CreateComputePipelineState(&desc, IID_PPV_ARGS(&ret.d3d12_pso)));
+
+  wchar_t wname[1024];
+  mbstowcs(wname, name, 1024);
+  ret.d3d12_pso->SetName(wname);
 
   return ret;
 }
@@ -1357,6 +1379,10 @@ init_ray_tracing_pipeline(const GraphicsDevice* device, GpuShader ray_tracing_li
 
   HASSERT(ret.d3d12_pso->QueryInterface(IID_PPV_ARGS(&ret.d3d12_properties)));
 
+  wchar_t wname[1024];
+  mbstowcs(wname, name, 1024);
+  ret.d3d12_pso->SetName(wname);
+
   return ret;
 }
 
@@ -1462,12 +1488,16 @@ init_swap_chain(HWND window, const GraphicsDevice* device)
   swap_chain_desc.Flags = 0;  //ret.tearing_supported ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0;
 
   IDXGISwapChain1* swap_chain1 = nullptr;
-  HASSERT(factory->CreateSwapChainForHwnd(device->graphics_queue.d3d12_queue,
-                                          window,
-                                          &swap_chain_desc,
-                                          nullptr,
-                                          nullptr,
-                                          &swap_chain1));
+  HASSERT(
+    factory->CreateSwapChainForHwnd(
+      device->graphics_queue.d3d12_queue,
+      window,
+      &swap_chain_desc,
+      nullptr,
+      nullptr,
+      &swap_chain1
+    )
+  );
 
   HASSERT(factory->MakeWindowAssociation(window, DXGI_MWA_NO_ALT_ENTER));
   HASSERT(swap_chain1->QueryInterface(IID_PPV_ARGS(&ret.d3d12_swap_chain)));
@@ -1480,40 +1510,14 @@ init_swap_chain(HWND window, const GraphicsDevice* device)
   {
     ret.back_buffers[i] = HEAP_ALLOC(GpuImage, g_InitHeap, 1);
   }
-//  ret.depth_buffer = push_memory_arena<GpuImage>(MEMORY_ARENA_FWD);
 
-  alloc_back_buffers_from_swap_chain(&ret,
-                                    ret.back_buffers,
-                                    ARRAY_LENGTH(ret.back_buffers));
+  alloc_back_buffers_from_swap_chain(
+    &ret,
+    ret.back_buffers,
+    ARRAY_LENGTH(ret.back_buffers)
+  );
+
   ret.back_buffer_index = 0;
-
-//  GpuImageDesc desc = {0};
-//  desc.width = ret.width;
-//  desc.height = ret.height;
-//  desc.format = DXGI_FORMAT_D32_FLOAT;
-//  desc.initial_state = D3D12_RESOURCE_STATE_DEPTH_WRITE;
-//  D3D12_CLEAR_VALUE depth_clear_value;
-//  depth_clear_value.Format = desc.format;
-//  depth_clear_value.DepthStencil.Depth = 0.0f;
-//  depth_clear_value.DepthStencil.Stencil = 0;
-//  desc.clear_value = depth_clear_value;
-//  *ret.depth_buffer = alloc_gpu_image_2D_no_heap(device, desc, L"SwapChain Depth Buffer");
-
-//  ret.render_target_view_heap = init_descriptor_heap(MEMORY_ARENA_FWD,
-//                                                     device,
-//                                                     ARRAY_LENGTH(ret.back_buffers),
-//                                                     kDescriptorHeapTypeRtv);
-//  ret.depth_stencil_view_heap = init_descriptor_heap(MEMORY_ARENA_FWD,
-//                                                     device,
-//                                                     1,
-//                                                     kDescriptorHeapTypeDsv);
-
-//  for (u32 i = 0; i < ARRAY_LENGTH(ret.back_buffers); i++)
-//  {
-//    ret.back_buffer_views[i] = alloc_rtv(device, &ret.render_target_view_heap, ret.back_buffers[i]);
-//  }
-
-//  ret.depth_stencil_view = alloc_dsv(device, &ret.depth_stencil_view_heap, ret.depth_buffer);
 
   return ret;
 }
@@ -1521,10 +1525,6 @@ init_swap_chain(HWND window, const GraphicsDevice* device)
 void
 destroy_swap_chain(SwapChain* swap_chain)
 {
-//  destroy_descriptor_heap(&swap_chain->depth_stencil_view_heap);
-//  destroy_descriptor_heap(&swap_chain->render_target_view_heap);
-
-//  free_gpu_image(swap_chain->depth_buffer);
   for (auto* image : swap_chain->back_buffers)
   {
     free_gpu_image(image);

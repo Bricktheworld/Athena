@@ -5,19 +5,13 @@
 
 #include "Core/Engine/Shaders/interlop.hlsli"
 
-void
-init_back_buffer_blit(AllocHeap heap, RgBuilder* builder, RgHandle<GpuImage> src)
+struct BlitParams
 {
-  BlitParams* params  = HEAP_ALLOC(BlitParams, g_InitHeap, 1);
-  zero_memory(params, sizeof(BlitParams));
+  RgReadHandle<GpuImage>  src;
+  RgWriteHandle<GpuImage> dst;
+};
 
-  RgPassBuilder* pass = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "Back Buffer Blit", params, &render_handler_back_buffer_blit, 1, 1);
-
-  params->src         = rg_read_texture (pass, src, kReadTextureSrvPixelShader);
-  params->dst         = rg_write_texture(pass, &builder->back_buffer, kWriteTextureColorTarget);
-}
-
-void
+static void
 render_handler_back_buffer_blit(RenderContext* ctx, const void* data)
 {
   BlitParams* params = (BlitParams*)data;
@@ -30,3 +24,16 @@ render_handler_back_buffer_blit(RenderContext* ctx, const void* data)
   ctx->graphics_bind_shader_resources<interlop::FullscreenRenderResources>({.texture = params->src});
   ctx->draw_instanced(3, 1, 0, 0);
 }
+
+void
+init_back_buffer_blit(AllocHeap heap, RgBuilder* builder, RgHandle<GpuImage> src)
+{
+  BlitParams* params  = HEAP_ALLOC(BlitParams, g_InitHeap, 1);
+  zero_memory(params, sizeof(BlitParams));
+
+  RgPassBuilder* pass = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "Back Buffer Blit", params, &render_handler_back_buffer_blit, 1, 1);
+
+  params->src         = rg_read_texture (pass, src, kReadTextureSrvPixelShader);
+  params->dst         = rg_write_texture(pass, &builder->back_buffer, kWriteTextureColorTarget);
+}
+

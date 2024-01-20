@@ -165,13 +165,14 @@ int3 get_base_probe_grid_coords(float3 ws_pos, interlop::DDGIVolDesc vol_desc)
   return clamp(probe_coords, 0, probe_counts - 1);
 }
 
-float3 get_vol_irradiance(float3 ws_pos,
-                          float3 surface_bias,
-                          float3 normal,
-                          interlop::DDGIVolDesc vol_desc,
-                          Texture2DArray<float4> probe_irradiance_tex,
-                          Texture2DArray<float2> probe_distance_tex)
-{
+float3 get_vol_irradiance(
+  float3 ws_pos,
+  float3 surface_bias,
+  float3 normal,
+  interlop::DDGIVolDesc vol_desc,
+  Texture2DArray<float4> probe_irradiance_tex,
+  Texture2DArray<float2> probe_distance_tex
+) {
   int3 probe_counts        = int3(vol_desc.probe_count_x, vol_desc.probe_count_y, vol_desc.probe_count_z);
 
 	float3 biased_ws_pos     = ws_pos + surface_bias;

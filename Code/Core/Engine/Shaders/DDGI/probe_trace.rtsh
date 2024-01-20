@@ -35,13 +35,12 @@ void ray_gen()
 	uint2 launch_index      = DispatchRaysIndex().xy;
 	uint2 launch_dimensions = DispatchRaysDimensions().xy;
 
-	ConstantBuffer<interlop::Scene>       scene            = ResourceDescriptorHeap[rt_resources.scene];
-	Texture2DArray<float4>                probe_irradiance = ResourceDescriptorHeap[rt_resources.probe_irradiance];
-	Texture2DArray<float2>                probe_distance   = ResourceDescriptorHeap[rt_resources.probe_distance];
-	RWTexture2DArray<float4>              ray_data         = ResourceDescriptorHeap[rt_resources.out_ray_data];
-	ConstantBuffer<interlop::DDGIVolDesc> vol_desc         = ResourceDescriptorHeap[rt_resources.vol_desc];
+	Texture2DArray<float4>                probe_irradiance  = ResourceDescriptorHeap[rt_resources.probe_irradiance];
+	Texture2DArray<float2>                probe_distance    = ResourceDescriptorHeap[rt_resources.probe_distance];
+	RWTexture2DArray<float4>              ray_data          = ResourceDescriptorHeap[rt_resources.ray_data];
+	ConstantBuffer<interlop::DDGIVolDesc> vol_desc          = ResourceDescriptorHeap[rt_resources.vol_desc];
 
-	interlop::DirectionalLight directional_light           = scene.directional_light;
+	interlop::DirectionalLight            directional_light = g_SceneBuffer.directional_light;
 
 	int ray_index         = DispatchRaysIndex().x;
 	int probe_plane_index = DispatchRaysIndex().y;
@@ -99,12 +98,15 @@ void ray_gen()
   
   // Indirect lighting
   float3 surface_bias = get_surface_bias(payload.normal, ray.Direction, vol_desc);
-  float3 indirect     = get_vol_irradiance(payload.ws_pos,
-                                           surface_bias,
-                                           payload.normal,
-                                           vol_desc,
-                                           probe_irradiance,
-                                           probe_distance);
+
+  float3 indirect = get_vol_irradiance(
+    payload.ws_pos,
+    surface_bias,
+    payload.normal,
+    vol_desc,
+    probe_irradiance,
+    probe_distance
+  );
 
   // TODO(Brandon): Get this from the actual payload data
   float3 lambertian = 1.0f / kPI;

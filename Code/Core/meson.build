@@ -128,6 +128,8 @@ engine_src = [
   'Engine/Render/misc.h',
   'Engine/Render/post_processing.cpp',
   'Engine/Render/post_processing.h',
+  'Engine/Render/render_buffers.cpp',
+  'Engine/Render/render_buffers.h',
   'Engine/Render/render_graph.cpp',
   'Engine/Render/render_graph.h',
   'Engine/Render/renderer.cpp',

@@ -6,7 +6,6 @@
 #include "Core/Engine/Render/render_graph.h"
 
 #include "Core/Engine/Shaders/interlop.hlsli"
-#include "Core/Engine/Shaders/root_signature.hlsli"
 
 GBuffer
 init_gbuffer(RgBuilder* builder)
@@ -20,26 +19,18 @@ init_gbuffer(RgBuilder* builder)
   return ret;
 }
 
-void
-init_gbuffer_static(AllocHeap heap, RgBuilder* builder, GBuffer* gbuffer)
+struct GBufferStaticParams
 {
-  GBufferStaticParams* params   = HEAP_ALLOC(GBufferStaticParams, g_InitHeap, 1);
-  zero_memory(params, sizeof(GBufferStaticParams));
+  RgReadHandle<GpuBuffer> transform_buffer;
 
-  RgHandle<GpuBuffer> transform = rg_create_upload_buffer(builder, "Transform Buffer", sizeof(interlop::Scene));
+  RgWriteHandle<GpuImage> material_id;
+  RgWriteHandle<GpuImage> world_pos;
+  RgWriteHandle<GpuImage> diffuse_metallic;
+  RgWriteHandle<GpuImage> normal_roughness;
+  RgWriteHandle<GpuImage> depth;
+};
 
-  RgPassBuilder*      pass      = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "GBuffer Static", params, &render_handler_gbuffer_static, 2, 5);
-
-  params->material_id           = rg_write_texture(pass, &gbuffer->material_id,      kWriteTextureColorTarget );
-  params->world_pos             = rg_write_texture(pass, &gbuffer->world_pos,        kWriteTextureColorTarget );
-  params->diffuse_metallic      = rg_write_texture(pass, &gbuffer->diffuse_metallic, kWriteTextureColorTarget );
-  params->normal_roughness      = rg_write_texture(pass, &gbuffer->normal_roughness, kWriteTextureColorTarget );
-  params->depth                 = rg_write_texture(pass, &gbuffer->depth,            kWriteTextureDepthStencil);
-
-  params->transform_buffer      = rg_read_buffer(pass, transform, kReadBufferCbv);
-}
-
-void
+static void
 render_handler_gbuffer_static(RenderContext* ctx, const void* data)
 {
   constant f32 kZNear = 0.1f;
@@ -80,13 +71,31 @@ render_handler_gbuffer_static(RenderContext* ctx, const void* data)
 
   ctx->ia_set_index_buffer(&g_UnifiedGeometryBuffer.index_buffer, sizeof(u32));
 
-
   for (const RenderMeshInst& mesh_inst : g_Renderer.meshes)
   {
     ctx->set_graphics_pso(&mesh_inst.gbuffer_pso);
     ctx->graphics_bind_shader_resources<interlop::MaterialRenderResources>({.transform = params->transform_buffer});
     ctx->draw_indexed_instanced(mesh_inst.index_count, 1, mesh_inst.index_buffer_offset, 0, 0);
   }
+}
+
+void
+init_gbuffer_static(AllocHeap heap, RgBuilder* builder, GBuffer* gbuffer)
+{
+  GBufferStaticParams* params   = HEAP_ALLOC(GBufferStaticParams, g_InitHeap, 1);
+  zero_memory(params, sizeof(GBufferStaticParams));
+
+  RgHandle<GpuBuffer> transform = rg_create_upload_buffer(builder, "Transform Buffer", sizeof(interlop::Scene));
+
+  RgPassBuilder*      pass      = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "GBuffer Static", params, &render_handler_gbuffer_static, 2, 5);
+
+  params->material_id           = rg_write_texture(pass, &gbuffer->material_id,      kWriteTextureColorTarget );
+  params->world_pos             = rg_write_texture(pass, &gbuffer->world_pos,        kWriteTextureColorTarget );
+  params->diffuse_metallic      = rg_write_texture(pass, &gbuffer->diffuse_metallic, kWriteTextureColorTarget );
+  params->normal_roughness      = rg_write_texture(pass, &gbuffer->normal_roughness, kWriteTextureColorTarget );
+  params->depth                 = rg_write_texture(pass, &gbuffer->depth,            kWriteTextureDepthStencil);
+
+  params->transform_buffer      = rg_read_buffer(pass, transform, kReadBufferCbv);
 }
 
 ReadGBuffer

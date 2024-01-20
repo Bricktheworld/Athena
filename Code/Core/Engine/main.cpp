@@ -206,8 +206,10 @@ application_entry(HINSTANCE instance, int show_code)
 
   GraphicsDevice graphics_device = init_graphics_device();
   defer { destroy_graphics_device(&graphics_device); };
+
   SwapChain swap_chain = init_swap_chain(window, &graphics_device);
   defer { destroy_swap_chain(&swap_chain); };
+
   init_global_upload_context(&graphics_device);
   defer { destroy_global_upload_context(); };
 
@@ -232,7 +234,7 @@ application_entry(HINSTANCE instance, int show_code)
     defer { fs::close_file(&sponza_built_file); };
 
     u64 buf_size = fs::get_file_size(sponza_built_file);
-    u8* buf = HEAP_ALLOC(u8, scratch_arena, buf_size); // push_memory_arena<u8>(&temp_arena, buf_size);
+    u8* buf      = HEAP_ALLOC(u8, scratch_arena, buf_size);
 
     ASSERT(fs::read_file(sponza_built_file, buf, buf_size));
 

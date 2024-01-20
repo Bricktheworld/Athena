@@ -24,6 +24,7 @@ struct TransientResourceDesc
     {
       u32         width;
       u32         height;
+      u32         array_size;
       DXGI_FORMAT format;
 
       union
@@ -94,16 +95,18 @@ template <typename T>
 struct RgReadHandle
 {
   u32 id                = 0;
-  u32 temporal_lifetime = 0;
+  u16 temporal_lifetime = 0;
+  s16 temporal_frame    = 0;
 };
 
 template <typename T>
 struct RgWriteHandle
 {
   u32 id                = 0;
-  u32 temporal_lifetime = 0;
+  u16 temporal_lifetime = 0;
+  s16 temporal_frame    = 0;
 
-  operator RgReadHandle<T>() const { return { id, temporal_lifetime }; };
+  operator RgReadHandle<T>() const { return { id, temporal_lifetime, temporal_frame }; };
 };
 
 typedef u32 RenderPassId;
@@ -113,7 +116,8 @@ struct ShaderResource
   u32            id                = 0;
   ResourceType   type              = kResourceTypeImage;
   DescriptorType descriptor_type   = kDescriptorTypeUav;
-  u16            temporal_lifetime = 0;
+  u8             temporal_lifetime = 0;
+  s8             temporal_frame    = 0;
 };
 
 namespace priv
@@ -139,14 +143,16 @@ struct Uav
   u32                  id                = 0;
   const ResourceType   type              = kResourceType<U>;
   const DescriptorType descriptor_type   = kDescriptorTypeUav;
-  u16                  temporal_lifetime = 0;
+  u8                   temporal_lifetime = 0;
+  s8                   temporal_frame    = 0;
 
-  Uav(RgWriteHandle<U> h) : id(h.id), temporal_lifetime(h.temporal_lifetime) {}
+  Uav(RgWriteHandle<U> h) : id(h.id), temporal_lifetime(h.temporal_lifetime), temporal_frame(h.temporal_frame) {}
 
   Uav& operator=(RgWriteHandle<U> h)
   {
     id                = h.id;
     temporal_lifetime = h.temporal_lifetime;
+    temporal_frame    = h.temporal_frame;
     return *this;
   }
 };
@@ -160,14 +166,16 @@ struct Srv
   u32                  id                = 0;
   const ResourceType   type              = kResourceType<U>;
   const DescriptorType descriptor_type   = kDescriptorTypeSrv;
-  u16                  temporal_lifetime = 0;
+  u8                   temporal_lifetime = 0;
+  s8                   temporal_frame    = 0;
 
-  Srv(RgReadHandle<U> h) : id(h.id), temporal_lifetime(h.temporal_lifetime) {}
+  Srv(RgReadHandle<U> h) : id(h.id), temporal_lifetime(h.temporal_lifetime), temporal_frame(h.temporal_frame) {}
 
   Srv& operator=(RgReadHandle<U> h)
   {
     id                = h.id;
     temporal_lifetime = h.temporal_lifetime;
+    temporal_frame    = h.temporal_frame;
     return *this;
   }
 };
@@ -179,14 +187,16 @@ struct Cbv
   u32                  id                = 0;
   const ResourceType   type              = kResourceTypeBuffer;
   const DescriptorType descriptor_type   = kDescriptorTypeCbv;
-  u16                  temporal_lifetime = 0;
+  u8                   temporal_lifetime = 0;
+  s8                   temporal_frame    = 0;
 
-  Cbv(RgReadHandle<GpuBuffer> h) : id(h.id), temporal_lifetime(h.temporal_lifetime) {}
+  Cbv(RgReadHandle<GpuBuffer> h) : id(h.id), temporal_lifetime(h.temporal_lifetime), temporal_frame(h.temporal_frame) {}
 
   Cbv& operator=(RgReadHandle<GpuBuffer> h) 
   {
     id                = h.id;
     temporal_lifetime = h.temporal_lifetime;
+    temporal_frame    = h.temporal_frame;
     return *this;
   }
 };
@@ -322,7 +332,6 @@ struct RenderContext
   // the GPU runs its passes).
   void write_cpu_upload_buffer(RgReadHandle<GpuBuffer> dst, const void* src, u64 size);
   void write_cpu_upload_buffer(const GpuBuffer*        dst, const void* src, u64 size);
-  void write_cpu_upload_buffer(RgHandle<GpuBuffer>     dst, const void* src, u64 size);
 };
 
 typedef void (RenderHandler)(RenderContext* render_context, const void* data);
@@ -337,9 +346,10 @@ struct RgPassBuilder
 
   struct ResourceAccessData
   {
-    ResourceHandle handle   = {0};
-    u32            access   = 0;
-    bool           is_write = false;
+    ResourceHandle handle         = {0};
+    u32            access         = 0;
+    s8             temporal_frame = 0;
+    bool           is_write       = false;
   };
 
   Array<ResourceAccessData> read_resources;
@@ -358,6 +368,8 @@ struct RgBuilder
   u32                                   handle_index = 0;
   u32                                   width        = 0;
   u32                                   height       = 0;
+
+  Option<RenderPassId>                  frame_init   = None;
 };
 #define FULL_RES_WIDTH(builder) (builder->width)
 #define FULL_RES_HEIGHT(builder) (builder->height)
@@ -489,7 +501,8 @@ RgPassBuilder* add_render_pass(
   void* data,
   RenderHandler* handler,
   u32 num_read_resources,
-  u32 num_write_resources
+  u32 num_write_resources,
+  bool is_frame_init = false
 );
 
 enum ReadTextureAccessMask : u32
@@ -527,7 +540,7 @@ enum WriteTextureAccess : u32
   kWriteTextureCopyDst,
 };
 
-RgReadHandle<GpuImage>  rg_read_texture (RgPassBuilder* builder, RgHandle<GpuImage>  texture, ReadTextureAccessMask access);
+RgReadHandle<GpuImage>  rg_read_texture (RgPassBuilder* builder, RgHandle<GpuImage>  texture, ReadTextureAccessMask access, s8 temporal_frame = 0);
 RgWriteHandle<GpuImage> rg_write_texture(RgPassBuilder* builder, RgHandle<GpuImage>* texture, WriteTextureAccess    access);
 
 enum ReadBufferAccessMask : u32
@@ -563,8 +576,10 @@ enum WriteBufferAccess : u32
 RgReadHandle<GpuBuffer>  rg_read_buffer (RgPassBuilder* builder, RgHandle<GpuBuffer>  buffer, ReadBufferAccessMask access);
 RgWriteHandle<GpuBuffer> rg_write_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer>* buffer, WriteBufferAccess    access);
 
-static constexpr u32 kRgWindowWidth  = -1;
-static constexpr u32 kRgWindowHeight = -2;
+constant u32 kRgWindowWidth    = -1;
+constant u32 kRgWindowHeight   = -2;
+
+constant u8  kInfiniteLifetime = 0xFF;
 
 RgHandle<GpuImage> rg_create_texture(
   RgBuilder* builder,
@@ -579,6 +594,25 @@ RgHandle<GpuImage> rg_create_texture_ex(
   const char* name,
   u32 width,
   u32 height,
+  DXGI_FORMAT format,
+  u8 temporal_lifetime
+);
+
+RgHandle<GpuImage> rg_create_texture_array(
+  RgBuilder* builder,
+  const char* name,
+  u32 width,
+  u32 height,
+  u32 array_size,
+  DXGI_FORMAT format
+);
+
+RgHandle<GpuImage> rg_create_texture_array_ex(
+  RgBuilder* builder,
+  const char* name,
+  u32 width,
+  u32 height,
+  u32 array_size,
   DXGI_FORMAT format,
   u8 temporal_lifetime
 );

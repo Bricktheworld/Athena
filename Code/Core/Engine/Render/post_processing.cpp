@@ -4,6 +4,26 @@
 #include "Core/Engine/Render/post_processing.h"
 #include "Core/Engine/Shaders/interlop.hlsli"
 
+struct PostProcessingParams
+{
+  RgReadHandle<GpuImage>  hdr_buffer;
+  RgWriteHandle<GpuImage> dst;
+};
+
+static void 
+render_handler_post_processing(RenderContext* ctx, const void* data)
+{
+  const PostProcessingParams* params = (const PostProcessingParams*)data;
+  ctx->clear_render_target_view(params->dst, Vec4(0.0f, 0.0f, 0.0f, 0.0f));
+
+  ctx->om_set_render_targets({params->dst}, None);
+
+  ctx->graphics_bind_shader_resources<interlop::PostProcessingRenderResources>({.texture = params->hdr_buffer});
+  ctx->set_graphics_pso(&g_Renderer.post_processing_pipeline);
+
+  ctx->draw_instanced(3, 1, 0, 0);
+}
+
 RgHandle<GpuImage>
 init_post_processing(
   AllocHeap heap,
@@ -24,16 +44,3 @@ init_post_processing(
   return ret;
 }
 
-void 
-render_handler_post_processing(RenderContext* ctx, const void* data)
-{
-  const PostProcessingParams* params = (const PostProcessingParams*)data;
-  ctx->clear_render_target_view(params->dst, Vec4(0.0f, 0.0f, 0.0f, 0.0f));
-
-  ctx->om_set_render_targets({params->dst}, None);
-
-  ctx->graphics_bind_shader_resources<interlop::PostProcessingRenderResources>({.texture = params->hdr_buffer});
-  ctx->set_graphics_pso(&g_Renderer.post_processing_pipeline);
-
-  ctx->draw_instanced(3, 1, 0, 0);
-}

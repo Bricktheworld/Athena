@@ -43,7 +43,7 @@ init_rg_builder(AllocHeap heap, u32 width, u32 height)
 
 struct AdjacentRenderPasses
 {
-  Array<RenderPassId> dependencies;
+  Array<RenderPassId> dependent_passes;
 };
 
 struct AdjacencyList
@@ -59,36 +59,45 @@ init_adjacency_list(AllocHeap heap, const RgBuilder& builder)
   for (const RgPassBuilder& pass_builder : builder.render_passes)
   {
     AdjacentRenderPasses* dst = &ret.render_passes[pass_builder.pass_id];
-    dst->dependencies         = init_array<RenderPassId>(heap, builder.render_passes.size);
+    dst->dependent_passes     = init_array<RenderPassId>(heap, builder.render_passes.size);
+
     for (const RgPassBuilder& other_builder : builder.render_passes)
     {
       // Look through every other render pass (skip our own)
       if (other_builder.pass_id == pass_builder.pass_id)
         continue;
 
-      // Loop through all of our read resources
-      for (const RgPassBuilder::ResourceAccessData& write_resource : pass_builder.write_resources)
+      if (builder.frame_init && pass_builder.pass_id == unwrap(builder.frame_init))
       {
-        // And try to find each write resource in the other pass's read resources
-        // We need to check for both the ID and the version that is being written
-        // The version should be exactly 1 after our write version (the other pass will write to the resource
-        // incrementing the version and this pass will then _immediately_ read the resource). We don't want
-        // to consider _all_ passes that have ever written to older versions, just ones that have written
-        // to _our_ version (adjacent in the dependency graph).
-        bool other_depends_on_pass = array_find(
-          &other_builder.read_resources,
-          it->handle.id == write_resource.handle.id && it->handle.version == write_resource.handle.version + 1
-        ) || array_find(
-          &other_builder.write_resources,
-          it->handle.id == write_resource.handle.id && it->handle.version == write_resource.handle.version + 1
-        );
-
-        if (other_depends_on_pass)
+        *array_add(&dst->dependent_passes) = other_builder.pass_id;
+      }
+      else
+      {
+        // Loop through all of our written resources
+        for (const RgPassBuilder::ResourceAccessData& write_resource : pass_builder.write_resources)
         {
-          *array_add(&dst->dependencies) = other_builder.pass_id;
-          break;
+          // And try to find each write resource in the other pass's read resources
+          // We need to check for both the ID and the version that is being written
+          // The version should be exactly 1 after our write version (the other pass will write to the resource
+          // incrementing the version and this pass will then _immediately_ read the resource). We don't want
+          // to consider _all_ passes that have ever written to older versions, just ones that have written
+          // to _our_ version (adjacent in the dependency graph).
+          bool other_depends_on_pass = array_find(
+            &other_builder.read_resources,
+            it->handle.id == write_resource.handle.id && it->handle.version == write_resource.handle.version + 1
+          ) || array_find(
+            &other_builder.write_resources,
+            it->handle.id == write_resource.handle.id && it->handle.version == write_resource.handle.version + 1
+          );
+  
+          if (other_depends_on_pass)
+          {
+            *array_add(&dst->dependent_passes) = other_builder.pass_id;
+            break;
+          }
         }
       }
+
     }
   }
 
@@ -108,8 +117,8 @@ dfs_has_cycle(RenderPassId pass_id, CycleDetectionState* state, AdjacencyList li
   state->in_path[pass_id] = true;
   state->visited[pass_id] = true;
 
-  Array<RenderPassId> dependencies = list.render_passes[pass_id].dependencies;
-  for (RenderPassId dependency : dependencies)
+  Array<RenderPassId> dependent_passes = list.render_passes[pass_id].dependent_passes;
+  for (RenderPassId dependency : dependent_passes)
   {
     if (state->visited[dependency])
       continue;
@@ -160,8 +169,8 @@ dfs_topological_sort_adjacency_list(RenderPassId pass_id, TopologicalSortState* 
 {
   state->visited[pass_id] = true;
 
-  Array<RenderPassId> dependencies = list.render_passes[pass_id].dependencies;
-  for (RenderPassId dependency : dependencies)
+  Array<RenderPassId> dependent_passes = list.render_passes[pass_id].dependent_passes;
+  for (RenderPassId dependency : dependent_passes)
   {
     if (state->visited[dependency])
       continue;
@@ -213,7 +222,7 @@ init_dependency_levels(AllocHeap heap, const RgBuilder& builder)
 
   for (RenderPassId pass_id : topological_list)
   {
-    for (RenderPassId adjacent_pass_id : adjacency_list.render_passes[pass_id].dependencies)
+    for (RenderPassId adjacent_pass_id : adjacency_list.render_passes[pass_id].dependent_passes)
     {
       u64 dist = longest_distances[pass_id] + 1;
       if (longest_distances[adjacent_pass_id] >= dist)
@@ -359,7 +368,7 @@ init_physical_resources(
       desc.flags         = *unwrap(hash_table_find(&physical_flags, resource.id));
       desc.initial_state = D3D12_RESOURCE_STATE_COMMON;
 
-      if (resource_desc->temporal_lifetime > 0)
+      if (resource_desc->temporal_lifetime > 0 && resource_desc->temporal_lifetime < kInfiniteLifetime)
       {
         GpuLinearAllocator* allocator = resource_desc->buffer_desc.heap_type == kGpuHeapTypeLocal ? temporal_heaps : upload_heaps;
 
@@ -399,7 +408,7 @@ init_physical_resources(
         desc.color_clear_value   = resource_desc->texture_desc.color_clear_value;
       }
 
-      if (resource_desc->temporal_lifetime > 0)
+      if (resource_desc->temporal_lifetime > 0 && resource_desc->temporal_lifetime < kInfiniteLifetime)
       {
         ASSERT(resource_desc->temporal_lifetime <= kMaxTemporalLifetime);
         for (u32 iframe = 0; iframe <= resource_desc->temporal_lifetime; iframe++)
@@ -564,9 +573,14 @@ init_physical_descriptors(
     RgResourceKey   resource_key = {0};
     resource_key.id              = handle.id;
 
-    ASSERT(handle.temporal_lifetime <= kMaxTemporalLifetime);
+    u8 temporal_lifetime = handle.temporal_lifetime;
+    if (temporal_lifetime == kInfiniteLifetime)
+    {
+      temporal_lifetime  = 0;
+    }
+    ASSERT(temporal_lifetime <= kMaxTemporalLifetime);
 
-    for (u32 iframe = 0; iframe <= handle.temporal_lifetime; iframe++)
+    for (u32 iframe = 0; iframe <= temporal_lifetime; iframe++)
     {
       resource_key.temporal_frame = iframe;
       key.temporal_frame          = iframe;
@@ -916,7 +930,10 @@ compile_render_graph(AllocHeap heap, const RgBuilder& builder, const GraphicsDev
       continue;
 
     TransientResourceDesc* desc = unwrap(hash_table_find(&builder.resource_descs, resource.id));
-    max_temporal_lifetime       = MAX(max_temporal_lifetime, desc->temporal_lifetime);
+    if (desc->temporal_lifetime < kInfiniteLifetime)
+    {
+      max_temporal_lifetime     = MAX(max_temporal_lifetime, desc->temporal_lifetime);
+    }
 
     if      (resource.type == kResourceTypeBuffer) { buffer_count++;  }
     else if (resource.type == kResourceTypeImage)  { texture_count++; }
@@ -1049,8 +1066,6 @@ execute_render_graph(RenderGraph* graph, const GraphicsDevice* device, const Gpu
   lazy_init_back_buffer_descriptors(graph, device, graph->back_buffer, back_buffer, kDescriptorTypeDsv);
 
   CmdList       cmd_buffer = alloc_cmd_list(&graph->cmd_allocator);
-
-
   RenderContext ctx        = {0};
   ctx.m_Graph              = graph;
   ctx.m_Device             = device;
@@ -1061,6 +1076,7 @@ execute_render_graph(RenderGraph* graph, const GraphicsDevice* device, const Gpu
   // Main render loop
   for (u32 ilevel = 0; ilevel < graph->dependency_levels.size; ilevel++)
   {
+    dbgln("Level %u", ilevel);
     const RgDependencyLevel& level = graph->dependency_levels[ilevel];
     if (level.barriers.size > 0)
     {
@@ -1080,6 +1096,7 @@ execute_render_graph(RenderGraph* graph, const GraphicsDevice* device, const Gpu
 
     for (RenderPassId pass_id : level.render_passes)
     {
+      dbgln("%s", graph->render_passes[pass_id].name);
       set_graphics_root_signature(&cmd_buffer);
       set_compute_root_signature(&cmd_buffer);
       set_descriptor_heaps(&cmd_buffer, {&graph->descriptor_heap.cbv_srv_uav});
@@ -1121,7 +1138,8 @@ add_render_pass(
   void* data,
   RenderHandler* handler,
   u32 num_read_resources,
-  u32 num_write_resources
+  u32 num_write_resources,
+  bool is_frame_init
 ) {
   RgPassBuilder* ret   = array_add(&graph->render_passes);
 
@@ -1133,6 +1151,12 @@ add_render_pass(
 
   ret->read_resources  = init_array<RgPassBuilder::ResourceAccessData>(heap, num_read_resources);
   ret->write_resources = init_array<RgPassBuilder::ResourceAccessData>(heap, num_write_resources);
+
+  if (is_frame_init)
+  {
+    ASSERT(!graph->frame_init);
+    graph->frame_init = ret->pass_id;
+  }
 
   return ret;
 }
@@ -1157,7 +1181,32 @@ rg_create_texture_ex(
   DXGI_FORMAT format,
   u8 temporal_lifetime
 ) {
-  ASSERT(temporal_lifetime <= kMaxTemporalLifetime);
+  return rg_create_texture_array_ex(builder, name, width, height, 1, format, temporal_lifetime);
+}
+
+RgHandle<GpuImage>
+rg_create_texture_array(
+  RgBuilder* builder,
+  const char* name,
+  u32 width,
+  u32 height,
+  u32 array_size,
+  DXGI_FORMAT format
+) {
+  return rg_create_texture_array_ex(builder, name, width, height, array_size, format, 0);
+}
+
+RgHandle<GpuImage>
+rg_create_texture_array_ex(
+  RgBuilder* builder,
+  const char* name,
+  u32 width,
+  u32 height,
+  u32 array_size,
+  DXGI_FORMAT format,
+  u8 temporal_lifetime
+) {
+  ASSERT(temporal_lifetime == kInfiniteLifetime || temporal_lifetime <= kMaxTemporalLifetime);
   ResourceHandle resource_handle      = {0};
   resource_handle.id                  = handle_index(builder);
   resource_handle.version             = 0;
@@ -1171,6 +1220,7 @@ rg_create_texture_ex(
   desc->temporal_lifetime             = resource_handle.temporal_lifetime;
   desc->texture_desc.width            = width;
   desc->texture_desc.height           = height;
+  desc->texture_desc.array_size       = array_size;
   desc->texture_desc.format           = format;
 
   // TODO(Brandon): We don't want to hard-code these values
@@ -1232,7 +1282,7 @@ rg_create_buffer_ex(
   u32 stride,
   u8 temporal_lifetime
 ) {
-  ASSERT(temporal_lifetime <= kMaxTemporalLifetime);
+  ASSERT(temporal_lifetime == kInfiniteLifetime || temporal_lifetime <= kMaxTemporalLifetime);
   ResourceHandle resource_handle      = {0};
   resource_handle.id                  = handle_index(builder);
   resource_handle.version             = 0;
@@ -1254,17 +1304,19 @@ rg_create_buffer_ex(
 
 
 RgReadHandle<GpuImage>
-rg_read_texture(RgPassBuilder* builder, RgHandle<GpuImage> texture, ReadTextureAccessMask access)
+rg_read_texture(RgPassBuilder* builder, RgHandle<GpuImage> texture, ReadTextureAccessMask access, s8 temporal_frame)
 {
+  ASSERT(temporal_frame <= 0);
   ASSERT(!array_find(&builder->read_resources,  it->handle.id == texture.id));
   ASSERT(!array_find(&builder->write_resources, it->handle.id == texture.id));
 
   RgPassBuilder::ResourceAccessData* data = array_add(&builder->read_resources);
-  data->handle   = texture;
-  data->access   = (u32)access;
-  data->is_write = false;
+  data->handle         = texture;
+  data->access         = (u32)access;
+  data->temporal_frame = temporal_frame;
+  data->is_write       = false;
 
-  return {texture.id, (u32)texture.temporal_lifetime};
+  return {texture.id, (u16)texture.temporal_lifetime, data->temporal_frame};
 }
 
 RgWriteHandle<GpuImage>
@@ -1274,13 +1326,14 @@ rg_write_texture(RgPassBuilder* builder, RgHandle<GpuImage>* texture, WriteTextu
   ASSERT(!array_find(&builder->write_resources, it->handle.id == texture->id));
 
   RgPassBuilder::ResourceAccessData* data = array_add(&builder->write_resources);
-  data->handle   = *texture;
-  data->access   = (u32)access;
-  data->is_write = true;
+  data->handle         = *texture;
+  data->access         = (u32)access;
+  data->temporal_frame = 0;
+  data->is_write       = true;
 
   texture->version++;
 
-  return {texture->id, (u32)texture->temporal_lifetime};
+  return {texture->id, (u16)texture->temporal_lifetime, data->temporal_frame};
 }
 
 RgReadHandle<GpuBuffer>
@@ -1290,11 +1343,12 @@ rg_read_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer> buffer, ReadBufferAcc
   ASSERT(!array_find(&builder->write_resources, it->handle.id == buffer.id));
 
   RgPassBuilder::ResourceAccessData* data = array_add(&builder->read_resources);
-  data->handle   = buffer;
-  data->access   = (u32)access;
-  data->is_write = false;
+  data->handle         = buffer;
+  data->access         = (u32)access;
+  data->temporal_frame = 0;
+  data->is_write       = false;
 
-  return {buffer.id, (u32)buffer.temporal_lifetime};
+  return {buffer.id, (u16)buffer.temporal_lifetime, data->temporal_frame};
 }
 
 RgWriteHandle<GpuBuffer>
@@ -1304,25 +1358,41 @@ rg_write_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer>* buffer, WriteBuffer
   ASSERT(!array_find(&builder->write_resources, it->handle.id == buffer->id));
 
   RgPassBuilder::ResourceAccessData* data = array_add(&builder->write_resources);
-  data->handle   = *buffer;
-  data->access   = (u32)access;
-  data->is_write = true;
+  data->handle         = *buffer;
+  data->access         = (u32)access;
+  data->temporal_frame = 0;
+  data->is_write       = true;
 
   buffer->version++;
 
-  return {buffer->id, (u32)buffer->temporal_lifetime};
+  return {buffer->id, (u16)buffer->temporal_lifetime, data->temporal_frame};
 }
 
 static u32
-get_temporal_frame(u32 frame_id, u32 temporal_lifetime)
+get_temporal_frame(u32 frame_id, u32 temporal_lifetime, s8 offset)
 {
+  if (temporal_lifetime == kInfiniteLifetime)
+  {
+    ASSERT(offset == 0);
+    return 0;
+  }
+
+  ASSERT(offset <= 0);
+  ASSERT(-offset <= temporal_lifetime);
+
   if (temporal_lifetime == 0)
     return 0;
   
   temporal_lifetime++;
   ASSERT(temporal_lifetime >= 2);
 
-  return frame_id % temporal_lifetime;
+  s32 signed_frame_id = (u32)frame_id;
+  signed_frame_id    += offset;
+
+  s64 ret = modulo(signed_frame_id, temporal_lifetime);
+  ASSERT(ret >= 0);
+  ASSERT((u32)ret < temporal_lifetime);
+  return (u32)ret;
 }
 
 static const GpuImage*
@@ -1330,7 +1400,7 @@ deref_resource(const RenderGraph* graph, RgWriteHandle<GpuImage> handle)
 {
   RgResourceKey key  = {0};
   key.id             = handle.id;
-  key.temporal_frame = get_temporal_frame(graph->frame_id, handle.temporal_lifetime);
+  key.temporal_frame = get_temporal_frame(graph->frame_id, handle.temporal_lifetime, handle.temporal_frame);
 
   return unwrap(hash_table_find(&graph->texture_map, key));
 }
@@ -1340,7 +1410,7 @@ deref_resource(const RenderGraph* graph, RgReadHandle<GpuImage> handle)
 {
   RgResourceKey key  = {0};
   key.id             = handle.id;
-  key.temporal_frame = get_temporal_frame(graph->frame_id, handle.temporal_lifetime);
+  key.temporal_frame = get_temporal_frame(graph->frame_id, handle.temporal_lifetime, handle.temporal_frame);
 
   return unwrap(hash_table_find(&graph->texture_map, key));
 }
@@ -1350,7 +1420,7 @@ deref_resource(const RenderGraph* graph, RgWriteHandle<GpuBuffer> handle)
 {
   RgResourceKey key  = {0};
   key.id             = handle.id;
-  key.temporal_frame = get_temporal_frame(graph->frame_id, handle.temporal_lifetime);
+  key.temporal_frame = get_temporal_frame(graph->frame_id, handle.temporal_lifetime, handle.temporal_frame);
 
   return unwrap(hash_table_find(&graph->buffer_map, key));
 }
@@ -1360,28 +1430,19 @@ deref_resource(const RenderGraph* graph, RgReadHandle<GpuBuffer> handle)
 {
   RgResourceKey key  = {0};
   key.id             = handle.id;
-  key.temporal_frame = get_temporal_frame(graph->frame_id, handle.temporal_lifetime);
+  key.temporal_frame = get_temporal_frame(graph->frame_id, handle.temporal_lifetime, handle.temporal_frame);
 
   return unwrap(hash_table_find(&graph->buffer_map, key));
 }
 
-static const GpuBuffer*
-deref_resource(const RenderGraph* graph, RgHandle<GpuBuffer> handle)
-{
-  RgResourceKey key  = {0};
-  key.id             = handle.id;
-  key.temporal_frame = get_temporal_frame(graph->frame_id, handle.temporal_lifetime);
-
-  return unwrap(hash_table_find(&graph->buffer_map, key));
-}
 
 static const Descriptor*
-deref_descriptor(const RenderGraph* graph, u32 handle_id, u32 temporal_lifetime, DescriptorType type)
+deref_descriptor(const RenderGraph* graph, u32 handle_id, u32 temporal_lifetime, s8 temporal_frame, DescriptorType type)
 {
   RgDescriptorKey key = {0};
   key.id              = handle_id;
   key.type            = type;
-  key.temporal_frame  = get_temporal_frame(graph->frame_id, temporal_lifetime);
+  key.temporal_frame  = get_temporal_frame(graph->frame_id, temporal_lifetime, temporal_frame);
   return unwrap(hash_table_find(&graph->descriptor_map, key));
 }
 
@@ -1389,7 +1450,7 @@ template <typename T>
 static const Descriptor*
 deref_descriptor(const RenderGraph* graph, T handle, DescriptorType type)
 {
-  return deref_descriptor(graph, handle.id, handle.temporal_lifetime, type);
+  return deref_descriptor(graph, handle.id, handle.temporal_lifetime, handle.temporal_frame, type);
 }
 
 void
@@ -1728,6 +1789,7 @@ RenderContext::graphics_bind_shader_resources(Span<ShaderResource> resources)
       m_Graph,
       shader_resource.id,
       shader_resource.temporal_lifetime,
+      shader_resource.temporal_frame,
       shader_resource.descriptor_type
     );
 
@@ -1752,6 +1814,7 @@ RenderContext::compute_bind_shader_resources(Span<ShaderResource> resources)
       m_Graph,
       shader_resource.id,
       shader_resource.temporal_lifetime,
+      shader_resource.temporal_frame,
       shader_resource.descriptor_type
     );
 
@@ -1769,13 +1832,6 @@ RenderContext::ray_tracing_bind_shader_resources(Span<ShaderResource> resources)
 
 void
 RenderContext::write_cpu_upload_buffer(RgReadHandle<GpuBuffer> dst, const void* src, u64 size)
-{
-  const GpuBuffer* physical = deref_resource(m_Graph, dst);
-  write_cpu_upload_buffer(physical, src, size);
-}
-
-void
-RenderContext::write_cpu_upload_buffer(RgHandle<GpuBuffer> dst, const void* src, u64 size)
 {
   const GpuBuffer* physical = deref_resource(m_Graph, dst);
   write_cpu_upload_buffer(physical, src, size);
