@@ -3,7 +3,6 @@
 
 struct GBufferStaticParams
 {
-  RgReadHandle<GpuBuffer> scene_buffer;
   RgReadHandle<GpuBuffer> transform_buffer;
 
   RgWriteHandle<GpuImage> material_id;

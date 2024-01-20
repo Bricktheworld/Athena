@@ -26,7 +26,6 @@ init_gbuffer_static(AllocHeap heap, RgBuilder* builder, GBuffer* gbuffer)
   GBufferStaticParams* params   = HEAP_ALLOC(GBufferStaticParams, g_InitHeap, 1);
   zero_memory(params, sizeof(GBufferStaticParams));
 
-  RgHandle<GpuBuffer> scene     = rg_create_upload_buffer(builder, "Scene Buffer", sizeof(interlop::Scene));
   RgHandle<GpuBuffer> transform = rg_create_upload_buffer(builder, "Transform Buffer", sizeof(interlop::Scene));
 
   RgPassBuilder*      pass      = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "GBuffer Static", params, &render_handler_gbuffer_static, 2, 5);
@@ -37,31 +36,7 @@ init_gbuffer_static(AllocHeap heap, RgBuilder* builder, GBuffer* gbuffer)
   params->normal_roughness      = rg_write_texture(pass, &gbuffer->normal_roughness, kWriteTextureColorTarget );
   params->depth                 = rg_write_texture(pass, &gbuffer->depth,            kWriteTextureDepthStencil);
 
-  params->scene_buffer          = rg_read_buffer(pass, scene,     kReadBufferCbv);
   params->transform_buffer      = rg_read_buffer(pass, transform, kReadBufferCbv);
-}
-
-static
-Mat4 view_from_camera(Camera* camera)
-{
-  constexpr float kPitchLimit = kPI / 2.0f - 0.05f;
-  camera->pitch = MIN(kPitchLimit, MAX(-kPitchLimit, camera->pitch));
-  if (camera->yaw > kPI)
-  {
-    camera->yaw -= kPI * 2.0f;
-  }
-  else if (camera->yaw < -kPI)
-  {
-    camera->yaw += kPI * 2.0f;
-  }
-
-  f32 y = sinf(camera->pitch);
-  f32 r = cosf(camera->pitch);
-  f32 z = r * cosf(camera->yaw);
-  f32 x = r * sinf(camera->yaw);
-
-  Vec3 lookat = Vec3(x, y, z);
-  return look_at_lh(camera->world_pos, lookat, Vec3(0.0f, 1.0f, 0.0f));
 }
 
 void
@@ -70,17 +45,6 @@ render_handler_gbuffer_static(RenderContext* ctx, const void* data)
   constant f32 kZNear = 0.1f;
 
   GBufferStaticParams* params = (GBufferStaticParams*)data;
-
-  Mat4 view = view_from_camera(&g_Renderer.camera);
-
-  interlop::Scene scene;
-  scene.proj              = perspective_infinite_reverse_lh(kPI / 4.0f, (f32)ctx->m_Width / (f32)ctx->m_Height, kZNear);
-  scene.view_proj         = scene.proj * view;
-  scene.inverse_view_proj = inverse_mat4(scene.view_proj);
-  scene.camera_world_pos  = g_Renderer.camera.world_pos;
-  scene.directional_light = g_Renderer.directional_light;
-
-  ctx->write_cpu_upload_buffer(params->scene_buffer, &scene, sizeof(scene));
 
   interlop::Transform model;
   model.model = Mat4::columns(
@@ -91,16 +55,6 @@ render_handler_gbuffer_static(RenderContext* ctx, const void* data)
   );
   model.model_inverse = transform_inverse_no_scale(model.model);
   ctx->write_cpu_upload_buffer(params->transform_buffer, &model, sizeof(model));
-
-  ctx->set_graphics_root_shader_resource_view(kIndexBufferSlot ,          &g_UnifiedGeometryBuffer.index_buffer);
-  ctx->set_graphics_root_shader_resource_view(kVertexBufferSlot,          &g_UnifiedGeometryBuffer.vertex_buffer);
-  ctx->set_graphics_root_constant_buffer_view(kSceneBufferSlot,           params->scene_buffer);
-  ctx->set_graphics_root_shader_resource_view(kAccelerationStructureSlot, &g_UnifiedGeometryBuffer.bvh.top_bvh);
-
-  ctx->set_compute_root_shader_resource_view(kIndexBufferSlot ,           &g_UnifiedGeometryBuffer.index_buffer);
-  ctx->set_compute_root_shader_resource_view(kVertexBufferSlot,           &g_UnifiedGeometryBuffer.vertex_buffer);
-  ctx->set_compute_root_constant_buffer_view(kSceneBufferSlot,            params->scene_buffer);
-  ctx->set_compute_root_shader_resource_view(kAccelerationStructureSlot,  &g_UnifiedGeometryBuffer.bvh.top_bvh);
 
   ctx->om_set_render_targets(
     {

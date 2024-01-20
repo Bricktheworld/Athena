@@ -6,6 +6,16 @@
 #include "Core/Engine/Shaders/interlop.hlsli"
 #include "Core/Engine/Shaders/root_signature.hlsli"
 
+#include "Core/Engine/Vendor/imgui/imgui.h"
+#include "Core/Engine/Vendor/imgui/imgui_impl_win32.h"
+#include "Core/Engine/Vendor/imgui/imgui_impl_dx12.h"
+
+struct FrameInitParams
+{
+  RgReadHandle<GpuBuffer> scene_buffer;
+  RgReadHandle<GpuBuffer> transform_buffer;
+};
+
 void
 init_frame_init_pass(AllocHeap heap, RgBuilder* builder, GBuffer* gbuffer)
 {
@@ -20,7 +30,6 @@ init_frame_init_pass(AllocHeap heap, RgBuilder* builder, GBuffer* gbuffer)
   rg_write_texture(pass, &gbuffer->depth, kWriteTextureDepthStencil);
 }
 
-#if 0 
 static
 Mat4 view_from_camera(Camera* camera)
 {
@@ -43,14 +52,12 @@ Mat4 view_from_camera(Camera* camera)
   Vec3 lookat = Vec3(x, y, z);
   return look_at_lh(camera->world_pos, lookat, Vec3(0.0f, 1.0f, 0.0f));
 }
-#endif
 
 void
 render_handler_frame_init(RenderContext* ctx, const void* data)
 {
   FrameInitParams* params = (FrameInitParams*)data;
 
-#if 0
   Mat4 view = view_from_camera(&g_Renderer.camera);
 
   interlop::Scene scene;
@@ -71,5 +78,36 @@ render_handler_frame_init(RenderContext* ctx, const void* data)
   ctx->set_compute_root_shader_resource_view(kVertexBufferSlot,           &g_UnifiedGeometryBuffer.vertex_buffer);
   ctx->set_compute_root_constant_buffer_view(kSceneBufferSlot,            params->scene_buffer);
   ctx->set_compute_root_shader_resource_view(kAccelerationStructureSlot,  &g_UnifiedGeometryBuffer.bvh.top_bvh);
-#endif
+}
+
+struct ImGuiParams
+{
+  RgWriteHandle<GpuImage> dst;
+};
+
+void
+init_imgui_pass(AllocHeap heap, RgBuilder* builder, RgHandle<GpuImage>* dst)
+{
+  ImGuiParams* params = HEAP_ALLOC(ImGuiParams, g_InitHeap, 1);
+
+  RgPassBuilder* pass = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "ImGui Pass" , params, &render_handler_imgui, 0, 1);
+  params->dst         = rg_write_texture(pass, dst, kWriteTextureColorTarget);
+}
+
+void
+render_handler_imgui(RenderContext* ctx, const void* data)
+{
+  ImGuiParams* params = (ImGuiParams*)data;
+
+  ctx->rs_set_viewport(0.0f, 0.0f, (f32)ctx->m_Width, (f32)ctx->m_Height);
+  ctx->rs_set_scissor_rect(0, 0, S32_MAX, S32_MAX);
+
+  ctx->om_set_render_targets({params->dst}, None);
+
+  ctx->set_descriptor_heaps({&g_Renderer.imgui_descriptor_heap});
+
+  ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), ctx->m_CmdBuffer.d3d12_list);
+
+  ctx->rs_set_viewport(0.0f, 0.0f, (f32)ctx->m_Width, (f32)ctx->m_Height);
+  ctx->rs_set_scissor_rect(0, 0, S32_MAX, S32_MAX);
 }

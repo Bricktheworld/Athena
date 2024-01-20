@@ -259,6 +259,8 @@ struct RenderContext
     u32 stride
   );
 
+  void clear_state();
+
   void om_set_render_targets(Span<RgWriteHandle<GpuImage>> rtvs, Option<RgWriteHandle<GpuImage>> dsv);
   void rs_set_scissor_rect(s32 left, s32 top, s32 right, s32 bottom);
   void rs_set_viewport(f32 left, f32 top, f32 width, f32 height);
@@ -277,6 +279,8 @@ struct RenderContext
 
   void set_graphics_root_32bit_constants(u32 root_parameter_index, Span<u32> src, u32 dst_offset);
   void set_compute_root_32bit_constants(u32 root_parameter_index, Span<u32> src, u32 dst_offset);
+
+  void set_descriptor_heaps(Span<const DescriptorLinearAllocator*> heaps);
 
   void graphics_bind_shader_resources   (Span<ShaderResource> resources);
   void compute_bind_shader_resources    (Span<ShaderResource> resources);

@@ -98,9 +98,7 @@ static constexpr const wchar_t* WINDOW_NAME = L"Athena";
 static constexpr u64 INCREMENT_AMOUNT = 10000;
 
 static void
-draw_debug(RenderOptions* out_render_options,
-           interlop::DirectionalLight* out_directional_light,
-           Camera* out_camera)
+draw_debug(interlop::DirectionalLight* out_directional_light, Camera* out_camera)
 {
   // Start the Dear ImGui frame
   ImGui_ImplDX12_NewFrame();
@@ -112,6 +110,7 @@ draw_debug(RenderOptions* out_render_options,
 
   ImGui::Begin("Rendering");
 
+#if 0
   if (ImGui::BeginCombo("View", GET_RENDER_BUFFER_NAME(out_render_options->debug_view)))
   {
     for (u32 i = 0; i < RenderBuffers::kCount; i++)
@@ -131,9 +130,11 @@ draw_debug(RenderOptions* out_render_options,
     ImGui::EndCombo();
   }
 
+
   ImGui::DragFloat("Aperture", &out_render_options->aperture, 0.0f, 50.0f);
   ImGui::DragFloat("Focal Distance", &out_render_options->focal_dist, 0.0f, 1000.0f);
   ImGui::DragFloat("Focal Range", &out_render_options->focal_range, 0.0f, 100.0f);
+#endif
 
   ImGui::DragFloat3("Direction", (f32*)&out_directional_light->direction, 0.1f, -1.0f, 1.0f);
   ImGui::DragFloat3("Diffuse", (f32*)&out_directional_light->diffuse, 0.1f, 0.0f, 1.0f);
@@ -319,29 +320,14 @@ application_entry(HINSTANCE instance, int show_code)
     if (done)
       break;
 
-//    draw_debug(&render_options, &scene.directional_light, &scene.camera);
+    draw_debug(&scene.directional_light, &scene.camera);
 
-//    blocking_kick_closure_job(kJobPriorityMedium, [&]()
-//    {
     begin_renderer_recording();
     submit_scene(scene);
 
     const GpuImage* back_buffer = swap_chain_acquire(&swap_chain);
     execute_render_graph(&g_Renderer.graph, &graphics_device, back_buffer, swap_chain.back_buffer_index);
     swap_chain_submit(&swap_chain, &graphics_device, back_buffer);
-
-//    execute_render(
-//      &renderer,
-//      &graphics_device,
-//      &swap_chain,
-//      &scene.camera,
-//      scene.vertex_uber_buffer,
-//      scene.index_uber_buffer,
-//      scene.bvh,
-//      render_options,
-//      scene.directional_light
-//    );
-//    });
   }
 
   wait_for_device_idle(&graphics_device);

@@ -66,7 +66,9 @@ init_renderer(
 
   RgHandle<GpuImage> post_buffer = init_post_processing(scratch_arena, &builder, device, hdr_buffer);
 
-  init_back_buffer_blit(scratch_arena, &builder, hdr_buffer);
+  init_imgui_pass(scratch_arena, &builder, &post_buffer);
+
+  init_back_buffer_blit(scratch_arena, &builder, post_buffer);
 
   g_Renderer.graph = compile_render_graph(g_InitHeap, builder, device);
 
@@ -90,6 +92,9 @@ init_renderer(
 
   g_Renderer.standard_brdf_pso = init_ray_tracing_pipeline(device, shader_manager.shaders[kRT_StandardBrdf], "Standard BRDF RT");
   g_Renderer.standard_brdf_st  = init_shader_table(device, g_Renderer.standard_brdf_pso, "Standard BRDF Shader Table");
+
+  g_Renderer.imgui_descriptor_heap = init_descriptor_linear_allocator(device, 1, kDescriptorHeapTypeCbvSrvUav);
+  init_imgui_ctx(device, swap_chain, window, &g_Renderer.imgui_descriptor_heap);
 }
 
 void

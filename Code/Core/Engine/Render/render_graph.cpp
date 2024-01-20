@@ -78,6 +78,9 @@ init_adjacency_list(AllocHeap heap, const RgBuilder& builder)
         bool other_depends_on_pass = array_find(
           &other_builder.read_resources,
           it->handle.id == write_resource.handle.id && it->handle.version == write_resource.handle.version + 1
+        ) || array_find(
+          &other_builder.write_resources,
+          it->handle.id == write_resource.handle.id && it->handle.version == write_resource.handle.version + 1
         );
 
         if (other_depends_on_pass)
@@ -1046,9 +1049,6 @@ execute_render_graph(RenderGraph* graph, const GraphicsDevice* device, const Gpu
   lazy_init_back_buffer_descriptors(graph, device, graph->back_buffer, back_buffer, kDescriptorTypeDsv);
 
   CmdList       cmd_buffer = alloc_cmd_list(&graph->cmd_allocator);
-  set_graphics_root_signature(&cmd_buffer);
-  set_compute_root_signature(&cmd_buffer);
-  set_descriptor_heaps(&cmd_buffer, {&graph->descriptor_heap.cbv_srv_uav});
 
 
   RenderContext ctx        = {0};
@@ -1062,6 +1062,7 @@ execute_render_graph(RenderGraph* graph, const GraphicsDevice* device, const Gpu
   for (u32 ilevel = 0; ilevel < graph->dependency_levels.size; ilevel++)
   {
     const RgDependencyLevel& level = graph->dependency_levels[ilevel];
+    if (level.barriers.size > 0)
     {
       ScratchAllocator scratch_arena = alloc_scratch_arena();
       defer { free_scratch_arena(&scratch_arena); };
@@ -1079,12 +1080,19 @@ execute_render_graph(RenderGraph* graph, const GraphicsDevice* device, const Gpu
 
     for (RenderPassId pass_id : level.render_passes)
     {
+      set_graphics_root_signature(&cmd_buffer);
+      set_compute_root_signature(&cmd_buffer);
+      set_descriptor_heaps(&cmd_buffer, {&graph->descriptor_heap.cbv_srv_uav});
+
       const RenderPass& pass = graph->render_passes[pass_id];
       (*pass.handler)(&ctx, pass.data);
+
+      set_descriptor_heaps(&cmd_buffer, {&graph->descriptor_heap.cbv_srv_uav});
     }
   }
 
   // Execute all of the exit barriers
+  if (graph->exit_barriers.size > 0)
   {
     ScratchAllocator scratch_arena = alloc_scratch_arena();
     defer { free_scratch_arena(&scratch_arena); };
@@ -1580,6 +1588,12 @@ RenderContext::ia_set_vertex_buffer(
 }
 
 void
+RenderContext::clear_state()
+{
+  m_CmdBuffer.d3d12_list->ClearState(nullptr);
+}
+
+void
 RenderContext::om_set_render_targets(
   Span<RgWriteHandle<GpuImage>> rtvs,
   Option<RgWriteHandle<GpuImage>> dsv
@@ -1691,6 +1705,13 @@ void
 RenderContext::set_compute_root_32bit_constants(u32 root_parameter_index, Span<u32> src, u32 dst_offset)
 {
   m_CmdBuffer.d3d12_list->SetComputeRoot32BitConstants(root_parameter_index, src.size, src.memory, dst_offset);
+}
+
+void
+RenderContext::set_descriptor_heaps(Span<const DescriptorLinearAllocator*> heaps)
+{
+  // ::set_descriptor_heaps(&m_CmdBuffer, heaps);
+  m_CmdBuffer.d3d12_list->SetDescriptorHeaps(1, &heaps[0]->d3d12_heap);
 }
 
 void
