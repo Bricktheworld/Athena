@@ -9,9 +9,9 @@ struct ProbeTraceParams
 {
   interlop::DDGIVolDesc   vol_desc = {0};
   RgReadHandle<GpuBuffer> vol_desc_buffer;
-  RgWriteHandle<GpuImage> ray_data;
-  RgReadHandle<GpuImage>  irradiance;
-  RgReadHandle<GpuImage>  distance;
+  RgWriteHandle<GpuTexture> ray_data;
+  RgReadHandle<GpuTexture>  irradiance;
+  RgReadHandle<GpuTexture>  distance;
 };
 
 static void
@@ -46,9 +46,9 @@ init_probe_trace(
   RgBuilder* builder,
   const interlop::DDGIVolDesc& desc,
   RgHandle<GpuBuffer> vol_desc_buffer,
-  RgHandle<GpuImage>  irradiance,
-  RgHandle<GpuImage>  distance,
-  RgHandle<GpuImage>* ray_data
+  RgHandle<GpuTexture>  irradiance,
+  RgHandle<GpuTexture>  distance,
+  RgHandle<GpuTexture>* ray_data
 ) {
   ProbeTraceParams* params = HEAP_ALLOC(ProbeTraceParams, g_InitHeap, 1);
   zero_memory(params, sizeof(ProbeTraceParams));
@@ -65,8 +65,8 @@ struct ProbeBlendParams
 {
   interlop::DDGIVolDesc   vol_desc;
   RgReadHandle<GpuBuffer> vol_desc_buffer;
-  RgReadHandle<GpuImage>  ray_data;
-  RgWriteHandle<GpuImage> irradiance;
+  RgReadHandle<GpuTexture>  ray_data;
+  RgWriteHandle<GpuTexture> irradiance;
 };
 
 static void
@@ -96,8 +96,8 @@ init_probe_blend(
   RgBuilder* builder,
   const interlop::DDGIVolDesc& desc,
   RgHandle<GpuBuffer> vol_desc_buffer,
-  RgHandle<GpuImage>  ray_data,
-  RgHandle<GpuImage>* irradiance
+  RgHandle<GpuTexture>  ray_data,
+  RgHandle<GpuTexture>* irradiance
 ) {
   ProbeBlendParams* params = HEAP_ALLOC(ProbeBlendParams, g_InitHeap, 1);
   zero_memory(params, sizeof(ProbeBlendParams));
@@ -126,7 +126,7 @@ init_ddgi(AllocHeap heap, RgBuilder* builder)
   desc.probe_max_ray_distance = 20.0f;
 
   RgHandle<GpuBuffer> vol_desc_buffer = rg_create_upload_buffer(builder, "DDGI Vol Desc", sizeof(interlop::DDGIVolDesc));
-  RgHandle<GpuImage>  probe_ray_data  = rg_create_texture_array(
+  RgHandle<GpuTexture>  probe_ray_data  = rg_create_texture_array(
     builder,
     "Probe Ray Data",
     desc.probe_num_rays,
@@ -135,7 +135,7 @@ init_ddgi(AllocHeap heap, RgBuilder* builder)
     DXGI_FORMAT_R32G32B32A32_FLOAT
   );
 
-  RgHandle<GpuImage> probe_irradiance = rg_create_texture_array_ex(
+  RgHandle<GpuTexture> probe_irradiance = rg_create_texture_array_ex(
     builder,
     "Probe Irradiance",
     desc.probe_count_x * kProbeNumIrradianceTexels,
@@ -145,7 +145,7 @@ init_ddgi(AllocHeap heap, RgBuilder* builder)
     kInfiniteLifetime // We want the irradiance data from the previous frame to blend with on the current frame
   );
 
-  RgHandle<GpuImage> probe_distance  = rg_create_texture_array_ex(
+  RgHandle<GpuTexture> probe_distance  = rg_create_texture_array_ex(
     builder,
     "Probe Distance",
     desc.probe_count_x * kProbeNumDistanceTexels,

@@ -78,7 +78,7 @@ inline constexpr ResourceType kResourceType;
 template <> \
 inline constexpr ResourceType kResourceType<T> = enum_type
 
-RESOURCE_TEMPLATE_TYPE(GpuImage, kResourceTypeImage);
+RESOURCE_TEMPLATE_TYPE(GpuTexture, kResourceTypeImage);
 RESOURCE_TEMPLATE_TYPE(GpuBuffer, kResourceTypeBuffer);
 
 template <typename T>
@@ -129,9 +129,9 @@ namespace priv
   };
   
   template <>
-  struct View<GpuImage>
+  struct View<GpuTexture>
   {
-    typedef GpuImage kType;
+    typedef GpuTexture kType;
   };
 }
 
@@ -220,13 +220,13 @@ struct RenderContext
   u32                   m_Height     = 0;
 
   void clear_depth_stencil_view(
-    RgWriteHandle<GpuImage> depth_stencil,
+    RgWriteHandle<GpuTexture> depth_stencil,
     DepthStencilClearFlags flags,
     f32 depth,
     u8 stencil
   );
 
-  void clear_render_target_view(RgWriteHandle<GpuImage> render_target_view, const Vec4& rgba);
+  void clear_render_target_view(RgWriteHandle<GpuTexture> render_target_view, const Vec4& rgba);
 
   void set_graphics_pso(const GraphicsPSO* pso);
   void set_compute_pso(const ComputePSO* pso);
@@ -271,7 +271,7 @@ struct RenderContext
 
   void clear_state();
 
-  void om_set_render_targets(Span<RgWriteHandle<GpuImage>> rtvs, Option<RgWriteHandle<GpuImage>> dsv);
+  void om_set_render_targets(Span<RgWriteHandle<GpuTexture>> rtvs, Option<RgWriteHandle<GpuTexture>> dsv);
   void rs_set_scissor_rect(s32 left, s32 top, s32 right, s32 bottom);
   void rs_set_viewport(f32 left, f32 top, f32 width, f32 height);
 
@@ -363,7 +363,7 @@ struct RgBuilder
   Array<ResourceHandle>                 resource_list;
   HashTable<u32, TransientResourceDesc> resource_descs;
 
-  RgHandle<GpuImage>                    back_buffer;
+  RgHandle<GpuTexture>                    back_buffer;
 
   u32                                   handle_index = 0;
   u32                                   width        = 0;
@@ -476,9 +476,9 @@ struct RenderGraph
 
   HashTable<RgDescriptorKey, Descriptor> descriptor_map;
   HashTable<RgResourceKey,   GpuBuffer > buffer_map;
-  HashTable<RgResourceKey,   GpuImage  > texture_map;
+  HashTable<RgResourceKey,   GpuTexture  > texture_map;
 
-  RgHandle<GpuImage>                     back_buffer;
+  RgHandle<GpuTexture>                     back_buffer;
 
   Array<RgResourceBarrier>               exit_barriers;
 
@@ -491,7 +491,7 @@ struct RenderGraph
 
 RgBuilder   init_rg_builder(AllocHeap heap, u32 width, u32 height);
 RenderGraph compile_render_graph(AllocHeap heap, const RgBuilder& builder, const GraphicsDevice* device);
-void        execute_render_graph(RenderGraph* graph, const GraphicsDevice* device, const GpuImage* back_buffer, u32 frame_index);
+void        execute_render_graph(RenderGraph* graph, const GraphicsDevice* device, const GpuTexture* back_buffer, u32 frame_index);
 
 RgPassBuilder* add_render_pass(
   AllocHeap heap,
@@ -540,8 +540,8 @@ enum WriteTextureAccess : u32
   kWriteTextureCopyDst,
 };
 
-RgReadHandle<GpuImage>  rg_read_texture (RgPassBuilder* builder, RgHandle<GpuImage>  texture, ReadTextureAccessMask access, s8 temporal_frame = 0);
-RgWriteHandle<GpuImage> rg_write_texture(RgPassBuilder* builder, RgHandle<GpuImage>* texture, WriteTextureAccess    access);
+RgReadHandle<GpuTexture>  rg_read_texture (RgPassBuilder* builder, RgHandle<GpuTexture>  texture, ReadTextureAccessMask access, s8 temporal_frame = 0);
+RgWriteHandle<GpuTexture> rg_write_texture(RgPassBuilder* builder, RgHandle<GpuTexture>* texture, WriteTextureAccess    access);
 
 enum ReadBufferAccessMask : u32
 {
@@ -581,7 +581,7 @@ constant u32 kRgWindowHeight   = -2;
 
 constant u8  kInfiniteLifetime = 0xFF;
 
-RgHandle<GpuImage> rg_create_texture(
+RgHandle<GpuTexture> rg_create_texture(
   RgBuilder* builder,
   const char* name,
   u32 width,
@@ -589,7 +589,7 @@ RgHandle<GpuImage> rg_create_texture(
   DXGI_FORMAT format
 );
 
-RgHandle<GpuImage> rg_create_texture_ex(
+RgHandle<GpuTexture> rg_create_texture_ex(
   RgBuilder* builder,
   const char* name,
   u32 width,
@@ -598,7 +598,7 @@ RgHandle<GpuImage> rg_create_texture_ex(
   u8 temporal_lifetime
 );
 
-RgHandle<GpuImage> rg_create_texture_array(
+RgHandle<GpuTexture> rg_create_texture_array(
   RgBuilder* builder,
   const char* name,
   u32 width,
@@ -607,7 +607,7 @@ RgHandle<GpuImage> rg_create_texture_array(
   DXGI_FORMAT format
 );
 
-RgHandle<GpuImage> rg_create_texture_array_ex(
+RgHandle<GpuTexture> rg_create_texture_array_ex(
   RgBuilder* builder,
   const char* name,
   u32 width,

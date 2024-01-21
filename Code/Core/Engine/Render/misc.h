@@ -3,4 +3,4 @@
 
 void init_frame_init_pass(AllocHeap heap, RgBuilder* builder);
 
-void init_imgui_pass(AllocHeap heap, RgBuilder* builder, RgHandle<GpuImage>* dst);
+void init_imgui_pass(AllocHeap heap, RgBuilder* builder, RgHandle<GpuTexture>* dst);

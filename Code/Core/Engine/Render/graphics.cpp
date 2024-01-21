@@ -499,10 +499,10 @@ get_typeless_depth_format(DXGI_FORMAT format)
   }
 }
 
-GpuImage
-alloc_gpu_image_2D_no_heap(const GraphicsDevice* device, GpuImageDesc desc, const char* name)
+GpuTexture
+alloc_gpu_texture_no_heap(const GraphicsDevice* device, GpuTextureDesc desc, const char* name)
 {
-  GpuImage ret = {0};
+  GpuTexture ret = {0};
   ret.desc = desc;
 
   D3D12_HEAP_PROPERTIES heap_props = CD3DX12_HEAP_PROPERTIES(get_d3d12_heap_type(kGpuHeapTypeLocal));
@@ -559,14 +559,14 @@ alloc_gpu_image_2D_no_heap(const GraphicsDevice* device, GpuImageDesc desc, cons
 }
 
 void
-free_gpu_image(GpuImage* image)
+free_gpu_image(GpuTexture* image)
 {
   COM_RELEASE(image->d3d12_image);
-  zero_memory(image, sizeof(GpuImage));
+  zero_memory(image, sizeof(GpuTexture));
 }
 
 static D3D12_RESOURCE_DESC
-d3d12_resource_desc(GpuImageDesc desc)
+d3d12_resource_desc(GpuTextureDesc desc)
 {
   D3D12_RESOURCE_DESC resource_desc;
   resource_desc.Dimension          = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
@@ -584,14 +584,14 @@ d3d12_resource_desc(GpuImageDesc desc)
   return resource_desc;
 }
 
-GpuImage
-alloc_gpu_image_2D(
+GpuTexture
+alloc_gpu_texture(
   const GraphicsDevice* device,
   GpuLinearAllocator* allocator,
-  GpuImageDesc desc,
+  GpuTextureDesc desc,
   const char* name
 ) {
-  GpuImage ret = {0};
+  GpuTexture ret = {0};
   ret.desc     = desc;
 
   D3D12_RESOURCE_DESC resource_desc   = d3d12_resource_desc(desc);
@@ -897,7 +897,7 @@ alloc_descriptor(DescriptorLinearAllocator* allocator)
 
 
 void
-init_rtv(const GraphicsDevice* device, Descriptor* descriptor, const GpuImage* image)
+init_rtv(const GraphicsDevice* device, Descriptor* descriptor, const GpuTexture* image)
 {
   ASSERT(descriptor->type == kDescriptorHeapTypeRtv);
 
@@ -910,7 +910,7 @@ init_rtv(const GraphicsDevice* device, Descriptor* descriptor, const GpuImage* i
 }
 
 void
-init_dsv(const GraphicsDevice* device, Descriptor* descriptor, const GpuImage* image)
+init_dsv(const GraphicsDevice* device, Descriptor* descriptor, const GpuTexture* image)
 {
   ASSERT(descriptor->type == kDescriptorHeapTypeDsv);
 
@@ -994,7 +994,7 @@ init_buffer_uav(
 }
 
 void
-init_image_2D_srv(const GraphicsDevice* device, Descriptor* descriptor, const GpuImage* image)
+init_image_2D_srv(const GraphicsDevice* device, Descriptor* descriptor, const GpuTexture* image)
 {
   ASSERT(descriptor->type == kDescriptorHeapTypeCbvSrvUav);
 
@@ -1022,7 +1022,7 @@ init_image_2D_srv(const GraphicsDevice* device, Descriptor* descriptor, const Gp
 }
 
 void
-init_image_2D_uav(const GraphicsDevice* device, Descriptor* descriptor, const GpuImage* image)
+init_image_2D_uav(const GraphicsDevice* device, Descriptor* descriptor, const GpuTexture* image)
 {
   ASSERT(descriptor->type == kDescriptorHeapTypeCbvSrvUav);
 
@@ -1441,10 +1441,10 @@ destroy_shader_table(ShaderTable* shader_table)
 static void
 alloc_back_buffers_from_swap_chain(
   const SwapChain* swap_chain,
-  GpuImage** back_buffers,
+  GpuTexture** back_buffers,
   u32 num_back_buffers
 ) {
-  GpuImageDesc desc = {0};
+  GpuTextureDesc desc = {0};
   desc.width = swap_chain->width;
   desc.height = swap_chain->height;
   desc.format = swap_chain->format;
@@ -1508,7 +1508,7 @@ init_swap_chain(HWND window, const GraphicsDevice* device)
 
   for (u32 i = 0; i < ARRAY_LENGTH(ret.back_buffers); i++)
   {
-    ret.back_buffers[i] = HEAP_ALLOC(GpuImage, g_InitHeap, 1);
+    ret.back_buffers[i] = HEAP_ALLOC(GpuTexture, g_InitHeap, 1);
   }
 
   alloc_back_buffers_from_swap_chain(
@@ -1534,7 +1534,7 @@ destroy_swap_chain(SwapChain* swap_chain)
 }
 
 
-const GpuImage*
+const GpuTexture*
 swap_chain_acquire(SwapChain* swap_chain)
 {
   u32 index = swap_chain->back_buffer_index;
@@ -1545,7 +1545,7 @@ swap_chain_acquire(SwapChain* swap_chain)
 }
 
 void
-swap_chain_submit(SwapChain* swap_chain, const GraphicsDevice* device, const GpuImage* rtv)
+swap_chain_submit(SwapChain* swap_chain, const GraphicsDevice* device, const GpuTexture* rtv)
 {
   u32 index = swap_chain->back_buffer_index;
   ASSERT(swap_chain->back_buffers[index] == rtv);

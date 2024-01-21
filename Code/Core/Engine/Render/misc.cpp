@@ -80,7 +80,7 @@ init_frame_init_pass(AllocHeap heap, RgBuilder* builder)
 
 struct ImGuiParams
 {
-  RgWriteHandle<GpuImage> dst;
+  RgWriteHandle<GpuTexture> dst;
 };
 
 void
@@ -102,7 +102,7 @@ render_handler_imgui(RenderContext* ctx, const void* data)
 }
 
 void
-init_imgui_pass(AllocHeap heap, RgBuilder* builder, RgHandle<GpuImage>* dst)
+init_imgui_pass(AllocHeap heap, RgBuilder* builder, RgHandle<GpuTexture>* dst)
 {
   ImGuiParams* params = HEAP_ALLOC(ImGuiParams, g_InitHeap, 1);
 

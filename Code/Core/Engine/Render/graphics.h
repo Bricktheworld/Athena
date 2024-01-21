@@ -154,7 +154,7 @@ reset_gpu_linear_allocator(GpuLinearAllocator* allocator)
 }
 
 
-struct GpuImageDesc
+struct GpuTextureDesc
 {
   u32                   width         = 0;
   u32                   height        = 0;
@@ -176,31 +176,31 @@ struct GpuImageDesc
   };
 };
 
-struct GpuImage
+struct GpuTexture
 {
-  GpuImageDesc          desc;
+  GpuTextureDesc          desc;
   ID3D12Resource*       d3d12_image = nullptr;
   D3D12_RESOURCE_STATES state       = D3D12_RESOURCE_STATE_COMMON;
 };
 
-GpuImage alloc_gpu_image_2D_no_heap(
+GpuTexture alloc_gpu_texture_no_heap(
   const GraphicsDevice* device,
-  GpuImageDesc desc,
+  GpuTextureDesc desc,
   const char* name
 );
-void free_gpu_image(GpuImage* image);
+void free_gpu_image(GpuTexture* image);
 
-GpuImage alloc_gpu_image_2D(
+GpuTexture alloc_gpu_texture(
   const GraphicsDevice* device,
   GpuLinearAllocator* allocator,
-  GpuImageDesc desc,
+  GpuTextureDesc desc,
   const char* name
 );
 
-void upload_gpu_image_2D(
+void upload_gpu_texture(
   const GraphicsDevice* device,
   const void* rgba,
-  GpuImage* dst
+  GpuTexture* dst
 );
 
 bool is_depth_format(DXGI_FORMAT format);
@@ -358,10 +358,10 @@ void init_buffer_uav(
   u32 stride
 );
 
-void init_rtv(const GraphicsDevice* device, Descriptor* descriptor, const GpuImage* image);
-void init_dsv(const GraphicsDevice* device, Descriptor* descriptor, const GpuImage* image);
-void init_image_2D_srv(const GraphicsDevice* device, Descriptor* descriptor, const GpuImage* image);
-void init_image_2D_uav(const GraphicsDevice* device, Descriptor* descriptor, const GpuImage* image);
+void init_rtv(const GraphicsDevice* device, Descriptor* descriptor, const GpuTexture* image);
+void init_dsv(const GraphicsDevice* device, Descriptor* descriptor, const GpuTexture* image);
+void init_image_2D_srv(const GraphicsDevice* device, Descriptor* descriptor, const GpuTexture* image);
+void init_image_2D_uav(const GraphicsDevice* device, Descriptor* descriptor, const GpuTexture* image);
 
 void init_sampler(const GraphicsDevice* device, Descriptor* descriptor);
 
@@ -459,7 +459,7 @@ struct SwapChain
   Fence fence;
   FenceValue frame_fence_values[kFramesInFlight] = {0};
 
-  GpuImage* back_buffers[kFramesInFlight] = {0};
+  GpuTexture* back_buffers[kFramesInFlight] = {0};
   u32 back_buffer_index = 0;
 
   bool vsync = false;
@@ -470,8 +470,8 @@ struct SwapChain
 SwapChain init_swap_chain(HWND window, const GraphicsDevice* device);
 void destroy_swap_chain(SwapChain* swap_chain);
 
-const GpuImage* swap_chain_acquire(SwapChain* swap_chain);
-void swap_chain_submit(SwapChain* swap_chain, const GraphicsDevice* device, const GpuImage* rtv);
+const GpuTexture* swap_chain_acquire(SwapChain* swap_chain);
+void swap_chain_submit(SwapChain* swap_chain, const GraphicsDevice* device, const GpuTexture* rtv);
 
 void set_descriptor_heaps(CmdList* cmd, const DescriptorPool* heaps, u32 num_heaps);
 void set_descriptor_heaps(CmdList* cmd, Span<const DescriptorLinearAllocator*> heaps);

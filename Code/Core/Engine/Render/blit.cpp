@@ -7,8 +7,8 @@
 
 struct BlitParams
 {
-  RgReadHandle<GpuImage>  src;
-  RgWriteHandle<GpuImage> dst;
+  RgReadHandle<GpuTexture>  src;
+  RgWriteHandle<GpuTexture> dst;
 };
 
 static void
@@ -26,7 +26,7 @@ render_handler_back_buffer_blit(RenderContext* ctx, const void* data)
 }
 
 void
-init_back_buffer_blit(AllocHeap heap, RgBuilder* builder, RgHandle<GpuImage> src)
+init_back_buffer_blit(AllocHeap heap, RgBuilder* builder, RgHandle<GpuTexture> src)
 {
   BlitParams* params  = HEAP_ALLOC(BlitParams, g_InitHeap, 1);
   zero_memory(params, sizeof(BlitParams));

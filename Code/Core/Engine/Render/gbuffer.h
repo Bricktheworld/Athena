@@ -3,20 +3,20 @@
 
 struct GBuffer
 {
-  RgHandle<GpuImage> material_id;
-  RgHandle<GpuImage> world_pos;
-  RgHandle<GpuImage> diffuse_metallic;
-  RgHandle<GpuImage> normal_roughness;
-  RgHandle<GpuImage> depth;
+  RgHandle<GpuTexture> material_id;
+  RgHandle<GpuTexture> world_pos;
+  RgHandle<GpuTexture> diffuse_metallic;
+  RgHandle<GpuTexture> normal_roughness;
+  RgHandle<GpuTexture> depth;
 };
 
 struct ReadGBuffer
 {
-  RgReadHandle<GpuImage> material_id;
-  RgReadHandle<GpuImage> world_pos;
-  RgReadHandle<GpuImage> diffuse_metallic;
-  RgReadHandle<GpuImage> normal_roughness;
-  RgReadHandle<GpuImage> depth;
+  RgReadHandle<GpuTexture> material_id;
+  RgReadHandle<GpuTexture> world_pos;
+  RgReadHandle<GpuTexture> diffuse_metallic;
+  RgReadHandle<GpuTexture> normal_roughness;
+  RgReadHandle<GpuTexture> depth;
 };
 
 constant u32 kGBufferReadCount = 5;

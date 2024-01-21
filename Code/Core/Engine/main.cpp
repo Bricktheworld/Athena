@@ -327,7 +327,7 @@ application_entry(HINSTANCE instance, int show_code)
     begin_renderer_recording();
     submit_scene(scene);
 
-    const GpuImage* back_buffer = swap_chain_acquire(&swap_chain);
+    const GpuTexture* back_buffer = swap_chain_acquire(&swap_chain);
     execute_render_graph(&g_Renderer.graph, &graphics_device, back_buffer, swap_chain.back_buffer_index);
     swap_chain_submit(&swap_chain, &graphics_device, back_buffer);
   }

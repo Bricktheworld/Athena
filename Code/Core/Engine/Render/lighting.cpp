@@ -5,16 +5,16 @@
 #include "Core/Engine/Render/ddgi.h"
 #include "Core/Engine/Render/lighting.h"
 
-RgHandle<GpuImage>
+RgHandle<GpuTexture>
 init_hdr_buffer(RgBuilder* builder)
 {
-  RgHandle<GpuImage> ret = rg_create_texture(builder, "HDR Buffer", FULL_RES(builder), DXGI_FORMAT_R11G11B10_FLOAT);
+  RgHandle<GpuTexture> ret = rg_create_texture(builder, "HDR Buffer", FULL_RES(builder), DXGI_FORMAT_R11G11B10_FLOAT);
   return ret;
 }
 
 struct LightingParams
 {
-  RgWriteHandle<GpuImage> hdr_buffer;
+  RgWriteHandle<GpuTexture> hdr_buffer;
   ReadGBuffer             gbuffer;
   ReadDdgi                ddgi;
 };
@@ -48,7 +48,7 @@ init_lighting(
   const GraphicsDevice* device,
   const GBuffer& gbuffer,
   const Ddgi& ddgi,
-  RgHandle<GpuImage>* hdr_buffer
+  RgHandle<GpuTexture>* hdr_buffer
 ) {
   LightingParams* params = HEAP_ALLOC(LightingParams, g_InitHeap, 1);
   RgPassBuilder* pass    = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "Lighting", params, &render_handler_lighting, kGBufferReadCount + kDdgiReadCount, 1);

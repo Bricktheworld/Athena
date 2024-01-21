@@ -7,7 +7,7 @@
 #define CBV(T) Cbv<T>
 #define SRV(T) Srv<T>
 #define UAV(T) Uav<T>
-using GpuImage = GpuImage;
+using GpuTexture = GpuTexture;
 using GpuBvh   = GpuBvh;
 
 #else
@@ -19,7 +19,7 @@ typedef float4 Vec4;
 typedef float4 Quat;
 typedef uint u32;
 typedef float f32;
-struct GpuImage;
+struct GpuTexture;
 struct GpuBvh;
 
 #define SRV(T) u32
@@ -74,12 +74,12 @@ namespace interlop
 
   struct FullscreenRenderResources
   {
-    SRV(GpuImage)  texture;
+    SRV(GpuTexture) texture;
   };
 
   struct PostProcessingRenderResources
   {
-    SRV(GpuImage)  texture;
+    SRV(GpuTexture) texture;
   };
 
   struct PointLight
@@ -92,24 +92,24 @@ namespace interlop
 
   struct StandardBrdfComputeResources
   {
-    SRV(GpuImage)  gbuffer_material_ids;
-    SRV(GpuImage)  gbuffer_world_pos;
-    SRV(GpuImage)  gbuffer_diffuse_rgb_metallic_a;
-    SRV(GpuImage)  gbuffer_normal_rgb_roughness_a;
+    SRV(GpuTexture) gbuffer_material_ids;
+    SRV(GpuTexture) gbuffer_world_pos;
+    SRV(GpuTexture) gbuffer_diffuse_rgb_metallic_a;
+    SRV(GpuTexture) gbuffer_normal_rgb_roughness_a;
 
 #if 0
 		CBV(DDGIVolDesc) vol_desc;
-    SRV(GpuImage)    probe_irradiance;
-    SRV(GpuImage)    probe_distance;
+    SRV(GpuTexture)  probe_irradiance;
+    SRV(GpuTexture)  probe_distance;
 #endif
 
-    UAV(GpuImage)  render_target;
+    UAV(GpuTexture) render_target;
   };
 
   struct DownsampleComputeResources
   {
-    SRV(GpuImage)  src;
-    UAV(GpuImage)  dst;
+    SRV(GpuTexture) src;
+    UAV(GpuTexture) dst;
   };
 
   struct DofOptions
@@ -123,58 +123,58 @@ namespace interlop
   struct DofCocComputeResources
   {
     CBV(DofOptions) options;
-    SRV(GpuImage)   color_buffer;
-    SRV(GpuImage)   depth_buffer;
+    SRV(GpuTexture) color_buffer;
+    SRV(GpuTexture) depth_buffer;
 
-    UAV(GpuImage)   render_target;
+    UAV(GpuTexture) render_target;
   };
 
   struct DofCocDilateComputeResources
   {
-    SRV(GpuImage)   coc_buffer;
+    SRV(GpuTexture) coc_buffer;
 
-    UAV(GpuImage)   render_target;
+    UAV(GpuTexture) render_target;
   };
 
   struct DofBlurHorizComputeResources
   {
-    SRV(GpuImage)   color_buffer;
-    SRV(GpuImage)   coc_buffer;
+    SRV(GpuTexture) color_buffer;
+    SRV(GpuTexture) coc_buffer;
 
-    UAV(GpuImage)   red_near_target;
-    UAV(GpuImage)   green_near_target;
-    UAV(GpuImage)   blue_near_target;
+    UAV(GpuTexture) red_near_target;
+    UAV(GpuTexture) green_near_target;
+    UAV(GpuTexture) blue_near_target;
 
-    UAV(GpuImage)   red_far_target;
-    UAV(GpuImage)   green_far_target;
-    UAV(GpuImage)   blue_far_target;
+    UAV(GpuTexture) red_far_target;
+    UAV(GpuTexture) green_far_target;
+    UAV(GpuTexture) blue_far_target;
   };
 
   struct DofBlurVertComputeResources
   {
-    SRV(GpuImage)   coc_buffer;
+    SRV(GpuTexture) coc_buffer;
 
-    SRV(GpuImage)   red_near_buffer;
-    SRV(GpuImage)   green_near_buffer;
-    SRV(GpuImage)   blue_near_buffer;
+    SRV(GpuTexture) red_near_buffer;
+    SRV(GpuTexture) green_near_buffer;
+    SRV(GpuTexture) blue_near_buffer;
 
-    SRV(GpuImage)   red_far_buffer;
-    SRV(GpuImage)   green_far_buffer;
-    SRV(GpuImage)   blue_far_buffer;
+    SRV(GpuTexture) red_far_buffer;
+    SRV(GpuTexture) green_far_buffer;
+    SRV(GpuTexture) blue_far_buffer;
 
-    UAV(GpuImage)   blurred_near_target;
-    UAV(GpuImage)   blurred_far_target;
+    UAV(GpuTexture) blurred_near_target;
+    UAV(GpuTexture) blurred_far_target;
   };
 
   struct DofCompositeComputeResources
   {
-    SRV(GpuImage)   coc_buffer;
+    SRV(GpuTexture) coc_buffer;
 
-    SRV(GpuImage)   color_buffer;
-    SRV(GpuImage)   near_buffer;
-    SRV(GpuImage)   far_buffer;
+    SRV(GpuTexture) color_buffer;
+    SRV(GpuTexture) near_buffer;
+    SRV(GpuTexture) far_buffer;
 
-    UAV(GpuImage)   render_target;
+    UAV(GpuTexture) render_target;
   };
 
   struct DebugGBufferOptions
@@ -185,20 +185,20 @@ namespace interlop
   struct DebugGBufferResources
   {
     CBV(DebugGBufferOptions) options;
-    SRV(GpuImage)            gbuffer_material_ids;
-    SRV(GpuImage)            gbuffer_world_pos;
-    SRV(GpuImage)            gbuffer_diffuse_rgb_metallic_a;
-    SRV(GpuImage)            gbuffer_normal_rgb_roughness_a;
-    SRV(GpuImage)            gbuffer_depth;
+    SRV(GpuTexture)          gbuffer_material_ids;
+    SRV(GpuTexture)          gbuffer_world_pos;
+    SRV(GpuTexture)          gbuffer_diffuse_rgb_metallic_a;
+    SRV(GpuTexture)          gbuffer_normal_rgb_roughness_a;
+    SRV(GpuTexture)          gbuffer_depth;
 
-    UAV(GpuImage)            render_target;
+    UAV(GpuTexture)          render_target;
   };
 
   struct DebugCoCResources
   {
-    SRV(GpuImage) coc_buffer;
+    SRV(GpuTexture) coc_buffer;
 
-    UAV(GpuImage) render_target;
+    UAV(GpuTexture) render_target;
   };
 
 #define kProbeNumIrradianceInteriorTexels 6
@@ -227,33 +227,33 @@ namespace interlop
   {
     CBV(DDGIVolDesc) vol_desc;
 		CBV(Scene)       scene;
-    SRV(GpuImage)    probe_irradiance;
-    SRV(GpuImage)    probe_distance;
+    SRV(GpuTexture)  probe_irradiance;
+    SRV(GpuTexture)  probe_distance;
 
-		UAV(GpuImage)    render_target;
+		UAV(GpuTexture)  render_target;
   };
 
   struct ProbeTraceRTResources
   {
 		CBV(DDGIVolDesc) vol_desc;
-    SRV(GpuImage)    probe_irradiance;
-    SRV(GpuImage)    probe_distance;
+    SRV(GpuTexture)  probe_irradiance;
+    SRV(GpuTexture)  probe_distance;
 
-		UAV(GpuImage)    ray_data;
+		UAV(GpuTexture)  ray_data;
   };
 
   struct ProbeBlendingCSResources
   {
 		CBV(DDGIVolDesc) vol_desc;
-    SRV(GpuImage)    ray_data;
-    UAV(GpuImage)    irradiance;
+    SRV(GpuTexture)  ray_data;
+    UAV(GpuTexture)  irradiance;
   };
 
   struct ProbeDistanceBlendingCSResources
   {
 		CBV(DDGIVolDesc) vol_desc;
-    SRV(GpuImage)    ray_data;
-    UAV(GpuImage)    distance;
+    SRV(GpuTexture)  ray_data;
+    UAV(GpuTexture)  distance;
   };
 
   struct ProbeDebugOptions
@@ -264,22 +264,22 @@ namespace interlop
   struct ProbeDebugCSResources
   {
 //    CBV(ProbeDebugOptions) options;
-    SRV(GpuImage)          tex_2d_array;
-    UAV(GpuImage)          render_target;
+    SRV(GpuTexture)  tex_2d_array;
+    UAV(GpuTexture)  render_target;
   };
 
   struct StandardBrdfRTResources
   {
-    SRV(GpuImage)    gbuffer_material_ids;
-    SRV(GpuImage)    gbuffer_world_pos;
-    SRV(GpuImage)    gbuffer_diffuse_rgb_metallic_a;
-    SRV(GpuImage)    gbuffer_normal_rgb_roughness_a;
+    SRV(GpuTexture)  gbuffer_material_ids;
+    SRV(GpuTexture)  gbuffer_world_pos;
+    SRV(GpuTexture)  gbuffer_diffuse_rgb_metallic_a;
+    SRV(GpuTexture)  gbuffer_normal_rgb_roughness_a;
 
 		CBV(DDGIVolDesc) ddgi_vol_desc;
-    SRV(GpuImage)    ddgi_probe_irradiance;
-    SRV(GpuImage)    ddgi_probe_distance;
+    SRV(GpuTexture)  ddgi_probe_irradiance;
+    SRV(GpuTexture)  ddgi_probe_distance;
 
-    UAV(GpuImage)    render_target;
+    UAV(GpuTexture)  render_target;
   };
 }
 

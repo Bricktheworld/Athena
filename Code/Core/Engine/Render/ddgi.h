@@ -6,15 +6,15 @@
 struct Ddgi
 {
   RgHandle<GpuBuffer> desc;
-  RgHandle<GpuImage>  distance;
-  RgHandle<GpuImage>  irradiance;
+  RgHandle<GpuTexture>  distance;
+  RgHandle<GpuTexture>  irradiance;
 };
 
 struct ReadDdgi
 {
   RgReadHandle<GpuBuffer> desc;
-  RgReadHandle<GpuImage>  distance;
-  RgReadHandle<GpuImage>  irradiance;
+  RgReadHandle<GpuTexture>  distance;
+  RgReadHandle<GpuTexture>  irradiance;
 };
 
 constant u32 kDdgiReadCount = 3;

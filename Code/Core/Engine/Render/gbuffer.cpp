@@ -23,11 +23,11 @@ struct GBufferStaticParams
 {
   RgReadHandle<GpuBuffer> transform_buffer;
 
-  RgWriteHandle<GpuImage> material_id;
-  RgWriteHandle<GpuImage> world_pos;
-  RgWriteHandle<GpuImage> diffuse_metallic;
-  RgWriteHandle<GpuImage> normal_roughness;
-  RgWriteHandle<GpuImage> depth;
+  RgWriteHandle<GpuTexture> material_id;
+  RgWriteHandle<GpuTexture> world_pos;
+  RgWriteHandle<GpuTexture> diffuse_metallic;
+  RgWriteHandle<GpuTexture> normal_roughness;
+  RgWriteHandle<GpuTexture> depth;
 };
 
 static void

@@ -28,6 +28,12 @@ RaytracingPipelineConfig kPipelineConfig =
 
 ConstantBuffer<interlop::StandardBrdfRTResources> rt_resources : register(b0);
 
+//float4 screen_to_view(float4 screen)
+//{
+//
+//}
+
+
 [shader("raygeneration")]
 void ray_gen()
 {
@@ -40,6 +46,7 @@ void ray_gen()
 	Texture2D<float4>                     gbuffer_positions        = ResourceDescriptorHeap[rt_resources.gbuffer_world_pos];
 	Texture2D<unorm float4>               gbuffer_diffuse_metallic = ResourceDescriptorHeap[rt_resources.gbuffer_diffuse_rgb_metallic_a];
 	Texture2D<float4>                     gbuffer_normal_roughness = ResourceDescriptorHeap[rt_resources.gbuffer_normal_rgb_roughness_a];
+//	Texture2D<float>                      gbuffer_depth            = ResourceDescriptorHeap[rt_resources.gbuffer_depth];
 
 	ConstantBuffer<interlop::DDGIVolDesc> vol_desc                 = ResourceDescriptorHeap[rt_resources.ddgi_vol_desc];
   Texture2DArray<float4>                probe_irradiance         = ResourceDescriptorHeap[rt_resources.ddgi_probe_irradiance];

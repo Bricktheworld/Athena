@@ -3,7 +3,7 @@
 
 struct GBuffer;
 
-RgHandle<GpuImage> init_hdr_buffer(RgBuilder* builder);
+RgHandle<GpuTexture> init_hdr_buffer(RgBuilder* builder);
 
 void init_lighting(
   AllocHeap heap,
@@ -11,6 +11,6 @@ void init_lighting(
   const GraphicsDevice* device,
   const GBuffer& gbuffer,
   const Ddgi&    ddgi,
-  RgHandle<GpuImage>* hdr_buffer
+  RgHandle<GpuTexture>* hdr_buffer
 );
 

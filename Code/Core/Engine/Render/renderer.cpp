@@ -65,10 +65,10 @@ init_renderer(
 
   Ddgi ddgi = init_ddgi(scratch_arena, &builder);
 
-  RgHandle<GpuImage> hdr_buffer  = init_hdr_buffer(&builder);
+  RgHandle<GpuTexture> hdr_buffer  = init_hdr_buffer(&builder);
   init_lighting(scratch_arena, &builder, device, gbuffer, ddgi, &hdr_buffer);
 
-  RgHandle<GpuImage> post_buffer = init_post_processing(scratch_arena, &builder, device, hdr_buffer);
+  RgHandle<GpuTexture> post_buffer = init_post_processing(scratch_arena, &builder, device, hdr_buffer);
 
   init_imgui_pass(scratch_arena, &builder, &post_buffer);
 
