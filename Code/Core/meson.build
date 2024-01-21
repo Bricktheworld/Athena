@@ -72,6 +72,8 @@ engine_shaders = [
   'Engine/Shaders/Vertex/basic.vsh',
   'Engine/Shaders/Vertex/fullscreen.vsh',
 
+  'Engine/Shaders/VisibilityBuffer/visibility_buffer.psh',
+
   'Engine/Shaders/Pixel/fullscreen.psh',
 
   'Engine/Shaders/Lighting/standard_brdf.rtsh',
@@ -134,6 +136,10 @@ engine_src = [
   'Engine/Render/render_graph.h',
   'Engine/Render/renderer.cpp',
   'Engine/Render/renderer.h',
+  'Engine/Render/unified_geometry_buffer.cpp',
+  'Engine/Render/unified_geometry_buffer.h',
+  'Engine/Render/visibility_buffer.cpp',
+  'Engine/Render/visibility_buffer.h',
 
   'Engine/Vendor/imgui/imgui.cpp',
   'Engine/Vendor/imgui/imgui_demo.cpp',

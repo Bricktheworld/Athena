@@ -271,9 +271,9 @@ namespace interlop
   struct StandardBrdfRTResources
   {
     SRV(GpuTexture)  gbuffer_material_ids;
-    SRV(GpuTexture)  gbuffer_world_pos;
     SRV(GpuTexture)  gbuffer_diffuse_rgb_metallic_a;
     SRV(GpuTexture)  gbuffer_normal_rgb_roughness_a;
+    SRV(GpuTexture)  gbuffer_depth;
 
 		CBV(DDGIVolDesc) ddgi_vol_desc;
     SRV(GpuTexture)  ddgi_probe_irradiance;

@@ -1,0 +1,18 @@
+#include "../root_signature.hlsli"
+#include "../interlop.hlsli"
+
+
+struct VisibilityBufferPSOut
+{
+  uint output : SV_Target0;
+};
+
+[RootSignature(BINDLESS_ROOT_SIGNATURE)]
+VisibilityBufferPSOut PS_VisibilityBuffer(shaders::BasicVSOut ps_in)
+{
+  VisibilityBufferPSOut ret;
+  ret.output = 0;
+
+
+  return ret;
+}

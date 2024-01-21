@@ -292,7 +292,7 @@ init_render_model(AllocHeap heap, const ModelData& model, Scene* scene, const Sh
       .vertex_shader   = shader_manager.shaders[dst->vertex_shader],
       .pixel_shader    = shader_manager.shaders[dst->material_shader],
       .rtv_formats     = kGBufferRenderTargetFormats,
-      .dsv_format      = kRenderBufferDescs[RenderBuffers::kGBufferDepth].format,
+      .dsv_format      = DXGI_FORMAT_D32_FLOAT,
       .comparison_func = kDepthComparison,
       .stencil_enable  = false,
     };

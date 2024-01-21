@@ -26,9 +26,9 @@ render_handler_lighting(RenderContext* ctx, const void* data)
 
   ctx->ray_tracing_bind_shader_resources<interlop::StandardBrdfRTResources>({
     .gbuffer_material_ids           = params->gbuffer.material_id,
-    .gbuffer_world_pos              = params->gbuffer.world_pos,
     .gbuffer_diffuse_rgb_metallic_a = params->gbuffer.diffuse_metallic,
     .gbuffer_normal_rgb_roughness_a = params->gbuffer.normal_roughness,
+    .gbuffer_depth                  = params->gbuffer.depth,
 
     .ddgi_vol_desc                  = params->ddgi.desc,
     .ddgi_probe_irradiance          = params->ddgi.irradiance,

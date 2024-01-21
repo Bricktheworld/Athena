@@ -12,7 +12,6 @@ init_gbuffer(RgBuilder* builder)
 {
   GBuffer ret = {0};
   ret.material_id      = rg_create_texture(builder, "GBuffer Material ID",      FULL_RES(builder), DXGI_FORMAT_R32_UINT          );
-  ret.world_pos        = rg_create_texture(builder, "GBuffer World Position",   FULL_RES(builder), DXGI_FORMAT_R32G32B32A32_FLOAT);
   ret.diffuse_metallic = rg_create_texture(builder, "GBuffer Diffuse Metallic", FULL_RES(builder), DXGI_FORMAT_R8G8B8A8_UNORM    );
   ret.normal_roughness = rg_create_texture(builder, "GBuffer Normal Roughness", FULL_RES(builder), DXGI_FORMAT_R16G16B16A16_FLOAT);
   ret.depth            = rg_create_texture(builder, "GBuffer Depth",            FULL_RES(builder), DXGI_FORMAT_D32_FLOAT         );
@@ -24,7 +23,6 @@ struct GBufferStaticParams
   RgReadHandle<GpuBuffer> transform_buffer;
 
   RgWriteHandle<GpuTexture> material_id;
-  RgWriteHandle<GpuTexture> world_pos;
   RgWriteHandle<GpuTexture> diffuse_metallic;
   RgWriteHandle<GpuTexture> normal_roughness;
   RgWriteHandle<GpuTexture> depth;
@@ -50,7 +48,6 @@ render_handler_gbuffer_static(RenderContext* ctx, const void* data)
   ctx->om_set_render_targets(
     {
       params->material_id,
-      params->world_pos,
       params->diffuse_metallic,
       params->normal_roughness
     },
@@ -61,7 +58,6 @@ render_handler_gbuffer_static(RenderContext* ctx, const void* data)
   ctx->rs_set_scissor_rect(0, 0, S32_MAX, S32_MAX);
 
   ctx->clear_render_target_view(params->material_id,      Vec4(0.0f));
-  ctx->clear_render_target_view(params->world_pos,        Vec4(0.0f));
   ctx->clear_render_target_view(params->diffuse_metallic, Vec4(0.0f));
   ctx->clear_render_target_view(params->normal_roughness, Vec4(0.0f));
 
@@ -87,10 +83,9 @@ init_gbuffer_static(AllocHeap heap, RgBuilder* builder, GBuffer* gbuffer)
 
   RgHandle<GpuBuffer> transform = rg_create_upload_buffer(builder, "Transform Buffer", sizeof(interlop::Scene));
 
-  RgPassBuilder*      pass      = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "GBuffer Static", params, &render_handler_gbuffer_static, 2, 5);
+  RgPassBuilder*      pass      = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "GBuffer Static", params, &render_handler_gbuffer_static, 1, 4);
 
   params->material_id           = rg_write_texture(pass, &gbuffer->material_id,      kWriteTextureColorTarget );
-  params->world_pos             = rg_write_texture(pass, &gbuffer->world_pos,        kWriteTextureColorTarget );
   params->diffuse_metallic      = rg_write_texture(pass, &gbuffer->diffuse_metallic, kWriteTextureColorTarget );
   params->normal_roughness      = rg_write_texture(pass, &gbuffer->normal_roughness, kWriteTextureColorTarget );
   params->depth                 = rg_write_texture(pass, &gbuffer->depth,            kWriteTextureDepthStencil);
@@ -103,7 +98,6 @@ read_gbuffer(RgPassBuilder* pass_builder, const GBuffer& gbuffer, ReadTextureAcc
 {
   ReadGBuffer ret      = {0};
   ret.material_id      = rg_read_texture(pass_builder, gbuffer.material_id,      access);
-  ret.world_pos        = rg_read_texture(pass_builder, gbuffer.world_pos,        access);
   ret.diffuse_metallic = rg_read_texture(pass_builder, gbuffer.diffuse_metallic, access);
   ret.normal_roughness = rg_read_texture(pass_builder, gbuffer.normal_roughness, access);
   ret.depth            = rg_read_texture(pass_builder, gbuffer.depth,            access);
