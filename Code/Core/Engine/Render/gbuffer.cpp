@@ -31,8 +31,6 @@ struct GBufferStaticParams
 static void
 render_handler_gbuffer_static(RenderContext* ctx, const void* data)
 {
-  constant f32 kZNear = 0.1f;
-
   GBufferStaticParams* params = (GBufferStaticParams*)data;
 
   interlop::Transform model;

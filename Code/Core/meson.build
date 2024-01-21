@@ -79,9 +79,12 @@ engine_shaders = [
   'Engine/Shaders/Lighting/standard_brdf.rtsh',
 
   'Engine/Shaders/Materials/basic_normal_gloss.psh',
+  'Engine/Shaders/Materials/basic_normal_gloss.csh',
 
   'Engine/Shaders/DDGI/ddgi.csh',
   'Engine/Shaders/DDGI/probe_trace.rtsh',
+
+  'Engine/Shaders/Debug/visualizers.csh',
 ]
 
 compiled_engine_shaders = []

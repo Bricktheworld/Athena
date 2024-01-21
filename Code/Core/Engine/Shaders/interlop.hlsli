@@ -201,6 +201,12 @@ namespace interlop
     UAV(GpuTexture) render_target;
   };
 
+  struct DebugVisualizerResources
+  {
+    SRV(GpuTexture) input;
+    UAV(GpuTexture) output;
+  };
+
 #define kProbeNumIrradianceInteriorTexels 6
 #define kProbeNumIrradianceTexels 8
 #define kProbeNumDistanceInteriorTexels 14
@@ -281,6 +287,7 @@ namespace interlop
 
     UAV(GpuTexture)  render_target;
   };
+
 }
 
 #ifndef __cplusplus

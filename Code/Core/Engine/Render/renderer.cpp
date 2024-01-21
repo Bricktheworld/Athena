@@ -8,6 +8,7 @@
 #include "Core/Engine/Render/lighting.h"
 #include "Core/Engine/Render/misc.h"
 #include "Core/Engine/Render/post_processing.h"
+#include "Core/Engine/Render/visibility_buffer.h"
 
 #include "Core/Engine/Shaders/interlop.hlsli"
 
@@ -61,6 +62,8 @@ init_renderer(
 
   init_frame_init_pass(scratch_arena, &builder);
 
+//  VBuffer vbuffer = init_vbuffer(scratch_arena, &builder);
+
   init_gbuffer_static(scratch_arena, &builder, &gbuffer);
 
   Ddgi ddgi = init_ddgi(scratch_arena, &builder);
@@ -72,9 +75,25 @@ init_renderer(
 
   init_imgui_pass(scratch_arena, &builder, &post_buffer);
 
+//  RgHandle<GpuTexture> debug_vbuffer = rg_create_texture(&builder, "Debug VBuffer", FULL_RES(&builder), DXGI_FORMAT_R32G32B32A32_FLOAT);
+//  init_debug_vbuffer(scratch_arena, &builder, vbuffer, &debug_vbuffer);
+
   init_back_buffer_blit(scratch_arena, &builder, post_buffer);
 
   g_Renderer.graph = compile_render_graph(g_InitHeap, builder, device);
+
+
+  GraphicsPipelineDesc visibility_pipeline_desc =
+  {
+    .vertex_shader   = shader_manager.shaders[kVS_Basic],
+    .pixel_shader    = shader_manager.shaders[kPS_VisibilityBuffer],
+    .rtv_formats     = Span{DXGI_FORMAT_R32_UINT},
+    .dsv_format      = DXGI_FORMAT_D32_FLOAT,
+    .comparison_func = kDepthComparison,
+    .stencil_enable  = false,
+  };
+  g_Renderer.vbuffer_pso       = init_graphics_pipeline(device, visibility_pipeline_desc, "Visibility Buffer");
+  g_Renderer.debug_vbuffer_pso = init_compute_pipeline(device, shader_manager.shaders[kCS_VisibilityBufferVisualize], "Visibility Buffer Visualize");
 
 
   GraphicsPipelineDesc post_pipeline_desc = 

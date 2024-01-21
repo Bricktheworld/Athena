@@ -371,12 +371,12 @@ struct RgBuilder
 
   Option<RenderPassId>                  frame_init   = None;
 };
-#define FULL_RES_WIDTH(builder) (builder->width)
-#define FULL_RES_HEIGHT(builder) (builder->height)
-#define HALF_RES_WIDTH(builder) (builder->width / 2)
-#define HALF_RES_HEIGHT(builder) (builder->height / 2)
-#define QTR_RES_WIDTH(builder) (builder->width / 4)
-#define QTR_RES_HEIGHT(builder) (builder->height / 4)
+#define FULL_RES_WIDTH(builder) ((builder)->width)
+#define FULL_RES_HEIGHT(builder) ((builder)->height)
+#define HALF_RES_WIDTH(builder) ((builder)->width / 2)
+#define HALF_RES_HEIGHT(builder) ((builder)->height / 2)
+#define QTR_RES_WIDTH(builder) ((builder)->width / 4)
+#define QTR_RES_HEIGHT(builder) ((builder)->height / 4)
 
 #define FULL_RES(builder) FULL_RES_WIDTH(builder), FULL_RES_HEIGHT(builder)
 #define HALF_RES(builder) HALF_RES_WIDTH(buidler), HALF_RES_HEIGHT(builder)

@@ -85,6 +85,9 @@ struct Renderer
   Camera camera;
   interlop::DirectionalLight directional_light;
 
+  GraphicsPSO   vbuffer_pso;
+  ComputePSO    debug_vbuffer_pso;
+
   GraphicsPSO   post_processing_pipeline;
   RayTracingPSO standard_brdf_pso;
   ShaderTable   standard_brdf_st;
@@ -95,6 +98,7 @@ struct Renderer
   ShaderTable   ddgi_probe_trace_st;
 
   ComputePSO    ddgi_probe_blend_pso;
+
 };
 
 extern Renderer g_Renderer;
