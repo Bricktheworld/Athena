@@ -8,6 +8,7 @@
 #include "Core/Engine/Render/lighting.h"
 #include "Core/Engine/Render/misc.h"
 #include "Core/Engine/Render/post_processing.h"
+#include "Core/Engine/Render/taa.h"
 #include "Core/Engine/Render/visibility_buffer.h"
 
 #include "Core/Engine/Shaders/interlop.hlsli"
@@ -71,6 +72,8 @@ init_renderer(
   RgHandle<GpuTexture> hdr_buffer  = init_hdr_buffer(&builder);
   init_lighting(scratch_arena, &builder, device, gbuffer, ddgi, &hdr_buffer);
 
+  init_taa(scratch_arena, &builder, &hdr_buffer, gbuffer);
+
   RgHandle<GpuTexture> post_buffer = init_post_processing(scratch_arena, &builder, device, hdr_buffer);
 
   init_imgui_pass(scratch_arena, &builder, &post_buffer);
@@ -95,6 +98,8 @@ init_renderer(
   g_Renderer.vbuffer_pso       = init_graphics_pipeline(device, visibility_pipeline_desc, "Visibility Buffer");
   g_Renderer.debug_vbuffer_pso = init_compute_pipeline(device, shader_manager.shaders[kCS_VisibilityBufferVisualize], "Visibility Buffer Visualize");
 
+
+  g_Renderer.taa_pso = init_compute_pipeline(device, shader_manager.shaders[kCS_TAA], "TAA");
 
   GraphicsPipelineDesc post_pipeline_desc = 
   {
@@ -369,6 +374,35 @@ interlop::PointLight* add_point_light(Scene* scene)
   return ret;
 }
 
+static Vec2
+get_taa_jitter()
+{
+  static const Vec2 kHaltonSequence[] =
+  {
+    Vec2(0.500000f, 0.333333f),
+    Vec2(0.250000f, 0.666667f),
+    Vec2(0.750000f, 0.111111f),
+    Vec2(0.125000f, 0.444444f),
+    Vec2(0.625000f, 0.777778f),
+    Vec2(0.375000f, 0.222222f),
+    Vec2(0.875000f, 0.555556f),
+    Vec2(0.062500f, 0.888889f),
+    Vec2(0.562500f, 0.037037f),
+    Vec2(0.312500f, 0.370370f),
+    Vec2(0.812500f, 0.703704f),
+    Vec2(0.187500f, 0.148148f),
+    Vec2(0.687500f, 0.481481f),
+    Vec2(0.437500f, 0.814815f),
+    Vec2(0.937500f, 0.259259f),
+    Vec2(0.031250f, 0.592593f),
+  };
+
+  Vec2 ret = kHaltonSequence[g_Renderer.graph.frame_id % ARRAY_LENGTH(kHaltonSequence)] - Vec2(0.5f, 0.5f);
+  ret.x   /= (f32)g_Renderer.graph.width;
+  ret.y   /= (f32)g_Renderer.graph.height;
+  return ret;
+}
+
 void
 submit_scene(const Scene& scene)
 {
@@ -389,6 +423,9 @@ submit_scene(const Scene& scene)
     }
   }
 
+  g_Renderer.taa_jitter        = get_taa_jitter();
+
+  g_Renderer.prev_camera       = g_Renderer.camera;
   g_Renderer.camera            = scene.camera;
   g_Renderer.directional_light = scene.directional_light;
 }

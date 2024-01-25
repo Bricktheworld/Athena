@@ -49,8 +49,10 @@ namespace interlop
   {
     Mat4 proj;
     Mat4 view_proj;
+    Mat4 prev_view_proj;
     Mat4 inverse_view_proj;
     Vec4 camera_world_pos;
+    Vec2 taa_jitter;
     DirectionalLight directional_light;
   };
 
@@ -58,6 +60,7 @@ namespace interlop
   {
     Mat4 model;
     Mat4 model_inverse;
+//    Mat4 prev_model;
   };
 
   struct CubeRenderResources
@@ -88,22 +91,6 @@ namespace interlop
     Vec4 color;
     f32  radius;
     f32  intensity;
-  };
-
-  struct StandardBrdfComputeResources
-  {
-    SRV(GpuTexture) gbuffer_material_ids;
-    SRV(GpuTexture) gbuffer_world_pos;
-    SRV(GpuTexture) gbuffer_diffuse_rgb_metallic_a;
-    SRV(GpuTexture) gbuffer_normal_rgb_roughness_a;
-
-#if 0
-		CBV(DDGIVolDesc) vol_desc;
-    SRV(GpuTexture)  probe_irradiance;
-    SRV(GpuTexture)  probe_distance;
-#endif
-
-    UAV(GpuTexture) render_target;
   };
 
   struct DownsampleComputeResources
@@ -288,6 +275,13 @@ namespace interlop
     UAV(GpuTexture)  render_target;
   };
 
+  struct TAAResources
+  {
+    SRV(GpuTexture) prev;
+    SRV(GpuTexture) velocity;
+    UAV(GpuTexture) curr;
+  };
+
 }
 
 #ifndef __cplusplus
@@ -299,6 +293,8 @@ namespace shaders
     float4 world_pos : POSITIONT;
     float3 normal    : NORMAL0;
     float2 uv        : TEXCOORD0;
+    float4 curr_pos  : POSITION0;
+    float4 prev_pos  : POSITION1;
 //    float4 tangent   : TANGENT0;
 //    float4 bitangent : BITANGENT0;
   };

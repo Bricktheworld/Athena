@@ -3,6 +3,7 @@
 #include "../include/rt_common.hlsli"
 #include "../include/lighting_common.hlsli"
 #include "../include/ddgi_common.hlsli"
+#include "../include/math.hlsli"
 
 GlobalRootSignature kBindlessRootSignature =
 {
@@ -27,19 +28,6 @@ RaytracingPipelineConfig kPipelineConfig =
 };
 
 ConstantBuffer<interlop::StandardBrdfRTResources> rt_resources : register(b0);
-
-float4 screen_to_world(float3 screen, float2 screen_size)
-{
-  float2 normalized_screen = screen.xy / screen_size * 2.0f - float2(1.0f, 1.0f);
-  normalized_screen.y     *= -1.0f;
-
-  float4 clip              = float4(normalized_screen, screen.z, 1.0f);
-
-  float4 world             = mul(g_SceneBuffer.inverse_view_proj, clip);
-  world                   /= world.w;
-
-  return world;
-}
 
 
 [shader("raygeneration")]

@@ -16,4 +16,17 @@ float3 quaternion_rotate(float3 v, float4 q)
   return (v * (q.w * q.w - b2) + b * (dot(v, b) * 2.f) + cross(b, v) * (q.w * 2.f));
 }
 
+float4 screen_to_world(float3 screen, float2 screen_size)
+{
+  float2 normalized_screen = screen.xy / screen_size * 2.0f - float2(1.0f, 1.0f);
+  normalized_screen.y     *= -1.0f;
+
+  float4 clip              = float4(normalized_screen, screen.z, 1.0f);
+
+  float4 world             = mul(g_SceneBuffer.inverse_view_proj, clip);
+  world                   /= world.w;
+
+  return world;
+}
+
 #endif

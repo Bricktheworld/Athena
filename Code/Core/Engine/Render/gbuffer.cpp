@@ -14,17 +14,19 @@ init_gbuffer(RgBuilder* builder)
   ret.material_id      = rg_create_texture(builder, "GBuffer Material ID",      FULL_RES(builder), DXGI_FORMAT_R32_UINT          );
   ret.diffuse_metallic = rg_create_texture(builder, "GBuffer Diffuse Metallic", FULL_RES(builder), DXGI_FORMAT_R8G8B8A8_UNORM    );
   ret.normal_roughness = rg_create_texture(builder, "GBuffer Normal Roughness", FULL_RES(builder), DXGI_FORMAT_R16G16B16A16_FLOAT);
+  ret.velocity         = rg_create_texture(builder, "GBuffer Velocity",         FULL_RES(builder), DXGI_FORMAT_R32G32_FLOAT      );
   ret.depth            = rg_create_texture(builder, "GBuffer Depth",            FULL_RES(builder), DXGI_FORMAT_D32_FLOAT         );
   return ret;
 }
 
 struct GBufferStaticParams
 {
-  RgReadHandle<GpuBuffer> transform_buffer;
+  RgReadHandle<GpuBuffer>   transform_buffer;
 
   RgWriteHandle<GpuTexture> material_id;
   RgWriteHandle<GpuTexture> diffuse_metallic;
   RgWriteHandle<GpuTexture> normal_roughness;
+  RgWriteHandle<GpuTexture> velocity;
   RgWriteHandle<GpuTexture> depth;
 };
 
@@ -38,7 +40,7 @@ render_handler_gbuffer_static(RenderContext* ctx, const void* data)
     Vec4(1, 0, 0, 0),
     Vec4(0, 1, 0, 0),
     Vec4(0, 0, 1, 0),
-    Vec4(0, 0, 10, 1)
+    Vec4(0, 0, 0, 1)
   );
   model.model_inverse = transform_inverse_no_scale(model.model);
   ctx->write_cpu_upload_buffer(params->transform_buffer, &model, sizeof(model));
@@ -47,7 +49,8 @@ render_handler_gbuffer_static(RenderContext* ctx, const void* data)
     {
       params->material_id,
       params->diffuse_metallic,
-      params->normal_roughness
+      params->normal_roughness,
+      params->velocity
     },
     params->depth
   );
@@ -58,6 +61,7 @@ render_handler_gbuffer_static(RenderContext* ctx, const void* data)
   ctx->clear_render_target_view(params->material_id,      Vec4(0.0f));
   ctx->clear_render_target_view(params->diffuse_metallic, Vec4(0.0f));
   ctx->clear_render_target_view(params->normal_roughness, Vec4(0.0f));
+  ctx->clear_render_target_view(params->velocity,         Vec4(0.0f));
 
   ctx->clear_depth_stencil_view(params->depth, kClearDepth, 0.0f, 0);
 
@@ -81,11 +85,12 @@ init_gbuffer_static(AllocHeap heap, RgBuilder* builder, GBuffer* gbuffer)
 
   RgHandle<GpuBuffer> transform = rg_create_upload_buffer(builder, "Transform Buffer", sizeof(interlop::Scene));
 
-  RgPassBuilder*      pass      = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "GBuffer Static", params, &render_handler_gbuffer_static, 1, 4);
+  RgPassBuilder*      pass      = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "GBuffer Static", params, &render_handler_gbuffer_static, 1, kGBufferReadCount);
 
   params->material_id           = rg_write_texture(pass, &gbuffer->material_id,      kWriteTextureColorTarget );
   params->diffuse_metallic      = rg_write_texture(pass, &gbuffer->diffuse_metallic, kWriteTextureColorTarget );
   params->normal_roughness      = rg_write_texture(pass, &gbuffer->normal_roughness, kWriteTextureColorTarget );
+  params->velocity              = rg_write_texture(pass, &gbuffer->velocity,         kWriteTextureColorTarget );
   params->depth                 = rg_write_texture(pass, &gbuffer->depth,            kWriteTextureDepthStencil);
 
   params->transform_buffer      = rg_read_buffer(pass, transform, kReadBufferCbv);
@@ -98,6 +103,7 @@ read_gbuffer(RgPassBuilder* pass_builder, const GBuffer& gbuffer, ReadTextureAcc
   ret.material_id      = rg_read_texture(pass_builder, gbuffer.material_id,      access);
   ret.diffuse_metallic = rg_read_texture(pass_builder, gbuffer.diffuse_metallic, access);
   ret.normal_roughness = rg_read_texture(pass_builder, gbuffer.normal_roughness, access);
+  ret.velocity         = rg_read_texture(pass_builder, gbuffer.velocity,         access);
   ret.depth            = rg_read_texture(pass_builder, gbuffer.depth,            access);
 
   return ret;

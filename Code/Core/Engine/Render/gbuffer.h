@@ -6,6 +6,7 @@ struct GBuffer
   RgHandle<GpuTexture> material_id;
   RgHandle<GpuTexture> diffuse_metallic;
   RgHandle<GpuTexture> normal_roughness;
+  RgHandle<GpuTexture> velocity;
   RgHandle<GpuTexture> depth;
 };
 
@@ -14,10 +15,11 @@ struct ReadGBuffer
   RgReadHandle<GpuTexture> material_id;
   RgReadHandle<GpuTexture> diffuse_metallic;
   RgReadHandle<GpuTexture> normal_roughness;
+  RgReadHandle<GpuTexture> velocity;
   RgReadHandle<GpuTexture> depth;
 };
 
-constant u32 kGBufferReadCount = 4;
+constant u32 kGBufferReadCount = 5;
 
 GBuffer     init_gbuffer(RgBuilder* builder);
 void        init_gbuffer_static(AllocHeap heap, RgBuilder* builder, GBuffer* gbuffer);

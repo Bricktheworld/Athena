@@ -59,6 +59,7 @@ static const DXGI_FORMAT kGBufferRenderTargetFormats[] =
   DXGI_FORMAT_R32_UINT,            // Material ID
   DXGI_FORMAT_R8G8B8A8_UNORM,      // RGB -> Diffuse, A -> Metallic
   DXGI_FORMAT_R16G16B16A16_FLOAT,  // RGB -> Normal,  A -> Roughness
+  DXGI_FORMAT_R32G32_FLOAT,        // RG -> Velocity
 };
 
 struct RenderOptions
@@ -82,11 +83,18 @@ struct Renderer
   DescriptorLinearAllocator imgui_descriptor_heap;
 
   Array<RenderMeshInst> meshes;
+  Camera prev_camera;
   Camera camera;
+  Vec2   taa_jitter;
+  bool   disable_taa    = false;
+  bool   disable_jitter = false;
+
   interlop::DirectionalLight directional_light;
 
   GraphicsPSO   vbuffer_pso;
   ComputePSO    debug_vbuffer_pso;
+
+  ComputePSO    taa_pso;
 
   GraphicsPSO   post_processing_pipeline;
   RayTracingPSO standard_brdf_pso;
@@ -98,7 +106,6 @@ struct Renderer
   ShaderTable   ddgi_probe_trace_st;
 
   ComputePSO    ddgi_probe_blend_pso;
-
 };
 
 extern Renderer g_Renderer;

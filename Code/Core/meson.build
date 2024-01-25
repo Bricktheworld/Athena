@@ -67,6 +67,7 @@ shader_compiler = generator(
 
 engine_shaders = [
   'Engine/Shaders/PostProcessing/dof.csh',
+  'Engine/Shaders/PostProcessing/taa.csh',
   'Engine/Shaders/PostProcessing/tonemapping.psh',
 
   'Engine/Shaders/Vertex/basic.vsh',
@@ -139,6 +140,8 @@ engine_src = [
   'Engine/Render/render_graph.h',
   'Engine/Render/renderer.cpp',
   'Engine/Render/renderer.h',
+  'Engine/Render/taa.cpp',
+  'Engine/Render/taa.h',
   'Engine/Render/unified_geometry_buffer.cpp',
   'Engine/Render/unified_geometry_buffer.h',
   'Engine/Render/visibility_buffer.cpp',

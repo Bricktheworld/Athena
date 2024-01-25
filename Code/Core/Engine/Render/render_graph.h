@@ -404,6 +404,8 @@ struct RgResourceBarrier
     {
       u32                   resource_id;
       ResourceType          resource_type;
+      s8                    resource_temporal_frame;
+      u8                    resource_temporal_lifetime;
       D3D12_RESOURCE_STATES before;
       D3D12_RESOURCE_STATES after;
     } transition;

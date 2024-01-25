@@ -142,6 +142,9 @@ draw_debug(interlop::DirectionalLight* out_directional_light, Camera* out_camera
 
   ImGui::InputFloat3("Camera Position", (f32*)&out_camera->world_pos);
 
+  ImGui::Checkbox("Disable TAA", &g_Renderer.disable_taa);
+  ImGui::Checkbox("Disable Jitter", &g_Renderer.disable_jitter);
+
   static Vec2 bezier_size  = Vec2(36.0f, 36.0f);
   ImGui::DragFloat2("Bezier Size", (f32*)&bezier_size, 0.2f);
 

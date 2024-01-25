@@ -10,7 +10,7 @@ static constexpr f32 k2PI = 6.2831853071795864f;
 inline s64
 modulo(s64 x, s64 mod)
 {
-  return (x % mod) % mod;
+  return (mod + (x % mod)) % mod;
 }
 
 struct Vec2

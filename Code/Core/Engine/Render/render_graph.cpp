@@ -84,7 +84,7 @@ init_adjacency_list(AllocHeap heap, const RgBuilder& builder)
           // to _our_ version (adjacent in the dependency graph).
           bool other_depends_on_pass = array_find(
             &other_builder.read_resources,
-            it->handle.id == write_resource.handle.id && it->handle.version == write_resource.handle.version + 1
+            it->handle.id == write_resource.handle.id && it->handle.version == write_resource.handle.version + 1 && it->temporal_frame == 0
           ) || array_find(
             &other_builder.write_resources,
             it->handle.id == write_resource.handle.id && it->handle.version == write_resource.handle.version + 1
@@ -263,6 +263,16 @@ init_dependency_levels(AllocHeap heap, const RgBuilder& builder)
   }
 
   return ret;
+}
+
+static u32
+get_temporal_lifetime(u32 temporal_lifetime)
+{
+  if (temporal_lifetime == kInfiniteLifetime)
+    return 0;
+  
+  ASSERT(temporal_lifetime < kMaxTemporalLifetime);
+  return temporal_lifetime;
 }
 
 struct PhysicalResourceMap
@@ -522,32 +532,32 @@ init_physical_descriptors(
 
     if (type_mask & kDescriptorTypeCbv)
     {
-      descriptor_count  += handle.temporal_lifetime + 1;
-      cbv_srv_uav_count += handle.temporal_lifetime + 1;
+      descriptor_count  += get_temporal_lifetime(handle.temporal_lifetime) + 1;
+      cbv_srv_uav_count += get_temporal_lifetime(handle.temporal_lifetime) + 1;
     }
 
     if (type_mask & kDescriptorTypeSrv)
     {
-      descriptor_count  += handle.temporal_lifetime + 1;
-      cbv_srv_uav_count += handle.temporal_lifetime + 1;
+      descriptor_count  += get_temporal_lifetime(handle.temporal_lifetime) + 1;
+      cbv_srv_uav_count += get_temporal_lifetime(handle.temporal_lifetime) + 1;
     }
 
     if (type_mask & kDescriptorTypeUav)
     {
-      descriptor_count  += handle.temporal_lifetime + 1;
-      cbv_srv_uav_count += handle.temporal_lifetime + 1;
+      descriptor_count  += get_temporal_lifetime(handle.temporal_lifetime) + 1;
+      cbv_srv_uav_count += get_temporal_lifetime(handle.temporal_lifetime) + 1;
     }
 
     if (type_mask & kDescriptorTypeRtv)
     {
-      descriptor_count  += handle.temporal_lifetime + 1;
-      rtv_count         += handle.temporal_lifetime + 1;
+      descriptor_count  += get_temporal_lifetime(handle.temporal_lifetime) + 1;
+      rtv_count         += get_temporal_lifetime(handle.temporal_lifetime) + 1;
     }
 
     if (type_mask & kDescriptorTypeDsv)
     {
-      descriptor_count  += handle.temporal_lifetime + 1;
-      dsv_count         += handle.temporal_lifetime + 1;
+      descriptor_count  += get_temporal_lifetime(handle.temporal_lifetime) + 1;
+      dsv_count         += get_temporal_lifetime(handle.temporal_lifetime) + 1;
     }
   }
 
@@ -573,14 +583,7 @@ init_physical_descriptors(
     RgResourceKey   resource_key = {0};
     resource_key.id              = handle.id;
 
-    u8 temporal_lifetime = handle.temporal_lifetime;
-    if (temporal_lifetime == kInfiniteLifetime)
-    {
-      temporal_lifetime  = 0;
-    }
-    ASSERT(temporal_lifetime <= kMaxTemporalLifetime);
-
-    for (u32 iframe = 0; iframe <= temporal_lifetime; iframe++)
+    for (u32 iframe = 0; iframe <= get_temporal_lifetime(handle.temporal_lifetime); iframe++)
     {
       resource_key.temporal_frame = iframe;
       key.temporal_frame          = iframe;
@@ -792,6 +795,7 @@ get_d3d12_resource_state(RgPassBuilder::ResourceAccessData data)
   return ret;
 }
 
+
 static void
 init_dependency_barriers(
   AllocHeap heap,
@@ -800,7 +804,7 @@ init_dependency_barriers(
   Array<RgDependencyLevel> out_dependency_levels,
   Array<RgResourceBarrier>* out_exit_barriers
 ) {
-  *out_exit_barriers = init_array<RgResourceBarrier>(heap, builder.resource_list.size);
+  *out_exit_barriers = init_array<RgResourceBarrier>(heap, builder.resource_list.size * kMaxTemporalLifetime);
 
   ScratchAllocator scratch_arena = alloc_scratch_arena();
   defer { free_scratch_arena(&scratch_arena); };
@@ -812,13 +816,28 @@ init_dependency_barriers(
     bool                  touched = false;
   };
 
-  HashTable<u32, ResourceStates> resource_states = init_hash_table<u32, ResourceStates>(scratch_arena, builder.resource_list.size);
+  struct RgTemporalResourceKey
+  {
+    u32 id             = 0;
+    s32 temporal_frame = 0;
+    auto operator<=>(const RgTemporalResourceKey& rhs) const = default;
+  };
+
+  HashTable resource_states = init_hash_table<RgTemporalResourceKey, ResourceStates>(scratch_arena, builder.resource_list.size * kMaxTemporalLifetime);
   for (ResourceHandle handle : builder.resource_list)
   {
-    ResourceStates* dst = hash_table_insert(&resource_states, handle.id);
-    dst->current        = D3D12_RESOURCE_STATE_COMMON;
-    dst->history        = D3D12_RESOURCE_STATE_COMMON;
-    dst->touched        = false;
+    s32 temporal_frame = 0;
+    for (u32 i = 0; i <= get_temporal_lifetime(handle.temporal_lifetime); i++, temporal_frame--)
+    {
+      RgTemporalResourceKey key = {0};
+      key.id                    = handle.id;
+      key.temporal_frame        = temporal_frame;
+
+      ResourceStates* dst = hash_table_insert(&resource_states, key);
+      dst->current        = D3D12_RESOURCE_STATE_COMMON;
+      dst->history        = D3D12_RESOURCE_STATE_COMMON;
+      dst->touched        = false;
+    }
   }
 
 
@@ -831,7 +850,11 @@ init_dependency_barriers(
       const RgPassBuilder& pass = builder.render_passes[pass_id];
       for (RgPassBuilder::ResourceAccessData data : pass.read_resources)
       {
-        ResourceStates* states = unwrap(hash_table_find(&resource_states, data.handle.id));
+        RgTemporalResourceKey key = {0};
+        key.id                    = data.handle.id;
+        key.temporal_frame        = data.temporal_frame;
+
+        ResourceStates* states    = unwrap(hash_table_find(&resource_states, key));
 
         if (!states->touched)
         {
@@ -844,51 +867,76 @@ init_dependency_barriers(
 
       for (RgPassBuilder::ResourceAccessData data : pass.write_resources)
       {
-        ResourceStates* states = unwrap(hash_table_find(&resource_states, data.handle.id));
-        states->current        = get_d3d12_resource_state(data);
-        states->touched        = true;
+        RgTemporalResourceKey key = {0};
+        key.id                    = data.handle.id;
+        key.temporal_frame        = 0;
+
+        ResourceStates* states    = unwrap(hash_table_find(&resource_states, key));
+        states->current           = get_d3d12_resource_state(data);
+        states->touched           = true;
       }
     }
 
     for (ResourceHandle handle : builder.resource_list)
     {
-      ResourceStates* states = unwrap(hash_table_find(&resource_states, handle.id));
-
-      if (states->history != states->current)
+      s32 temporal_frame = 0;
+      for (u32 i = 0; i <= get_temporal_lifetime(handle.temporal_lifetime); i++, temporal_frame--)
       {
-        RgResourceBarrier* dst        = array_add(&level->barriers);
-        dst->type                     = kResourceBarrierTransition;
-        dst->transition.before        = states->history;
-        dst->transition.after         = states->current;
-        dst->transition.resource_id   = handle.id;
-        dst->transition.resource_type = handle.type;
-      }
+        RgTemporalResourceKey key = {0};
+        key.id                    = handle.id;
+        key.temporal_frame        = temporal_frame;
 
-      if (states->current == D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
-      {
-        RgResourceBarrier* dst = array_add(&level->barriers);
-        dst->type              = kResourceBarrierUav;
-        dst->uav.resource_id   = handle.id;
-        dst->uav.resource_type = handle.type;
+        ResourceStates* states    = unwrap(hash_table_find(&resource_states, key));
+  
+        if (states->history != states->current)
+        {
+          RgResourceBarrier* dst                     = array_add(&level->barriers);
+          dst->type                                  = kResourceBarrierTransition;
+          dst->transition.before                     = states->history;
+          dst->transition.after                      = states->current;
+          dst->transition.resource_id                = handle.id;
+          dst->transition.resource_type              = handle.type;
+          dst->transition.resource_temporal_frame    = temporal_frame;
+          dst->transition.resource_temporal_lifetime = handle.temporal_lifetime;
+        }
+  
+        if (states->current == D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
+        {
+          ASSERT(temporal_frame == 0);
+          RgResourceBarrier* dst = array_add(&level->barriers);
+          dst->type              = kResourceBarrierUav;
+          dst->uav.resource_id   = handle.id;
+          dst->uav.resource_type = handle.type;
+        }
+  
+        states->history = states->current;
+        states->touched = false;
       }
-
-      states->history        = states->current;
-      states->touched        = false;
     }
   }
 
   for (ResourceHandle handle : builder.resource_list)
   {
-    ResourceStates* states = unwrap(hash_table_find(&resource_states, handle.id));
-    if (states->history == D3D12_RESOURCE_STATE_COMMON)
-      continue;
-    
-    RgResourceBarrier* dst        = array_add(out_exit_barriers);
-    dst->type                     = kResourceBarrierTransition;
-    dst->transition.before        = states->history;
-    dst->transition.after         = D3D12_RESOURCE_STATE_COMMON;
-    dst->transition.resource_id   = handle.id;
-    dst->transition.resource_type = handle.type;
+    s32 temporal_frame = 0;
+    for (u32 i = 0; i <= get_temporal_lifetime(handle.temporal_lifetime); i++, temporal_frame--)
+    {
+      RgTemporalResourceKey key = {0};
+      key.id                    = handle.id;
+      key.temporal_frame        = temporal_frame;
+
+      ResourceStates* states    = unwrap(hash_table_find(&resource_states, key));
+      if (states->history == D3D12_RESOURCE_STATE_COMMON)
+        continue;
+      
+      RgResourceBarrier* dst                     = array_add(out_exit_barriers);
+      dst->type                                  = kResourceBarrierTransition;
+      dst->transition.before                     = states->history;
+      dst->transition.after                      = D3D12_RESOURCE_STATE_COMMON;
+      dst->transition.resource_id                = handle.id;
+      dst->transition.resource_type              = handle.type;
+      dst->transition.resource_temporal_frame    = temporal_frame;
+      dst->transition.resource_temporal_lifetime = handle.temporal_lifetime;
+    }
   }
 }
 
@@ -921,7 +969,6 @@ compile_render_graph(AllocHeap heap, const RgBuilder& builder, const GraphicsDev
     ret.upload_heaps[i] = init_gpu_linear_allocator(device, MiB(4), kGpuHeapTypeUpload);
   }
 
-  u8  max_temporal_lifetime = 0;
   u32 buffer_count          = 0;
   u32 texture_count         = 0;
   for (ResourceHandle resource : builder.resource_list)
@@ -930,19 +977,14 @@ compile_render_graph(AllocHeap heap, const RgBuilder& builder, const GraphicsDev
       continue;
 
     TransientResourceDesc* desc = unwrap(hash_table_find(&builder.resource_descs, resource.id));
-    if (desc->temporal_lifetime < kInfiniteLifetime)
-    {
-      max_temporal_lifetime     = MAX(max_temporal_lifetime, desc->temporal_lifetime);
-    }
 
     if      (resource.type == kResourceTypeBuffer) { buffer_count++;  }
     else if (resource.type == kResourceTypeImage)  { texture_count++; }
     else                                           { UNREACHABLE;     }
   }
 
-  ASSERT(max_temporal_lifetime <= kMaxTemporalLifetime);
-  ret.temporal_heaps = init_array<GpuLinearAllocator>(heap, max_temporal_lifetime);
-  for (u8 i = 0; i < max_temporal_lifetime; i++)
+  ret.temporal_heaps = init_array<GpuLinearAllocator>(heap, kMaxTemporalLifetime);
+  for (u8 i = 0; i < kMaxTemporalLifetime; i++)
   {
     GpuLinearAllocator* dst = array_add(&ret.temporal_heaps);
     *dst                    = init_gpu_linear_allocator(device, MiB(32), kGpuHeapTypeLocal);
@@ -976,6 +1018,33 @@ compile_render_graph(AllocHeap heap, const RgBuilder& builder, const GraphicsDev
   return ret;
 }
 
+static u32
+get_temporal_frame(u32 frame_id, u32 temporal_lifetime, s8 offset)
+{
+  if (temporal_lifetime == kInfiniteLifetime)
+  {
+    ASSERT(offset == 0);
+    return 0;
+  }
+
+  ASSERT(offset <= 0);
+  ASSERT(-offset <= temporal_lifetime);
+
+  if (temporal_lifetime == 0)
+    return 0;
+  
+  temporal_lifetime++;
+  ASSERT(temporal_lifetime >= 2);
+
+  s32 signed_frame_id = (u32)frame_id;
+  signed_frame_id    += offset;
+
+  s64 ret = modulo(signed_frame_id, temporal_lifetime);
+  ASSERT(ret >= 0);
+  ASSERT((u32)ret < temporal_lifetime);
+  return (u32)ret;
+}
+
 static void
 get_d3d12_resource_barrier(const RenderGraph* graph, const RgResourceBarrier& barrier, CD3DX12_RESOURCE_BARRIER* dst)
 {
@@ -985,7 +1054,7 @@ get_d3d12_resource_barrier(const RenderGraph* graph, const RgResourceBarrier& ba
     {
       RgResourceKey key  = {0};
       key.id             = barrier.transition.resource_id;
-      key.temporal_frame = 0;
+      key.temporal_frame = get_temporal_frame(graph->frame_id, barrier.transition.resource_temporal_lifetime, barrier.transition.resource_temporal_frame);
 
       ID3D12Resource* d3d12_resource = nullptr;
       if (barrier.transition.resource_type == kResourceTypeImage)
@@ -1307,8 +1376,13 @@ RgReadHandle<GpuTexture>
 rg_read_texture(RgPassBuilder* builder, RgHandle<GpuTexture> texture, ReadTextureAccessMask access, s8 temporal_frame)
 {
   ASSERT(temporal_frame <= 0);
-  ASSERT(!array_find(&builder->read_resources,  it->handle.id == texture.id));
+  ASSERT(!array_find(&builder->read_resources,  it->handle.id == texture.id && it->temporal_frame == temporal_frame));
   ASSERT(!array_find(&builder->write_resources, it->handle.id == texture.id));
+
+  if (temporal_frame < 0)
+  {
+    ASSERT(-temporal_frame <= texture.temporal_lifetime);
+  }
 
   RgPassBuilder::ResourceAccessData* data = array_add(&builder->read_resources);
   data->handle         = texture;
@@ -1322,7 +1396,7 @@ rg_read_texture(RgPassBuilder* builder, RgHandle<GpuTexture> texture, ReadTextur
 RgWriteHandle<GpuTexture>
 rg_write_texture(RgPassBuilder* builder, RgHandle<GpuTexture>* texture, WriteTextureAccess access)
 {
-  ASSERT(!array_find(&builder->read_resources,  it->handle.id == texture->id));
+  ASSERT(!array_find(&builder->read_resources,  it->handle.id == texture->id && it->temporal_frame == 0));
   ASSERT(!array_find(&builder->write_resources, it->handle.id == texture->id));
 
   RgPassBuilder::ResourceAccessData* data = array_add(&builder->write_resources);
@@ -1366,33 +1440,6 @@ rg_write_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer>* buffer, WriteBuffer
   buffer->version++;
 
   return {buffer->id, (u16)buffer->temporal_lifetime, data->temporal_frame};
-}
-
-static u32
-get_temporal_frame(u32 frame_id, u32 temporal_lifetime, s8 offset)
-{
-  if (temporal_lifetime == kInfiniteLifetime)
-  {
-    ASSERT(offset == 0);
-    return 0;
-  }
-
-  ASSERT(offset <= 0);
-  ASSERT(-offset <= temporal_lifetime);
-
-  if (temporal_lifetime == 0)
-    return 0;
-  
-  temporal_lifetime++;
-  ASSERT(temporal_lifetime >= 2);
-
-  s32 signed_frame_id = (u32)frame_id;
-  signed_frame_id    += offset;
-
-  s64 ret = modulo(signed_frame_id, temporal_lifetime);
-  ASSERT(ret >= 0);
-  ASSERT((u32)ret < temporal_lifetime);
-  return (u32)ret;
 }
 
 static const GpuTexture*

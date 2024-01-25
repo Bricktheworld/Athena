@@ -6,14 +6,35 @@ struct DeferredPSOut
   uint   material_id             : SV_Target0;
   unorm float4 diffuse_metallic  : SV_Target1;
   unorm float4 normal_roughness  : SV_Target2;
+        float2 velocity          : SV_Target3;
 };
+
+ConstantBuffer<interlop::MaterialRenderResources> g_Resources : register(b0);
+
+float2 calculate_velocity(float4 old_pos, float4 new_pos)
+{
+  old_pos /= old_pos.w;
+  old_pos.xy = (old_pos.xy + float2(1.0f, 1.0f)) / 2.0f;
+  old_pos.y  = 1.0f - old_pos.y;
+
+  new_pos /= new_pos.w;
+  new_pos.xy = (new_pos.xy + float2(1.0f, 1.0f)) / 2.0f;
+  new_pos.y  = 1.0f - new_pos.y;
+
+  return (new_pos - old_pos).xy;
+}
 
 [RootSignature(BINDLESS_ROOT_SIGNATURE)]
 DeferredPSOut PS_BasicNormalGloss(shaders::BasicVSOut ps_in)
 {
   DeferredPSOut ret;
+
+	ConstantBuffer<interlop::Transform> transform = ResourceDescriptorHeap[g_Resources.transform];
+
   ret.material_id       = 1;
   ret.diffuse_metallic  = float4(1.0f, 1.0f, 1.0f, 0.5f);
   ret.normal_roughness  = float4(ps_in.normal.xyz, 0.1f);
+  ret.velocity          = calculate_velocity(ps_in.curr_pos, ps_in.prev_pos);
+
   return ret;
 }

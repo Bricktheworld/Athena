@@ -12,12 +12,16 @@ shaders::BasicVSOut VS_Basic(uint vert_id: SV_VertexID)
 
 	interlop::Vertex vertex = g_VertexBuffer[vert_id];
 
-	ret.world_pos = float4(vertex.position.xyz, 1.0f); //mul(transform.model, float4(vertex.position.xyz, 1.0f));
+	ret.world_pos = mul(transform.model, float4(vertex.position.xyz, 1.0f));
 	ret.ndc_pos   = mul(g_SceneBuffer.view_proj, ret.world_pos);
 
+  ret.curr_pos  = ret.ndc_pos;
+  ret.prev_pos  = mul(g_SceneBuffer.prev_view_proj, ret.world_pos);
+
+  ret.ndc_pos  += float4(g_SceneBuffer.taa_jitter * ret.ndc_pos.w, 0.0f, 0.0f);
+
 	float3x3 normal_matrix = (float3x3)transpose(transform.model_inverse);
-	// float3 tangent = normalize(mul(normal_matrix, vertex.tangent));
-	float3 normal  = normalize(mul(normal_matrix, vertex.normal.xyz));
+	float3   normal        = normalize(mul(normal_matrix, vertex.normal.xyz));
 
 //	tangent = normalize(tangent - mul(dot(tangent, normal), normal));
 //
@@ -25,7 +29,7 @@ shaders::BasicVSOut VS_Basic(uint vert_id: SV_VertexID)
 //
 //	float3x3 tbn_matrix = float3x3(tangent, bitangent, normal);
 
-	ret.normal    = normal;  //vertex.normal;
+	ret.normal    = normal;
 	ret.uv        = vertex.uv;
 	return ret;
 }

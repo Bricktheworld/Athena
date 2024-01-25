@@ -102,6 +102,7 @@ float3 evaluate_directional_light(float3 light_direction,
 
   // Get the cosine theta of the light against the normal
   float cos_theta      = max(dot(normal, light_direction), 0.0);
+  // cos_theta            = pow(cos_theta * 0.5f + 0.5f, 2.0f);
 
   return (mul(1/kPI, mul(kD, diffuse)) + specular) * radiance * cos_theta;
 }
