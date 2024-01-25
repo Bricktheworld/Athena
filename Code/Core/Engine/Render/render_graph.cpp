@@ -1376,13 +1376,9 @@ RgReadHandle<GpuTexture>
 rg_read_texture(RgPassBuilder* builder, RgHandle<GpuTexture> texture, ReadTextureAccessMask access, s8 temporal_frame)
 {
   ASSERT(temporal_frame <= 0);
+  ASSERT(-temporal_frame <= texture.temporal_lifetime);
   ASSERT(!array_find(&builder->read_resources,  it->handle.id == texture.id && it->temporal_frame == temporal_frame));
   ASSERT(!array_find(&builder->write_resources, it->handle.id == texture.id));
-
-  if (temporal_frame < 0)
-  {
-    ASSERT(-temporal_frame <= texture.temporal_lifetime);
-  }
 
   RgPassBuilder::ResourceAccessData* data = array_add(&builder->read_resources);
   data->handle         = texture;

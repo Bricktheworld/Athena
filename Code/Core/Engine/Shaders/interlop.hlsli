@@ -284,6 +284,8 @@ namespace interlop
     SRV(GpuTexture) prev_velocity;
     SRV(GpuTexture) curr_velocity;
 
+    SRV(GpuTexture) gbuffer_depth;
+
     UAV(GpuTexture) taa;
   };
 
