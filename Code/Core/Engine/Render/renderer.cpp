@@ -72,9 +72,10 @@ init_renderer(
   RgHandle<GpuTexture> hdr_buffer  = init_hdr_buffer(&builder);
   init_lighting(scratch_arena, &builder, device, gbuffer, ddgi, &hdr_buffer);
 
-  init_taa(scratch_arena, &builder, &hdr_buffer, gbuffer);
+  RgHandle<GpuTexture> taa_buffer  = init_taa_buffer(&builder);
+  init_taa(scratch_arena, &builder, hdr_buffer, gbuffer, &taa_buffer);
 
-  RgHandle<GpuTexture> post_buffer = init_post_processing(scratch_arena, &builder, device, hdr_buffer);
+  RgHandle<GpuTexture> post_buffer = init_post_processing(scratch_arena, &builder, device, taa_buffer);
 
   init_imgui_pass(scratch_arena, &builder, &post_buffer);
 
@@ -397,9 +398,12 @@ get_taa_jitter()
     Vec2(0.031250f, 0.592593f),
   };
 
-  Vec2 ret = kHaltonSequence[g_Renderer.graph.frame_id % ARRAY_LENGTH(kHaltonSequence)] - Vec2(0.5f, 0.5f);
+  u32  idx = g_Renderer.graph.frame_id % ARRAY_LENGTH(kHaltonSequence);
+  Vec2 ret = kHaltonSequence[idx] - Vec2(0.5f, 0.5f);
   ret.x   /= (f32)g_Renderer.graph.width;
   ret.y   /= (f32)g_Renderer.graph.height;
+
+  ret     *= 2.0f;
   return ret;
 }
 

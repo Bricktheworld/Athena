@@ -54,6 +54,7 @@ namespace interlop
     Vec4 camera_world_pos;
     Vec2 taa_jitter;
     DirectionalLight directional_light;
+    u32  disable_taa;
   };
 
   struct Transform
@@ -277,9 +278,13 @@ namespace interlop
 
   struct TAAResources
   {
-    SRV(GpuTexture) prev;
-    SRV(GpuTexture) velocity;
-    UAV(GpuTexture) curr;
+    SRV(GpuTexture) prev_hdr;
+    SRV(GpuTexture) curr_hdr;
+
+    SRV(GpuTexture) prev_velocity;
+    SRV(GpuTexture) curr_velocity;
+
+    UAV(GpuTexture) taa;
   };
 
 }

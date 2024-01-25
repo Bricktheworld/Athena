@@ -8,9 +8,11 @@
 
 struct TAAParams
 {
-  RgReadHandle<GpuTexture>  prev;
-  RgReadHandle<GpuTexture>  velocity;
-  RgWriteHandle<GpuTexture> curr;
+  RgReadHandle<GpuTexture>  prev_hdr;
+  RgReadHandle<GpuTexture>  curr_hdr;
+  RgReadHandle<GpuTexture>  prev_velocity;
+  RgReadHandle<GpuTexture>  curr_velocity;
+  RgWriteHandle<GpuTexture> taa;
 };
 
 static void
@@ -18,14 +20,14 @@ render_handler_taa(RenderContext* ctx, const void* data)
 {
   TAAParams* params = (TAAParams*)data;
 
-  if (g_Renderer.disable_taa)
-    return;
-
   ctx->compute_bind_shader_resources<interlop::TAAResources>(
     {
-      .prev     = params->prev,
-      .velocity = params->velocity,
-      .curr     = params->curr,
+      .prev_hdr      = params->prev_hdr,
+      .curr_hdr      = params->curr_hdr,
+      .prev_velocity = params->prev_velocity,
+      .curr_velocity = params->curr_velocity,
+
+      .taa           = params->taa,
     }
   );
 
@@ -33,14 +35,24 @@ render_handler_taa(RenderContext* ctx, const void* data)
   ctx->dispatch(ctx->m_Width / 8, ctx->m_Height / 8, 1);
 }
 
+RgHandle<GpuTexture>
+init_taa_buffer(RgBuilder* builder)
+{
+  RgHandle<GpuTexture> ret = rg_create_texture_ex(builder, "TAA Buffer", FULL_RES(builder), DXGI_FORMAT_R11G11B10_FLOAT, 1);
+  return ret;
+}
+
 void
-init_taa(AllocHeap heap, RgBuilder* builder, RgHandle<GpuTexture>* hdr_lit, const GBuffer& gbuffer)
+init_taa(AllocHeap heap, RgBuilder* builder, RgHandle<GpuTexture> hdr_lit, const GBuffer& gbuffer, RgHandle<GpuTexture>* taa_buffer)
 {
   TAAParams* params = HEAP_ALLOC(TAAParams, g_InitHeap, 1);
   zero_memory(params, sizeof(TAAParams));
 
-  RgPassBuilder* pass = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "TAA", params, &render_handler_taa, 2, 1);
-  params->prev        = rg_read_texture(pass, *hdr_lit, kReadTextureSrv, -1);
-  params->velocity    = rg_read_texture(pass, gbuffer.velocity, kReadTextureSrv);
-  params->curr        = rg_write_texture(pass, hdr_lit, kWriteTextureUav);
+  RgPassBuilder* pass   = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "TAA", params, &render_handler_taa, 4, 1);
+  params->prev_hdr      = rg_read_texture(pass, *taa_buffer,      kReadTextureSrv, -1);
+  params->curr_velocity = rg_read_texture(pass, gbuffer.velocity, kReadTextureSrv);
+  params->prev_velocity = rg_read_texture(pass, gbuffer.velocity, kReadTextureSrv, -1);
+  params->curr_hdr      = rg_read_texture(pass, hdr_lit,          kReadTextureSrv);
+
+  params->taa           = rg_write_texture(pass, taa_buffer, kWriteTextureUav);
 }

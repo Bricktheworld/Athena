@@ -143,7 +143,6 @@ draw_debug(interlop::DirectionalLight* out_directional_light, Camera* out_camera
   ImGui::InputFloat3("Camera Position", (f32*)&out_camera->world_pos);
 
   ImGui::Checkbox("Disable TAA", &g_Renderer.disable_taa);
-  ImGui::Checkbox("Disable Jitter", &g_Renderer.disable_jitter);
 
   static Vec2 bezier_size  = Vec2(36.0f, 36.0f);
   ImGui::DragFloat2("Bezier Size", (f32*)&bezier_size, 0.2f);
@@ -318,7 +317,7 @@ application_entry(HINSTANCE instance, int show_code)
     // TODO(Brandon): Something is completely fucked with my quaternion math...
     Quat rot = quat_from_rotation_y(scene.camera.yaw); // * quat_from_rotation_x(-scene.camera.pitch);  //quat_from_euler_yxz(scene.camera.yaw, 0, 0);
     move = rotate_vec3_by_quat(move, rot);
-    move *= 4.0f / 60.0f;
+    move *= 2.0f / 60.0f;
 
     scene.camera.world_pos += move;
 

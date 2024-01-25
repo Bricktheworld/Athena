@@ -59,7 +59,7 @@ void ray_gen()
   gbuffer_depth.GetDimensions(screen_size.x, screen_size.y);
 
 
-  float3 ws_pos       = screen_to_world(float3(launch_index.x, launch_index.y, depth), screen_size); // gbuffer_positions       [launch_index].xyz;
+  float3 ws_pos       = screen_to_world(float3(float2(launch_index) + 0.5f, depth), screen_size); // gbuffer_positions       [launch_index].xyz;
 
 	if (material_id == 0)
 	{
@@ -89,6 +89,7 @@ void ray_gen()
   ) * saturate(shadow_atten);
 
   float3 cam_dir         = normalize(ws_pos - g_SceneBuffer.camera_world_pos.xyz);
+
 
   float3 surface_bias    = get_surface_bias(normal, cam_dir, vol_desc);
   float3 indirect        = get_vol_irradiance(ws_pos, surface_bias, normal, vol_desc, probe_irradiance, probe_distance);

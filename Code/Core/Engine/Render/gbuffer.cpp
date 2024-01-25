@@ -11,11 +11,11 @@ GBuffer
 init_gbuffer(RgBuilder* builder)
 {
   GBuffer ret = {0};
-  ret.material_id      = rg_create_texture(builder, "GBuffer Material ID",      FULL_RES(builder), DXGI_FORMAT_R32_UINT          );
-  ret.diffuse_metallic = rg_create_texture(builder, "GBuffer Diffuse Metallic", FULL_RES(builder), DXGI_FORMAT_R8G8B8A8_UNORM    );
-  ret.normal_roughness = rg_create_texture(builder, "GBuffer Normal Roughness", FULL_RES(builder), DXGI_FORMAT_R16G16B16A16_FLOAT);
-  ret.velocity         = rg_create_texture(builder, "GBuffer Velocity",         FULL_RES(builder), DXGI_FORMAT_R32G32_FLOAT      );
-  ret.depth            = rg_create_texture(builder, "GBuffer Depth",            FULL_RES(builder), DXGI_FORMAT_D32_FLOAT         );
+  ret.material_id      = rg_create_texture   (builder, "GBuffer Material ID",      FULL_RES(builder), DXGI_FORMAT_R32_UINT          );
+  ret.diffuse_metallic = rg_create_texture   (builder, "GBuffer Diffuse Metallic", FULL_RES(builder), DXGI_FORMAT_R8G8B8A8_UNORM    );
+  ret.normal_roughness = rg_create_texture   (builder, "GBuffer Normal Roughness", FULL_RES(builder), DXGI_FORMAT_R16G16B16A16_FLOAT);
+  ret.velocity         = rg_create_texture_ex(builder, "GBuffer Velocity",         FULL_RES(builder), DXGI_FORMAT_R32G32_FLOAT, 1   );
+  ret.depth            = rg_create_texture   (builder, "GBuffer Depth",            FULL_RES(builder), DXGI_FORMAT_D32_FLOAT         );
   return ret;
 }
 

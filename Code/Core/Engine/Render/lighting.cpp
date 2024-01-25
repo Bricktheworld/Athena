@@ -8,7 +8,7 @@
 RgHandle<GpuTexture>
 init_hdr_buffer(RgBuilder* builder)
 {
-  RgHandle<GpuTexture> ret = rg_create_texture_ex(builder, "HDR Buffer", FULL_RES(builder), DXGI_FORMAT_R11G11B10_FLOAT, 1);
+  RgHandle<GpuTexture> ret = rg_create_texture(builder, "HDR Buffer", FULL_RES(builder), DXGI_FORMAT_R11G11B10_FLOAT);
   return ret;
 }
 

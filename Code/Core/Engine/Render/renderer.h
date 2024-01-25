@@ -86,8 +86,7 @@ struct Renderer
   Camera prev_camera;
   Camera camera;
   Vec2   taa_jitter;
-  bool   disable_taa    = false;
-  bool   disable_jitter = false;
+  bool   disable_taa = false;
 
   interlop::DirectionalLight directional_light;
 
