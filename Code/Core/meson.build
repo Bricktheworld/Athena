@@ -70,6 +70,8 @@ engine_shaders = [
   'Engine/Shaders/PostProcessing/taa.csh',
   'Engine/Shaders/PostProcessing/tonemapping.psh',
 
+  'Engine/Shaders/Sampling/downsampling.csh',
+
   'Engine/Shaders/Vertex/basic.vsh',
   'Engine/Shaders/Vertex/fullscreen.vsh',
 

@@ -178,8 +178,8 @@ struct GpuTextureDesc
 
 struct GpuTexture
 {
-  GpuTextureDesc          desc;
-  ID3D12Resource*       d3d12_image = nullptr;
+  GpuTextureDesc        desc;
+  ID3D12Resource*       d3d12_texture = nullptr;
   D3D12_RESOURCE_STATES state       = D3D12_RESOURCE_STATE_COMMON;
 };
 
@@ -188,7 +188,7 @@ GpuTexture alloc_gpu_texture_no_heap(
   GpuTextureDesc desc,
   const char* name
 );
-void free_gpu_image(GpuTexture* image);
+void free_gpu_texture(GpuTexture* texture);
 
 GpuTexture alloc_gpu_texture(
   const GraphicsDevice* device,
@@ -358,10 +358,10 @@ void init_buffer_uav(
   u32 stride
 );
 
-void init_rtv(const GraphicsDevice* device, Descriptor* descriptor, const GpuTexture* image);
-void init_dsv(const GraphicsDevice* device, Descriptor* descriptor, const GpuTexture* image);
-void init_image_2D_srv(const GraphicsDevice* device, Descriptor* descriptor, const GpuTexture* image);
-void init_image_2D_uav(const GraphicsDevice* device, Descriptor* descriptor, const GpuTexture* image);
+void init_rtv(const GraphicsDevice* device, Descriptor* descriptor, const GpuTexture* texture);
+void init_dsv(const GraphicsDevice* device, Descriptor* descriptor, const GpuTexture* texture);
+void init_texture_srv(const GraphicsDevice* device, Descriptor* descriptor, const GpuTexture* texture);
+void init_texture_uav(const GraphicsDevice* device, Descriptor* descriptor, const GpuTexture* texture);
 
 void init_sampler(const GraphicsDevice* device, Descriptor* descriptor);
 

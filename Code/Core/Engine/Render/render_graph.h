@@ -10,7 +10,7 @@
 
 enum ResourceType : u8
 {
-  kResourceTypeImage,
+  kResourceTypeTexture,
   kResourceTypeBuffer,
 
   kResourceTypeCount,
@@ -47,7 +47,7 @@ struct TransientResourceDesc
     } buffer_desc;
   };
   const char*  name              = nullptr;
-  ResourceType type              = kResourceTypeImage;
+  ResourceType type              = kResourceTypeTexture;
   u8           temporal_lifetime = 0;
 };
 
@@ -55,7 +55,7 @@ struct ResourceHandle
 {
   u32          id                = 0;
   u32          version           = 0;
-  ResourceType type              = kResourceTypeImage;
+  ResourceType type              = kResourceTypeTexture;
   u8           temporal_lifetime = 0;
   u16          __padding1__      = 0;
 
@@ -78,7 +78,7 @@ inline constexpr ResourceType kResourceType;
 template <> \
 inline constexpr ResourceType kResourceType<T> = enum_type
 
-RESOURCE_TEMPLATE_TYPE(GpuTexture, kResourceTypeImage);
+RESOURCE_TEMPLATE_TYPE(GpuTexture, kResourceTypeTexture);
 RESOURCE_TEMPLATE_TYPE(GpuBuffer, kResourceTypeBuffer);
 
 template <typename T>
@@ -114,7 +114,7 @@ typedef u32 RenderPassId;
 struct ShaderResource
 {
   u32            id                = 0;
-  ResourceType   type              = kResourceTypeImage;
+  ResourceType   type              = kResourceTypeTexture;
   DescriptorType descriptor_type   = kDescriptorTypeUav;
   u8             temporal_lifetime = 0;
   s8             temporal_frame    = 0;

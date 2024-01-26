@@ -19,7 +19,7 @@ create_back_buffer(RgBuilder* builder)
   ResourceHandle resource_handle      = {0};
   resource_handle.id                  = handle_index(builder);
   resource_handle.version             = 0;
-  resource_handle.type                = kResourceTypeImage;
+  resource_handle.type                = kResourceTypeTexture;
   *array_add(&builder->resource_list) = resource_handle;
 
   builder->back_buffer                = {resource_handle.id, resource_handle.version};
@@ -277,8 +277,8 @@ get_temporal_lifetime(u32 temporal_lifetime)
 
 struct PhysicalResourceMap
 {
-  HashTable<RgResourceKey, GpuBuffer> buffers;
-  HashTable<RgResourceKey, GpuTexture > textures;
+  HashTable<RgResourceKey, GpuBuffer > buffers;
+  HashTable<RgResourceKey, GpuTexture> textures;
 };
 
 static PhysicalResourceMap
@@ -318,7 +318,7 @@ init_physical_resources(
       ResourceHandle handle = read_data.handle;
       D3D12_RESOURCE_FLAGS* flags = hash_table_insert(&physical_flags, handle.id);
 
-      if (handle.type == kResourceTypeImage)
+      if (handle.type == kResourceTypeTexture)
       {
         ReadTextureAccessMask access = (ReadTextureAccessMask)read_data.access;
         if (access & ReadTextureAccessMask::kReadTextureDepthStencil)
@@ -333,7 +333,7 @@ init_physical_resources(
       ResourceHandle handle = write_data.handle;
       D3D12_RESOURCE_FLAGS* flags = hash_table_insert(&physical_flags, handle.id);
 
-      if (handle.type == kResourceTypeImage)
+      if (handle.type == kResourceTypeTexture)
       {
         WriteTextureAccess access = (WriteTextureAccess)write_data.access;
         if (access == WriteTextureAccess::kWriteTextureUav)
@@ -360,8 +360,8 @@ init_physical_resources(
     }
   }
 
-  HashTable<RgResourceKey, GpuBuffer> physical_buffers  = init_hash_table<RgResourceKey, GpuBuffer>(heap, buffer_count );
-  HashTable<RgResourceKey, GpuTexture > physical_textures = init_hash_table<RgResourceKey, GpuTexture >(heap, texture_count);
+  HashTable physical_buffers  = init_hash_table<RgResourceKey, GpuBuffer >(heap, buffer_count );
+  HashTable physical_textures = init_hash_table<RgResourceKey, GpuTexture>(heap, texture_count);
   for (ResourceHandle resource : builder.resource_list)
   {
     if (resource.id == builder.back_buffer.id)
@@ -398,15 +398,15 @@ init_physical_resources(
         *dst               = alloc_gpu_buffer(device, local_heap, desc, resource_desc->name);
       }
     }
-    else if (resource.type == kResourceTypeImage)
+    else if (resource.type == kResourceTypeTexture)
     {
-      GpuTextureDesc  desc = {0};
-      desc.width         = resource_desc->texture_desc.width;
-      desc.height        = resource_desc->texture_desc.height;
-      desc.array_size    = 1;
-      desc.format        = resource_desc->texture_desc.format;
-      desc.initial_state = D3D12_RESOURCE_STATE_COMMON;
-      desc.flags         = *unwrap(hash_table_find(&physical_flags, resource.id));
+      GpuTextureDesc desc = {0};
+      desc.width          = resource_desc->texture_desc.width;
+      desc.height         = resource_desc->texture_desc.height;
+      desc.array_size     = 1;
+      desc.format         = resource_desc->texture_desc.format;
+      desc.initial_state  = D3D12_RESOURCE_STATE_COMMON;
+      desc.flags          = *unwrap(hash_table_find(&physical_flags, resource.id));
 
       if (is_depth_format(desc.format))
       {
@@ -424,7 +424,7 @@ init_physical_resources(
         for (u32 iframe = 0; iframe <= resource_desc->temporal_lifetime; iframe++)
         {
           key.temporal_frame = iframe;
-          GpuTexture* dst      = hash_table_insert(&physical_textures, key);
+          GpuTexture* dst    = hash_table_insert(&physical_textures, key);
     
           *dst               = alloc_gpu_texture(device, temporal_heaps + iframe, desc, resource_desc->name);
         }
@@ -432,7 +432,7 @@ init_physical_resources(
       else
       {
         key.temporal_frame = 0;
-        GpuTexture* dst      = hash_table_insert(&physical_textures, key);
+        GpuTexture* dst    = hash_table_insert(&physical_textures, key);
   
         *dst               = alloc_gpu_texture(device, local_heap, desc, resource_desc->name);
       }
@@ -482,7 +482,7 @@ init_physical_descriptors(
           *type_mask |= kDescriptorTypeSrv;
         }
       }
-      else if (data.handle.type == kResourceTypeImage)
+      else if (data.handle.type == kResourceTypeTexture)
       {
         *type_mask |= kDescriptorTypeSrv;
       }
@@ -499,7 +499,7 @@ init_physical_descriptors(
           *type_mask |= kDescriptorTypeUav;
         }
       }
-      else if (data.handle.type == kResourceTypeImage)
+      else if (data.handle.type == kResourceTypeTexture)
       {
         WriteTextureAccess access = (WriteTextureAccess)data.access;
         if (access == kWriteTextureDepthStencil)
@@ -619,13 +619,13 @@ init_physical_descriptors(
             desc->buffer_desc.stride
           );
         }
-        else if (handle.type == kResourceTypeImage)
+        else if (handle.type == kResourceTypeTexture)
         {
           // You can't use the back buffer as an SRV
           ASSERT(handle.id != builder.back_buffer.id);
   
           const GpuTexture* texture = unwrap(hash_table_find(&resource_map.textures, resource_key));
-          init_image_2D_srv(device, dst, texture);
+          init_texture_srv(device, dst, texture);
         } else { UNREACHABLE; }
       }
   
@@ -648,19 +648,19 @@ init_physical_descriptors(
             desc->buffer_desc.stride
           );
         }
-        else if (handle.type == kResourceTypeImage)
+        else if (handle.type == kResourceTypeTexture)
         {
           // You can't use the back buffer as a UAV
           ASSERT(handle.id != builder.back_buffer.id);
   
           const GpuTexture* texture = unwrap(hash_table_find(&resource_map.textures, resource_key));
-          init_image_2D_uav(device, dst, texture);
+          init_texture_uav(device, dst, texture);
         } else { UNREACHABLE; }
       }
   
       if (type_mask & kDescriptorHeapTypeRtv)
       {
-        ASSERT(handle.type == kResourceTypeImage);
+        ASSERT(handle.type == kResourceTypeTexture);
   
         key.type                = kDescriptorTypeRtv;
         Descriptor*     dst     = hash_table_insert(&descriptor_map, key);
@@ -675,7 +675,7 @@ init_physical_descriptors(
   
       if (type_mask & kDescriptorHeapTypeDsv)
       {
-        ASSERT(handle.type == kResourceTypeImage);
+        ASSERT(handle.type == kResourceTypeTexture);
   
         key.type                = kDescriptorTypeDsv;
         Descriptor*     dst     = hash_table_insert(&descriptor_map, key);
@@ -745,7 +745,7 @@ get_d3d12_resource_state(RgPassBuilder::ResourceAccessData data)
       } else { UNREACHABLE; }
     }
   }
-  else if (data.handle.type == kResourceTypeImage)
+  else if (data.handle.type == kResourceTypeTexture)
   {
     if (!data.is_write)
     {
@@ -978,9 +978,9 @@ compile_render_graph(AllocHeap heap, const RgBuilder& builder, const GraphicsDev
 
     TransientResourceDesc* desc = unwrap(hash_table_find(&builder.resource_descs, resource.id));
 
-    if      (resource.type == kResourceTypeBuffer) { buffer_count++;  }
-    else if (resource.type == kResourceTypeImage)  { texture_count++; }
-    else                                           { UNREACHABLE;     }
+    if      (resource.type == kResourceTypeBuffer)  { buffer_count++;  }
+    else if (resource.type == kResourceTypeTexture) { texture_count++; }
+    else                                            { UNREACHABLE;     }
   }
 
   ret.temporal_heaps = init_array<GpuLinearAllocator>(heap, kMaxTemporalLifetime);
@@ -1057,10 +1057,10 @@ get_d3d12_resource_barrier(const RenderGraph* graph, const RgResourceBarrier& ba
       key.temporal_frame = get_temporal_frame(graph->frame_id, barrier.transition.resource_temporal_lifetime, barrier.transition.resource_temporal_frame);
 
       ID3D12Resource* d3d12_resource = nullptr;
-      if (barrier.transition.resource_type == kResourceTypeImage)
+      if (barrier.transition.resource_type == kResourceTypeTexture)
       {
-        GpuTexture* texture  = unwrap(hash_table_find(&graph->texture_map, key));
-        d3d12_resource     = texture->d3d12_image;
+        GpuTexture* texture = unwrap(hash_table_find(&graph->texture_map, key));
+        d3d12_resource      = texture->d3d12_texture;
       }
       else if (barrier.transition.resource_type == kResourceTypeBuffer)
       {
@@ -1082,10 +1082,10 @@ get_d3d12_resource_barrier(const RenderGraph* graph, const RgResourceBarrier& ba
       key.temporal_frame = 0;
 
       ID3D12Resource* d3d12_resource = nullptr;
-      if (barrier.uav.resource_type == kResourceTypeImage)
+      if (barrier.uav.resource_type == kResourceTypeTexture)
       {
         GpuTexture* texture = unwrap(hash_table_find(&graph->texture_map, key));
-        d3d12_resource    = texture->d3d12_image;
+        d3d12_resource      = texture->d3d12_texture;
       }
       else if (barrier.uav.resource_type == kResourceTypeBuffer)
       {
@@ -1279,7 +1279,7 @@ rg_create_texture_array_ex(
   ResourceHandle resource_handle      = {0};
   resource_handle.id                  = handle_index(builder);
   resource_handle.version             = 0;
-  resource_handle.type                = kResourceTypeImage;
+  resource_handle.type                = kResourceTypeTexture;
   resource_handle.temporal_lifetime   = temporal_lifetime;
   *array_add(&builder->resource_list) = resource_handle;
 

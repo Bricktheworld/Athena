@@ -545,24 +545,24 @@ alloc_gpu_texture_no_heap(const GraphicsDevice* device, GpuTextureDesc desc, con
       &resource_desc,
       desc.initial_state,
       p_clear_value,
-      IID_PPV_ARGS(&ret.d3d12_image)
+      IID_PPV_ARGS(&ret.d3d12_texture)
     )
   );
 
 //    ret.d3d12_image->SetName(name);
   wchar_t wname[1024];
   mbstowcs(wname, name, 1024);
-  ret.d3d12_image->SetName(wname);
+  ret.d3d12_texture->SetName(wname);
   ret.state = desc.initial_state;
 
   return ret;
 }
 
 void
-free_gpu_image(GpuTexture* image)
+free_gpu_texture(GpuTexture* texture)
 {
-  COM_RELEASE(image->d3d12_image);
-  zero_memory(image, sizeof(GpuTexture));
+  COM_RELEASE(texture->d3d12_texture);
+  zero_memory(texture, sizeof(GpuTexture));
 }
 
 static D3D12_RESOURCE_DESC
@@ -628,13 +628,13 @@ alloc_gpu_texture(
       &resource_desc,
       desc.initial_state,
       p_clear_value,
-      IID_PPV_ARGS(&ret.d3d12_image)
+      IID_PPV_ARGS(&ret.d3d12_texture)
     )
   );
 
   wchar_t wname[1024];
   mbstowcs(wname, name, 1024);
-  ret.d3d12_image->SetName(wname);
+  ret.d3d12_texture->SetName(wname);
   ret.state = desc.initial_state;
 
   allocator->pos = new_pos;
@@ -897,12 +897,12 @@ alloc_descriptor(DescriptorLinearAllocator* allocator)
 
 
 void
-init_rtv(const GraphicsDevice* device, Descriptor* descriptor, const GpuTexture* image)
+init_rtv(const GraphicsDevice* device, Descriptor* descriptor, const GpuTexture* texture)
 {
   ASSERT(descriptor->type == kDescriptorHeapTypeRtv);
 
   device->d3d12->CreateRenderTargetView(
-    image->d3d12_image,
+    texture->d3d12_texture,
     nullptr,
     descriptor->cpu_handle
   );
@@ -910,7 +910,7 @@ init_rtv(const GraphicsDevice* device, Descriptor* descriptor, const GpuTexture*
 }
 
 void
-init_dsv(const GraphicsDevice* device, Descriptor* descriptor, const GpuTexture* image)
+init_dsv(const GraphicsDevice* device, Descriptor* descriptor, const GpuTexture* texture)
 {
   ASSERT(descriptor->type == kDescriptorHeapTypeDsv);
 
@@ -918,9 +918,9 @@ init_dsv(const GraphicsDevice* device, Descriptor* descriptor, const GpuTexture*
   desc.Texture2D.MipSlice = 0;
   desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
   desc.Flags = D3D12_DSV_FLAG_NONE;
-  desc.Format = image->desc.format;
+  desc.Format = texture->desc.format;
   device->d3d12->CreateDepthStencilView(
-    image->d3d12_image,
+    texture->d3d12_texture,
     &desc,
     descriptor->cpu_handle
   );
@@ -994,49 +994,49 @@ init_buffer_uav(
 }
 
 void
-init_image_2D_srv(const GraphicsDevice* device, Descriptor* descriptor, const GpuTexture* image)
+init_texture_srv(const GraphicsDevice* device, Descriptor* descriptor, const GpuTexture* texture)
 {
   ASSERT(descriptor->type == kDescriptorHeapTypeCbvSrvUav);
 
   D3D12_SHADER_RESOURCE_VIEW_DESC desc = {0};
   desc.Texture2D.MipLevels = 1;
-  if (is_depth_format(image->desc.format))
+  if (is_depth_format(texture->desc.format))
   {
-    desc.Format = (DXGI_FORMAT)((u32)image->desc.format + 1);
+    desc.Format = (DXGI_FORMAT)((u32)texture->desc.format + 1);
   }
   else
   {
-    desc.Format = image->desc.format;
+    desc.Format = texture->desc.format;
   }
-  desc.ViewDimension = image->desc.array_size > 1 ? D3D12_SRV_DIMENSION_TEXTURE2DARRAY : D3D12_SRV_DIMENSION_TEXTURE2D;
+  desc.ViewDimension = texture->desc.array_size > 1 ? D3D12_SRV_DIMENSION_TEXTURE2DARRAY : D3D12_SRV_DIMENSION_TEXTURE2D;
   desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-  if (image->desc.array_size > 1)
+  if (texture->desc.array_size > 1)
   {
     desc.Texture2DArray.MostDetailedMip = 0;
     desc.Texture2DArray.MipLevels = 1;
     desc.Texture2DArray.FirstArraySlice = 0;
-    desc.Texture2DArray.ArraySize = image->desc.array_size;
+    desc.Texture2DArray.ArraySize = texture->desc.array_size;
   }
 
-  device->d3d12->CreateShaderResourceView(image->d3d12_image, &desc, descriptor->cpu_handle);   
+  device->d3d12->CreateShaderResourceView(texture->d3d12_texture, &desc, descriptor->cpu_handle);   
 }
 
 void
-init_image_2D_uav(const GraphicsDevice* device, Descriptor* descriptor, const GpuTexture* image)
+init_texture_uav(const GraphicsDevice* device, Descriptor* descriptor, const GpuTexture* texture)
 {
   ASSERT(descriptor->type == kDescriptorHeapTypeCbvSrvUav);
 
   D3D12_UNORDERED_ACCESS_VIEW_DESC desc = {0};
-  desc.Format = image->desc.format;
-  desc.ViewDimension = image->desc.array_size > 1 ? D3D12_UAV_DIMENSION_TEXTURE2DARRAY : D3D12_UAV_DIMENSION_TEXTURE2D;
-  if (image->desc.array_size > 1)
+  desc.Format = texture->desc.format;
+  desc.ViewDimension = texture->desc.array_size > 1 ? D3D12_UAV_DIMENSION_TEXTURE2DARRAY : D3D12_UAV_DIMENSION_TEXTURE2D;
+  if (texture->desc.array_size > 1)
   {
     desc.Texture2DArray.MipSlice = 0;
     desc.Texture2DArray.FirstArraySlice = 0;
-    desc.Texture2DArray.ArraySize = image->desc.array_size;
+    desc.Texture2DArray.ArraySize = texture->desc.array_size;
     desc.Texture2DArray.PlaneSlice = 0;
   }
-  device->d3d12->CreateUnorderedAccessView(image->d3d12_image, nullptr, &desc, descriptor->cpu_handle);
+  device->d3d12->CreateUnorderedAccessView(texture->d3d12_texture, nullptr, &desc, descriptor->cpu_handle);
 }
 
 void
@@ -1451,7 +1451,7 @@ alloc_back_buffers_from_swap_chain(
   desc.initial_state = D3D12_RESOURCE_STATE_PRESENT;
   for (u32 i = 0; i < num_back_buffers; i++)
   {
-    HASSERT(swap_chain->d3d12_swap_chain->GetBuffer(i, IID_PPV_ARGS(&back_buffers[i]->d3d12_image)));
+    HASSERT(swap_chain->d3d12_swap_chain->GetBuffer(i, IID_PPV_ARGS(&back_buffers[i]->d3d12_texture)));
     back_buffers[i]->desc = desc;
   }
 }
@@ -1525,9 +1525,9 @@ init_swap_chain(HWND window, const GraphicsDevice* device)
 void
 destroy_swap_chain(SwapChain* swap_chain)
 {
-  for (auto* image : swap_chain->back_buffers)
+  for (auto* texture : swap_chain->back_buffers)
   {
-    free_gpu_image(image);
+    free_gpu_texture(texture);
   }
   destroy_fence(&swap_chain->fence);
   COM_RELEASE(swap_chain->d3d12_swap_chain);
