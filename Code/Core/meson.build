@@ -209,6 +209,23 @@ asset_builder_src = [
   'Tools/AssetBuilder/material_importer.h',
   'Tools/AssetBuilder/texture_importer.cpp',
   'Tools/AssetBuilder/texture_importer.h',
+
+  'Tools/AssetBuilder/Vendor/meshoptimizer/allocator.cpp',
+  'Tools/AssetBuilder/Vendor/meshoptimizer/clusterizer.cpp',
+  'Tools/AssetBuilder/Vendor/meshoptimizer/indexcodec.cpp',
+  'Tools/AssetBuilder/Vendor/meshoptimizer/indexgenerator.cpp',
+  'Tools/AssetBuilder/Vendor/meshoptimizer/overdrawanalyzer.cpp',
+  'Tools/AssetBuilder/Vendor/meshoptimizer/overdrawoptimizer.cpp',
+  'Tools/AssetBuilder/Vendor/meshoptimizer/quantization.cpp',
+  'Tools/AssetBuilder/Vendor/meshoptimizer/simplifier.cpp',
+  'Tools/AssetBuilder/Vendor/meshoptimizer/spatialorder.cpp',
+  'Tools/AssetBuilder/Vendor/meshoptimizer/stripifier.cpp',
+  'Tools/AssetBuilder/Vendor/meshoptimizer/vcacheanalyzer.cpp',
+  'Tools/AssetBuilder/Vendor/meshoptimizer/vcacheoptimizer.cpp',
+  'Tools/AssetBuilder/Vendor/meshoptimizer/vertexcodec.cpp',
+  'Tools/AssetBuilder/Vendor/meshoptimizer/vertexfilter.cpp',
+  'Tools/AssetBuilder/Vendor/meshoptimizer/vfetchanalyzer.cpp',
+  'Tools/AssetBuilder/Vendor/meshoptimizer/vfetchoptimizer.cpp',
 ]
 
 asset_builder_dlls = [

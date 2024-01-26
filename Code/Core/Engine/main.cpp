@@ -98,7 +98,7 @@ static constexpr const wchar_t* WINDOW_NAME = L"Athena";
 static constexpr u64 INCREMENT_AMOUNT = 10000;
 
 static void
-draw_debug(interlop::DirectionalLight* out_directional_light, Camera* out_camera)
+draw_debug(DirectionalLight* out_directional_light, Camera* out_camera)
 {
   // Start the Dear ImGui frame
   ImGui_ImplDX12_NewFrame();

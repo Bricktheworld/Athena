@@ -35,7 +35,7 @@ render_handler_gbuffer_static(RenderContext* ctx, const void* data)
 {
   GBufferStaticParams* params = (GBufferStaticParams*)data;
 
-  interlop::Transform model;
+  Transform model;
   model.model = Mat4::columns(
     Vec4(1, 0, 0, 0),
     Vec4(0, 1, 0, 0),
@@ -72,7 +72,7 @@ render_handler_gbuffer_static(RenderContext* ctx, const void* data)
   for (const RenderMeshInst& mesh_inst : g_Renderer.meshes)
   {
     ctx->set_graphics_pso(&mesh_inst.gbuffer_pso);
-    ctx->graphics_bind_shader_resources<interlop::MaterialRenderResources>({.transform = params->transform_buffer});
+    ctx->graphics_bind_shader_resources<MaterialRenderResources>({.transform = params->transform_buffer});
     ctx->draw_indexed_instanced(mesh_inst.index_count, 1, mesh_inst.index_buffer_offset, 0, 0);
   }
 }
@@ -83,7 +83,7 @@ init_gbuffer_static(AllocHeap heap, RgBuilder* builder, GBuffer* gbuffer)
   GBufferStaticParams* params   = HEAP_ALLOC(GBufferStaticParams, g_InitHeap, 1);
   zero_memory(params, sizeof(GBufferStaticParams));
 
-  RgHandle<GpuBuffer> transform = rg_create_upload_buffer(builder, "Transform Buffer", sizeof(interlop::Scene));
+  RgHandle<GpuBuffer> transform = rg_create_upload_buffer(builder, "Transform Buffer", sizeof(Transform));
 
   RgPassBuilder*      pass      = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "GBuffer Static", params, &render_handler_gbuffer_static, 1, kGBufferReadCount);
 

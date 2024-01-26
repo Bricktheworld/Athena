@@ -88,7 +88,7 @@ struct Renderer
   Vec2   taa_jitter;
   bool   disable_taa = false;
 
-  interlop::DirectionalLight directional_light;
+  DirectionalLight directional_light;
 
   GraphicsPSO   vbuffer_pso;
   ComputePSO    debug_vbuffer_pso;
@@ -129,7 +129,7 @@ void execute_render(
   const GpuBuffer& index_buffer,
   const GpuBvh& bvh,
   const RenderOptions& render_options,
-  const interlop::DirectionalLight& directional_light
+  const DirectionalLight& directional_light
 );
 
 enum SceneObjectFlags : u8
@@ -173,9 +173,9 @@ struct Scene
   GpuBuffer bottom_bvh;
   
   Array<SceneObject>          scene_objects;
-  Array<interlop::PointLight> point_lights;
+  Array<PointLight> point_lights;
   Camera                      camera;
-  interlop::DirectionalLight  directional_light;
+  DirectionalLight  directional_light;
   LinearAllocator             scene_object_allocator;
 };
 
@@ -188,7 +188,7 @@ SceneObject* add_scene_object(
   EngineShaderIndex vertex_shader,
   EngineShaderIndex material_shader
 );
-interlop::PointLight* add_point_light(Scene* scene);
+PointLight* add_point_light(Scene* scene);
 
 void build_acceleration_structures(GraphicsDevice* device);
 void submit_scene(const Scene& scene);

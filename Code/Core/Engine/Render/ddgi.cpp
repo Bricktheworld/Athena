@@ -7,8 +7,8 @@
 
 struct ProbeTraceParams
 {
-  interlop::DDGIVolDesc   vol_desc = {0};
-  RgReadHandle<GpuBuffer> vol_desc_buffer;
+  DDGIVolDesc               vol_desc = {0};
+  RgReadHandle<GpuBuffer>   vol_desc_buffer;
   RgWriteHandle<GpuTexture> ray_data;
   RgReadHandle<GpuTexture>  irradiance;
   RgReadHandle<GpuTexture>  distance;
@@ -22,7 +22,7 @@ render_handler_probe_trace(RenderContext* ctx, const void* data)
 
   ctx->write_cpu_upload_buffer(params->vol_desc_buffer, &params->vol_desc, sizeof(params->vol_desc));
 
-  ctx->ray_tracing_bind_shader_resources<interlop::ProbeTraceRTResources>(
+  ctx->ray_tracing_bind_shader_resources<ProbeTraceRTResources>(
     {
       .vol_desc = params->vol_desc_buffer,
       .probe_irradiance = params->irradiance,
@@ -44,7 +44,7 @@ static void
 init_probe_trace(
   AllocHeap heap,
   RgBuilder* builder,
-  const interlop::DDGIVolDesc& desc,
+  const DDGIVolDesc& desc,
   RgHandle<GpuBuffer> vol_desc_buffer,
   RgHandle<GpuTexture>  irradiance,
   RgHandle<GpuTexture>  distance,
@@ -63,8 +63,8 @@ init_probe_trace(
 
 struct ProbeBlendParams
 {
-  interlop::DDGIVolDesc   vol_desc;
-  RgReadHandle<GpuBuffer> vol_desc_buffer;
+  DDGIVolDesc               vol_desc;
+  RgReadHandle<GpuBuffer>   vol_desc_buffer;
   RgReadHandle<GpuTexture>  ray_data;
   RgWriteHandle<GpuTexture> irradiance;
 };
@@ -74,7 +74,7 @@ render_handler_probe_blend(RenderContext* ctx, const void* data)
 {
   ProbeBlendParams* params = (ProbeBlendParams*)data;
 
-  ctx->compute_bind_shader_resources<interlop::ProbeBlendingCSResources>(
+  ctx->compute_bind_shader_resources<ProbeBlendingCSResources>(
     {
       .vol_desc   = params->vol_desc_buffer,
       .ray_data   = params->ray_data,
@@ -94,7 +94,7 @@ static void
 init_probe_blend(
   AllocHeap heap,
   RgBuilder* builder,
-  const interlop::DDGIVolDesc& desc,
+  const DDGIVolDesc& desc,
   RgHandle<GpuBuffer> vol_desc_buffer,
   RgHandle<GpuTexture>  ray_data,
   RgHandle<GpuTexture>* irradiance
@@ -113,7 +113,7 @@ init_probe_blend(
 Ddgi
 init_ddgi(AllocHeap heap, RgBuilder* builder)
 {
-  interlop::DDGIVolDesc desc = {0};
+  DDGIVolDesc desc = {0};
   desc.origin                 = Vec4(0.0f, 4.5f, -0.3f, 0.0f);
   desc.probe_spacing          = Vec4(1.4f, 2.0f, 1.7f, 0.0f);
   desc.probe_count_x          = 19;
@@ -125,7 +125,7 @@ init_ddgi(AllocHeap heap, RgBuilder* builder)
   desc.probe_max_ray_distance = 20.0f;
   desc.probe_max_ray_distance = 20.0f;
 
-  RgHandle<GpuBuffer> vol_desc_buffer = rg_create_upload_buffer(builder, "DDGI Vol Desc", sizeof(interlop::DDGIVolDesc));
+  RgHandle<GpuBuffer> vol_desc_buffer = rg_create_upload_buffer(builder, "DDGI Vol Desc", sizeof(DDGIVolDesc));
   RgHandle<GpuTexture>  probe_ray_data  = rg_create_texture_array(
     builder,
     "Probe Ray Data",

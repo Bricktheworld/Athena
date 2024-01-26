@@ -22,9 +22,9 @@ float4 screen_to_world(float3 screen, float2 screen_size)
   float2 normalized_screen = screen.xy / screen_size * 2.0f - float2(1.0f, 1.0f);
   normalized_screen.y     *= -1.0f;
 
-  float4 clip              = float4(normalized_screen - g_SceneBuffer.taa_jitter, screen.z, 1.0f);
+  float4 clip              = float4(normalized_screen - g_ViewportBuffer.taa_jitter, screen.z, 1.0f);
 
-  float4 world             = mul(g_SceneBuffer.inverse_view_proj, clip);
+  float4 world             = mul(g_ViewportBuffer.inverse_view_proj, clip);
   world                   /= world.w;
 
   return world;

@@ -47,7 +47,7 @@ render_handler_frame_init(RenderContext* ctx, const void* data)
   Mat4 prev_view = view_from_camera(&g_Renderer.prev_camera);
   Mat4 view      = view_from_camera(&g_Renderer.camera);
 
-  interlop::Scene scene;
+  Viewport scene;
   scene.proj              = perspective_infinite_reverse_lh(kPI / 4.0f, (f32)ctx->m_Width / (f32)ctx->m_Height, kZNear);
   scene.view_proj         = scene.proj * view;
   scene.prev_view_proj    = scene.proj * prev_view;
@@ -76,7 +76,7 @@ init_frame_init_pass(AllocHeap heap, RgBuilder* builder)
   FrameInitParams* params = HEAP_ALLOC(FrameInitParams, g_InitHeap, 1);
   zero_memory(params, sizeof(FrameInitParams));
 
-  RgHandle<GpuBuffer> scene_buffer = rg_create_upload_buffer(builder, "Scene", sizeof(interlop::Scene));
+  RgHandle<GpuBuffer> scene_buffer = rg_create_upload_buffer(builder, "Viewport Buffer", sizeof(Viewport));
 
   RgPassBuilder*      pass         = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "Frame Init", params, &render_handler_frame_init, 1, 0, true);
   params->scene_buffer             = rg_read_buffer(pass, scene_buffer,     kReadBufferCbv);

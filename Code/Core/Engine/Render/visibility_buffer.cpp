@@ -18,7 +18,7 @@ render_handler_visibility_buffer(RenderContext* ctx, const void* data)
 {
   VBufferParams* params = (VBufferParams*)data;
 
-  interlop::Transform model;
+  Transform model;
   model.model = Mat4::columns(
     Vec4(1, 0, 0, 0),
     Vec4(0, 1, 0, 0),
@@ -43,7 +43,7 @@ render_handler_visibility_buffer(RenderContext* ctx, const void* data)
   ctx->set_graphics_pso(&g_Renderer.vbuffer_pso);
   for (const RenderMeshInst& mesh_inst : g_Renderer.meshes)
   {
-    ctx->graphics_bind_shader_resources<interlop::MaterialRenderResources>({.transform = params->transform_buffer});
+    ctx->graphics_bind_shader_resources<MaterialRenderResources>({.transform = params->transform_buffer});
     ctx->draw_indexed_instanced(mesh_inst.index_count, 1, mesh_inst.index_buffer_offset, 0, 0);
   }
 }
@@ -57,7 +57,7 @@ init_vbuffer(AllocHeap heap, RgBuilder* builder)
   RgHandle<GpuTexture> prim_id   = rg_create_texture(builder, "Visibility Buffer Primitive IDs", FULL_RES(builder), DXGI_FORMAT_R32_UINT);
   RgHandle<GpuTexture> depth     = rg_create_texture(builder, "Visibility Buffer Depth",         FULL_RES(builder), DXGI_FORMAT_D32_FLOAT);
 
-  RgHandle<GpuBuffer>  transform = rg_create_upload_buffer(builder, "Transform Buffer", sizeof(interlop::Scene));
+  RgHandle<GpuBuffer>  transform = rg_create_upload_buffer(builder, "Transform Buffer", sizeof(Transform));
 
   RgPassBuilder*       pass      = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "Visibility Buffer", params, &render_handler_visibility_buffer, 1, 2);
   params->render_target          = rg_write_texture(pass, &prim_id,  kWriteTextureColorTarget);
@@ -81,7 +81,7 @@ static void
 render_handler_debug_vbuffer(RenderContext* ctx, const void* data)
 {
   DebugVBufferParams* params = (DebugVBufferParams*)data;
-  ctx->compute_bind_shader_resources<interlop::DebugVisualizerResources>(
+  ctx->compute_bind_shader_resources<DebugVisualizerResources>(
     {
       .input = params->prim_ids,
       .output = params->dst

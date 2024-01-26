@@ -73,7 +73,7 @@ float2 mult_complex(float2 p, float2 q)
 	return float2(p.x * q.x - p.y * q.y, p.x * q.y + p.y * q.x);
 }
 
-ConstantBuffer<interlop::DofBlurHorizComputeResources> g_blur_horiz : register(b0);
+ConstantBuffer<DofBlurHorizComputeResources> g_blur_horiz : register(b0);
 
 [RootSignature(BINDLESS_ROOT_SIGNATURE)]
 [numthreads(8, 8, 1)]
@@ -148,7 +148,7 @@ void CS_DoFBlurHorizontal( uint3 thread_id : SV_DispatchThreadID )
 	}
 }
 
-ConstantBuffer<interlop::DofBlurVertComputeResources> g_blur_vert : register(b0);
+ConstantBuffer<DofBlurVertComputeResources> g_blur_vert : register(b0);
 
 [RootSignature(BINDLESS_ROOT_SIGNATURE)]
 [numthreads(8, 8, 1)]
@@ -227,7 +227,7 @@ void CS_DoFBlurVertical( uint3 thread_id : SV_DispatchThreadID )
 	}
 }
 
-ConstantBuffer<interlop::DofCocComputeResources> g_coc : register(b0);
+ConstantBuffer<DofCocComputeResources> g_coc : register(b0);
 
 [RootSignature(BINDLESS_ROOT_SIGNATURE)]
 [numthreads(8, 8, 1)]
@@ -238,7 +238,7 @@ void CS_DoFCoC( uint3 thread_id : SV_DispatchThreadID )
 
 	RWTexture2D<half2>                   render_target = ResourceDescriptorHeap[g_coc.render_target];
 
-	ConstantBuffer<interlop::DofOptions> options       = ResourceDescriptorHeap[g_coc.options];
+	ConstantBuffer<DofOptions> options       = ResourceDescriptorHeap[g_coc.options];
 
 	float z_near       = options.z_near;
 	float aperture     = options.aperture;
@@ -256,7 +256,7 @@ void CS_DoFCoC( uint3 thread_id : SV_DispatchThreadID )
 	render_target[thread_id.xy] = half2(clamp(-coc, 0.0h, kMaxCoC), clamp(coc, 0.0h, kMaxCoC));
 }
 
-ConstantBuffer<interlop::DofCocDilateComputeResources> g_coc_dilate : register(b0);
+ConstantBuffer<DofCocDilateComputeResources> g_coc_dilate : register(b0);
 
 [RootSignature(BINDLESS_ROOT_SIGNATURE)]
 [numthreads(8, 8, 1)]
@@ -285,7 +285,7 @@ void CS_DoFCoCDilate( uint3 thread_id : SV_DispatchThreadID )
 	render_target[thread_id.xy] = half2(max_near_coc, coc_buffer.Sample(g_ClampSampler, uv).y);
 }
 
-ConstantBuffer<interlop::DofCompositeComputeResources> g_dof_composite : register(b0);
+ConstantBuffer<DofCompositeComputeResources> g_dof_composite : register(b0);
 
 [RootSignature(BINDLESS_ROOT_SIGNATURE)]
 [numthreads(8, 8, 1)]

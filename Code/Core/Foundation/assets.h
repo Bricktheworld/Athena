@@ -6,14 +6,17 @@
 
 #include "Core/Foundation/Containers/array.h"
 
+#include "Core/Engine/Render/render_graph.h"
+#include "Core/Engine/Shaders/interlop.hlsli"
+
 // TODO(Brandon): Don't duplicate this definition,
 // we want some sort of shared header with this vertex definition...
-struct Vertex
-{
-  Vec3 position;
-  Vec3 normal;
-  Vec2 uv;
-};
+//struct Vertex
+//{
+//  Vec3 position;
+//  Vec3 normal;
+//  Vec2 uv;
+//};
 static_assert(sizeof(Vertex) == sizeof(f32) * 8);
 
 // Asset ID is a CRC32 hash of asset path...

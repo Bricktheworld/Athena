@@ -18,7 +18,7 @@ render_handler_post_processing(RenderContext* ctx, const void* data)
 
   ctx->om_set_render_targets({params->dst}, None);
 
-  ctx->graphics_bind_shader_resources<interlop::PostProcessingRenderResources>({.texture = params->hdr_buffer});
+  ctx->graphics_bind_shader_resources<PostProcessingRenderResources>({.texture = params->hdr_buffer});
   ctx->set_graphics_pso(&g_Renderer.post_processing_pipeline);
 
   ctx->draw_instanced(3, 1, 0, 0);

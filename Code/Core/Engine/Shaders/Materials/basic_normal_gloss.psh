@@ -9,7 +9,7 @@ struct DeferredPSOut
         float2 velocity          : SV_Target3;
 };
 
-ConstantBuffer<interlop::MaterialRenderResources> g_Resources : register(b0);
+ConstantBuffer<MaterialRenderResources> g_Resources : register(b0);
 
 float2 calculate_velocity(float4 old_pos, float4 new_pos)
 {
@@ -25,11 +25,11 @@ float2 calculate_velocity(float4 old_pos, float4 new_pos)
 }
 
 [RootSignature(BINDLESS_ROOT_SIGNATURE)]
-DeferredPSOut PS_BasicNormalGloss(shaders::BasicVSOut ps_in)
+DeferredPSOut PS_BasicNormalGloss(BasicVSOut ps_in)
 {
   DeferredPSOut ret;
 
-	ConstantBuffer<interlop::Transform> transform = ResourceDescriptorHeap[g_Resources.transform];
+	ConstantBuffer<Transform> transform = ResourceDescriptorHeap[g_Resources.transform];
 
   ret.material_id       = 1;
   ret.diffuse_metallic  = float4(1.0f, 1.0f, 1.0f, 0.5f);

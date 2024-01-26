@@ -145,7 +145,7 @@ build_acceleration_structures(GraphicsDevice* device)
     device,
     g_UnifiedGeometryBuffer.vertex_buffer,
     g_UnifiedGeometryBuffer.vertex_buffer_offset,
-    sizeof(interlop::Vertex),
+    sizeof(Vertex),
     g_UnifiedGeometryBuffer.index_buffer,
     g_UnifiedGeometryBuffer.index_buffer_offset,
     "Scene Acceleration Structure"
@@ -197,7 +197,7 @@ init_scene(AllocHeap heap, const GraphicsDevice* device)
 {
   Scene ret = {0};
   ret.scene_objects = init_array<SceneObject>(heap, 128);
-  ret.point_lights  = init_array<interlop::PointLight>(heap, 128);
+  ret.point_lights  = init_array<PointLight>(heap, 128);
   static constexpr size_t kSceneObjectHeapSize = MiB(8);
   ret.scene_object_allocator = init_linear_allocator(
     HEAP_ALLOC_ALIGNED(heap, kSceneObjectHeapSize, 1),
@@ -275,7 +275,7 @@ static u32
 alloc_into_vertex_uber(u32 vertex_count)
 {
   u32 ret = g_UnifiedGeometryBuffer.vertex_buffer_offset;
-  ASSERT((ret + vertex_count) * sizeof(interlop::Vertex) <= g_UnifiedGeometryBuffer.vertex_buffer.desc.size);
+  ASSERT((ret + vertex_count) * sizeof(Vertex) <= g_UnifiedGeometryBuffer.vertex_buffer.desc.size);
 
   g_UnifiedGeometryBuffer.vertex_buffer_offset += vertex_count;
 
@@ -364,9 +364,9 @@ add_scene_object(
   return ret;
 }
 
-interlop::PointLight* add_point_light(Scene* scene)
+PointLight* add_point_light(Scene* scene)
 {
-  interlop::PointLight* ret = array_add(&scene->point_lights);
+  PointLight* ret = array_add(&scene->point_lights);
   ret->position = Vec4(0, 0, 0, 1);
   ret->color = Vec4(1, 1, 1, 1);
   ret->radius = 10;

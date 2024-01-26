@@ -3,7 +3,7 @@
 #include "../Include/math.hlsli"
 
 
-ConstantBuffer<interlop::TAAResources> g_Resources : register(b0);
+ConstantBuffer<TAAResources> g_Resources : register(b0);
 
 uint2 get_dilated_texel(int2 texel)
 {
@@ -57,7 +57,7 @@ void CS_TAA( uint3 thread_id : SV_DispatchThreadID )
   RWTexture2D<float4> taa_buffer  = ResourceDescriptorHeap[g_Resources.taa];
 
 
-  if (g_SceneBuffer.disable_taa)
+  if (g_ViewportBuffer.disable_taa)
   {
     taa_buffer[thread_id.xy] = curr_buffer[thread_id.xy];
     return;

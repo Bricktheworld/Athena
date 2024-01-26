@@ -23,7 +23,7 @@ render_handler_taa(RenderContext* ctx, const void* data)
 {
   TAAParams* params = (TAAParams*)data;
 
-  ctx->compute_bind_shader_resources<interlop::TAAResources>(
+  ctx->compute_bind_shader_resources<TAAResources>(
     {
       .prev_hdr      = params->prev_hdr,
       .curr_hdr      = params->curr_hdr,

@@ -7,7 +7,7 @@ struct PSInput
   float2 uv : TEXCOORD0;
 };
 
-ConstantBuffer<interlop::FullscreenRenderResources> render_resources : register(b0);
+ConstantBuffer<FullscreenRenderResources> render_resources : register(b0);
 
 [RootSignature(BINDLESS_ROOT_SIGNATURE)]
 float4 PS_Fullscreen(PSInput IN) : SV_TARGET

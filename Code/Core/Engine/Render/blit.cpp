@@ -21,7 +21,7 @@ render_handler_back_buffer_blit(RenderContext* ctx, const void* data)
   ctx->clear_render_target_view(params->dst, Vec4(0.0f, 0.0f, 0.0f, 0.0f));
   ctx->om_set_render_targets({params->dst}, None);
 
-  ctx->graphics_bind_shader_resources<interlop::FullscreenRenderResources>({.texture = params->src});
+  ctx->graphics_bind_shader_resources<FullscreenRenderResources>({.texture = params->src});
   ctx->draw_instanced(3, 1, 0, 0);
 }
 

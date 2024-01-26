@@ -12,9 +12,9 @@ struct Payload
 	unorm	float2 uv;
 };
 
-interlop::Vertex interpolate_vertex(interlop::Vertex vertices[3], float3 barycentrics)
+Vertex interpolate_vertex(Vertex vertices[3], float3 barycentrics)
 {
-	interlop::Vertex ret = (interlop::Vertex)0;
+	Vertex ret = (Vertex)0;
 
 	for (uint i = 0; i < 3; i++)
 	{
@@ -28,7 +28,7 @@ interlop::Vertex interpolate_vertex(interlop::Vertex vertices[3], float3 barycen
 	return ret;
 }
 
-void load_vertices(uint primitive_index, out interlop::Vertex vertices[3])
+void load_vertices(uint primitive_index, out Vertex vertices[3])
 {
 	uint3 indices = g_IndexBuffer.Load3(PrimitiveIndex() * 3 * 4);
 	for (uint i = 0; i < 3; i++)
@@ -37,9 +37,9 @@ void load_vertices(uint primitive_index, out interlop::Vertex vertices[3])
 	}
 }
 
-interlop::Vertex get_vertex(BuiltInTriangleIntersectionAttributes attr)
+Vertex get_vertex(BuiltInTriangleIntersectionAttributes attr)
 {
-	interlop::Vertex vertices[3];
+	Vertex vertices[3];
 	load_vertices(PrimitiveIndex(), vertices);
 
 	float3 barycentrics = float3((1.0f - attr.barycentrics.x - attr.barycentrics.y), attr.barycentrics.x, attr.barycentrics.y);

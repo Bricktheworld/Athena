@@ -8,7 +8,7 @@ struct VisibilityBufferPSOut
 };
 
 [RootSignature(BINDLESS_ROOT_SIGNATURE)]
-VisibilityBufferPSOut PS_VisibilityBuffer(shaders::BasicVSOut ps_in, uint prim_id: SV_PrimitiveID)
+VisibilityBufferPSOut PS_VisibilityBuffer(BasicVSOut ps_in, uint prim_id: SV_PrimitiveID)
 {
   VisibilityBufferPSOut ret;
   ret.prim_id = prim_id;

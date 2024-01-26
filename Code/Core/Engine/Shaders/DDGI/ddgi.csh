@@ -2,7 +2,7 @@
 #include "../interlop.hlsli"
 #include "../include/ddgi_common.hlsli"
 
-ConstantBuffer<interlop::ProbeBlendingCSResources> g_ProbeBlendingResources : register(b0);
+ConstantBuffer<ProbeBlendingCSResources> g_ProbeBlendingResources : register(b0);
 
 [RootSignature(BINDLESS_ROOT_SIGNATURE)]
 [numthreads(kProbeNumIrradianceTexels, kProbeNumIrradianceTexels, 1)]
@@ -15,9 +15,9 @@ void CS_ProbeBlending(
   bool is_border_texel = (group_thread_id.x == 0 || group_thread_id.x == (kProbeNumIrradianceInteriorTexels + 1));
   is_border_texel     |= (group_thread_id.y == 0 || group_thread_id.y == (kProbeNumIrradianceInteriorTexels + 1));
 
-  ConstantBuffer<interlop::DDGIVolDesc> vol_desc   = ResourceDescriptorHeap[g_ProbeBlendingResources.vol_desc];
-  Texture2DArray<float4>                ray_data   = ResourceDescriptorHeap[g_ProbeBlendingResources.ray_data];
-  RWTexture2DArray<float4>              irradiance = ResourceDescriptorHeap[g_ProbeBlendingResources.irradiance];
+  ConstantBuffer<DDGIVolDesc> vol_desc   = ResourceDescriptorHeap[g_ProbeBlendingResources.vol_desc];
+  Texture2DArray<float4>      ray_data   = ResourceDescriptorHeap[g_ProbeBlendingResources.ray_data];
+  RWTexture2DArray<float4>    irradiance = ResourceDescriptorHeap[g_ProbeBlendingResources.irradiance];
 
   int  probe_index = get_probe_index(dispatch_thread_id, kProbeNumIrradianceTexels, vol_desc);
   uint num_probes  = vol_desc.probe_count_x * vol_desc.probe_count_y * vol_desc.probe_count_z;
@@ -136,7 +136,7 @@ void CS_ProbeBlending(
   irradiance[dispatch_thread_id] = irradiance[src_coords];
 }
 
-ConstantBuffer<interlop::ProbeDistanceBlendingCSResources> g_ProbeDistanceBlendingResources : register(b0);
+ConstantBuffer<ProbeDistanceBlendingCSResources> g_ProbeDistanceBlendingResources : register(b0);
 
 [RootSignature(BINDLESS_ROOT_SIGNATURE)]
 [numthreads(kProbeNumDistanceTexels, kProbeNumDistanceTexels, 1)]
@@ -149,9 +149,9 @@ void CS_ProbeDistanceBlending(
   bool is_border_texel = (group_thread_id.x == 0 || group_thread_id.x == (kProbeNumDistanceInteriorTexels + 1));
   is_border_texel     |= (group_thread_id.y == 0 || group_thread_id.y == (kProbeNumDistanceInteriorTexels + 1));
 
-  ConstantBuffer<interlop::DDGIVolDesc> vol_desc = ResourceDescriptorHeap[g_ProbeDistanceBlendingResources.vol_desc];
-  Texture2DArray<float4>                ray_data = ResourceDescriptorHeap[g_ProbeDistanceBlendingResources.ray_data];
-  RWTexture2DArray<float2>              distance = ResourceDescriptorHeap[g_ProbeDistanceBlendingResources.distance];
+  ConstantBuffer<DDGIVolDesc> vol_desc = ResourceDescriptorHeap[g_ProbeDistanceBlendingResources.vol_desc];
+  Texture2DArray<float4>      ray_data = ResourceDescriptorHeap[g_ProbeDistanceBlendingResources.ray_data];
+  RWTexture2DArray<float2>    distance = ResourceDescriptorHeap[g_ProbeDistanceBlendingResources.distance];
 
   int  probe_index = get_probe_index(dispatch_thread_id, kProbeNumDistanceTexels, vol_desc);
   uint num_probes  = vol_desc.probe_count_x * vol_desc.probe_count_y * vol_desc.probe_count_z;

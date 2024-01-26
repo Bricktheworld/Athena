@@ -27,7 +27,7 @@ RaytracingPipelineConfig kPipelineConfig =
 	1, // Max trace recursion depth
 };
 
-ConstantBuffer<interlop::ProbeTraceRTResources> rt_resources : register(b0);
+ConstantBuffer<ProbeTraceRTResources> rt_resources : register(b0);
 
 [shader("raygeneration")]
 void ray_gen()
@@ -35,12 +35,12 @@ void ray_gen()
 	uint2 launch_index      = DispatchRaysIndex().xy;
 	uint2 launch_dimensions = DispatchRaysDimensions().xy;
 
-	Texture2DArray<float4>                probe_irradiance  = ResourceDescriptorHeap[rt_resources.probe_irradiance];
-	Texture2DArray<float2>                probe_distance    = ResourceDescriptorHeap[rt_resources.probe_distance];
-	RWTexture2DArray<float4>              ray_data          = ResourceDescriptorHeap[rt_resources.ray_data];
-	ConstantBuffer<interlop::DDGIVolDesc> vol_desc          = ResourceDescriptorHeap[rt_resources.vol_desc];
+	Texture2DArray<float4>      probe_irradiance  = ResourceDescriptorHeap[rt_resources.probe_irradiance];
+	Texture2DArray<float2>      probe_distance    = ResourceDescriptorHeap[rt_resources.probe_distance];
+	RWTexture2DArray<float4>    ray_data          = ResourceDescriptorHeap[rt_resources.ray_data];
+	ConstantBuffer<DDGIVolDesc> vol_desc          = ResourceDescriptorHeap[rt_resources.vol_desc];
 
-	interlop::DirectionalLight            directional_light = g_SceneBuffer.directional_light;
+	DirectionalLight            directional_light = g_ViewportBuffer.directional_light;
 
 	int ray_index         = DispatchRaysIndex().x;
 	int probe_plane_index = DispatchRaysIndex().y;
@@ -123,10 +123,10 @@ void hit(inout Payload payload, BuiltInTriangleIntersectionAttributes attr)
 	payload.t = RayTCurrent();
   payload.hit_kind = HitKind();
 
-	interlop::Vertex vertex = get_vertex(attr);
-	payload.ws_pos          = vertex.position.xyz;
-	payload.normal          = vertex.normal.xyz;
-	payload.uv              = vertex.uv.xy;
+	Vertex vertex  = get_vertex(attr);
+	payload.ws_pos = vertex.position.xyz;
+	payload.normal = vertex.normal.xyz;
+	payload.uv     = vertex.uv.xy;
 }
 
 [shader("miss")]

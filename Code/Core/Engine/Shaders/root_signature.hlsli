@@ -28,11 +28,11 @@
   "UAV(u126),"\
   "UAV(u127)"
 
-SamplerState                       g_ClampSampler          : register(s0);
-RaytracingAccelerationStructure    g_AccelerationStructure : register(t0);
-ByteAddressBuffer                  g_IndexBuffer           : register(t1);
-StructuredBuffer<interlop::Vertex> g_VertexBuffer          : register(t2);
-ConstantBuffer<interlop::Scene>    g_SceneBuffer           : register(b1);
+SamplerState                    g_ClampSampler          : register(s0);
+RaytracingAccelerationStructure g_AccelerationStructure : register(t0);
+ByteAddressBuffer               g_IndexBuffer           : register(t1);
+StructuredBuffer<Vertex>        g_VertexBuffer          : register(t2);
+ConstantBuffer<Viewport>        g_ViewportBuffer        : register(b1);
 
 #endif
 

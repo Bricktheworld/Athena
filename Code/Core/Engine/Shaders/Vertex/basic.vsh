@@ -1,24 +1,24 @@
 #include "../root_signature.hlsli"
 #include "../interlop.hlsli"
 
-ConstantBuffer<interlop::MaterialRenderResources> render_resources : register(b0);
+ConstantBuffer<MaterialRenderResources> render_resources : register(b0);
 
 [RootSignature(BINDLESS_ROOT_SIGNATURE)]
-shaders::BasicVSOut VS_Basic(uint vert_id: SV_VertexID)
+BasicVSOut VS_Basic(uint vert_id: SV_VertexID)
 {
-	shaders::BasicVSOut ret;
+	BasicVSOut ret;
 
-	ConstantBuffer<interlop::Transform> transform = ResourceDescriptorHeap[render_resources.transform];
+	ConstantBuffer<Transform> transform = ResourceDescriptorHeap[render_resources.transform];
 
-	interlop::Vertex vertex = g_VertexBuffer[vert_id];
+	Vertex vertex = g_VertexBuffer[vert_id];
 
 	ret.world_pos = mul(transform.model, float4(vertex.position.xyz, 1.0f));
-	ret.ndc_pos   = mul(g_SceneBuffer.view_proj, ret.world_pos);
+	ret.ndc_pos   = mul(g_ViewportBuffer.view_proj, ret.world_pos);
 
   ret.curr_pos  = ret.ndc_pos;
-  ret.prev_pos  = mul(g_SceneBuffer.prev_view_proj, ret.world_pos);
+  ret.prev_pos  = mul(g_ViewportBuffer.prev_view_proj, ret.world_pos);
 
-  ret.ndc_pos  += float4(g_SceneBuffer.taa_jitter * ret.ndc_pos.w, 0.0f, 0.0f);
+  ret.ndc_pos  += float4(g_ViewportBuffer.taa_jitter * ret.ndc_pos.w, 0.0f, 0.0f);
 
 	float3x3 normal_matrix = (float3x3)transpose(transform.model_inverse);
 	float3   normal        = normalize(mul(normal_matrix, vertex.normal.xyz));

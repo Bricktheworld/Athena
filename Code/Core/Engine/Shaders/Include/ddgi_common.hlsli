@@ -16,7 +16,7 @@ float3 spherical_fibonacci(float sample_idx, float num_samples)
   return float3((cos(phi) * sin_theta), (sin(phi) * sin_theta), cos_theta);
 }
 
-float3 get_probe_ray_dir(int ray_index, interlop::DDGIVolDesc vol_desc)
+float3 get_probe_ray_dir(int ray_index, DDGIVolDesc vol_desc)
 {
   // Each ray index will have a predictable spherical fibonacci unit vector direction
   float3 direction = spherical_fibonacci(ray_index, vol_desc.probe_num_rays);
@@ -26,7 +26,7 @@ float3 get_probe_ray_dir(int ray_index, interlop::DDGIVolDesc vol_desc)
   return normalize(mul(vol_desc.probe_ray_rotation, float4(direction, 1.0f)).xyz);
 }
 
-float3 get_probe_ws_pos(int3 probe_coords, interlop::DDGIVolDesc vol_desc)
+float3 get_probe_ws_pos(int3 probe_coords, DDGIVolDesc vol_desc)
 {
 	float3 probe_grid_ws_pos = probe_coords * vol_desc.probe_spacing.xyz;
 
@@ -39,12 +39,12 @@ float3 get_probe_ws_pos(int3 probe_coords, interlop::DDGIVolDesc vol_desc)
 	return probe_ws_pos;
 }
 
-int get_probes_per_plane(interlop::DDGIVolDesc vol_desc)
+int get_probes_per_plane(DDGIVolDesc vol_desc)
 {
   return vol_desc.probe_count_x * vol_desc.probe_count_z;
 }
 
-uint3 get_ray_data_texel_coords(int ray_index, int probe_index, interlop::DDGIVolDesc vol_desc)
+uint3 get_ray_data_texel_coords(int ray_index, int probe_index, DDGIVolDesc vol_desc)
 {
   int probes_per_plane = get_probes_per_plane(vol_desc);
 
@@ -56,7 +56,7 @@ uint3 get_ray_data_texel_coords(int ray_index, int probe_index, interlop::DDGIVo
   return coords;
 }
 
-float3 get_surface_bias(float3 normal, float3 camera_dir, interlop::DDGIVolDesc vol_desc)
+float3 get_surface_bias(float3 normal, float3 camera_dir, DDGIVolDesc vol_desc)
 {
   return normal * 0.0001f + (-camera_dir * 0.1f);
 }
@@ -76,7 +76,7 @@ int get_probe_index_in_plane(uint3 tex_coords, int3 probe_counts, int probe_num_
 	return int(tex_coords.x / probe_num_texels) + (probe_counts.x * int(tex_coords.y / probe_num_texels));
 }
 
-int get_probe_index(int3 probe_coords, interlop::DDGIVolDesc vol_desc)
+int get_probe_index(int3 probe_coords, DDGIVolDesc vol_desc)
 {
   int3 probe_counts = int3(vol_desc.probe_count_x, vol_desc.probe_count_y, vol_desc.probe_count_z);
   int probes_per_plane = get_probes_per_plane(vol_desc);
@@ -85,7 +85,7 @@ int get_probe_index(int3 probe_coords, interlop::DDGIVolDesc vol_desc)
   return (plane_index * probes_per_plane) + probe_index_in_plane;
 }
 
-int get_probe_index(uint3 tex_coords, int probe_num_texels, interlop::DDGIVolDesc vol_desc)
+int get_probe_index(uint3 tex_coords, int probe_num_texels, DDGIVolDesc vol_desc)
 {
   int3 probe_counts = int3(vol_desc.probe_count_x, vol_desc.probe_count_y, vol_desc.probe_count_z);
   int probes_per_plane = get_probes_per_plane(vol_desc);
@@ -94,7 +94,7 @@ int get_probe_index(uint3 tex_coords, int probe_num_texels, interlop::DDGIVolDes
   return (tex_coords.z * probes_per_plane) + probe_index_in_plane;
 }
 
-uint3 get_probe_texel_coords(int probe_index, interlop::DDGIVolDesc vol_desc)
+uint3 get_probe_texel_coords(int probe_index, DDGIVolDesc vol_desc)
 {
   int probes_per_plane = get_probes_per_plane(vol_desc);
   int plane_index      = int(probe_index / probes_per_plane);
@@ -105,7 +105,7 @@ uint3 get_probe_texel_coords(int probe_index, interlop::DDGIVolDesc vol_desc)
   return uint3(x, y, plane_index);
 }
 
-float3 get_probe_uv(int probe_index, float2 octant_coords, int num_interior_texels, interlop::DDGIVolDesc vol_desc)
+float3 get_probe_uv(int probe_index, float2 octant_coords, int num_interior_texels, DDGIVolDesc vol_desc)
 {
   uint3 coords = get_probe_texel_coords(probe_index, vol_desc);
 
@@ -153,7 +153,7 @@ float2 octahedral_encode_dir(float3 n)
 
 // When sampling from the 8 probes surrounding a position, we want to get the "base" probe defining the corner of the
 // cuboid that is formed by those 8 probes
-int3 get_base_probe_grid_coords(float3 ws_pos, interlop::DDGIVolDesc vol_desc)
+int3 get_base_probe_grid_coords(float3 ws_pos, DDGIVolDesc vol_desc)
 {
   int3 probe_counts = int3(vol_desc.probe_count_x, vol_desc.probe_count_y, vol_desc.probe_count_z);
   float3 rel_pos    = ws_pos - vol_desc.origin.xyz;
@@ -169,7 +169,7 @@ float3 get_vol_irradiance(
   float3 ws_pos,
   float3 surface_bias,
   float3 normal,
-  interlop::DDGIVolDesc vol_desc,
+  DDGIVolDesc vol_desc,
   Texture2DArray<float4> probe_irradiance_tex,
   Texture2DArray<float2> probe_distance_tex
 ) {
