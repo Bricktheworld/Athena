@@ -3,7 +3,7 @@
 
 struct DeferredPSOut
 {
-  uint   material_id             : SV_Target0;
+        uint   material_id       : SV_Target0;
   unorm float4 diffuse_metallic  : SV_Target1;
   unorm float4 normal_roughness  : SV_Target2;
         float2 velocity          : SV_Target3;

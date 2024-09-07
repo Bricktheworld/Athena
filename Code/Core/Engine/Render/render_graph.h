@@ -478,7 +478,7 @@ struct RenderGraph
 
   HashTable<RgDescriptorKey, Descriptor> descriptor_map;
   HashTable<RgResourceKey,   GpuBuffer > buffer_map;
-  HashTable<RgResourceKey,   GpuTexture  > texture_map;
+  HashTable<RgResourceKey,   GpuTexture> texture_map;
 
   RgHandle<GpuTexture>                     back_buffer;
 

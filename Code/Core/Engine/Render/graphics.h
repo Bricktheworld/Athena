@@ -180,7 +180,6 @@ struct GpuTexture
 {
   GpuTextureDesc        desc;
   ID3D12Resource*       d3d12_texture = nullptr;
-  D3D12_RESOURCE_STATES state       = D3D12_RESOURCE_STATE_COMMON;
 };
 
 GpuTexture alloc_gpu_texture_no_heap(
@@ -219,7 +218,6 @@ struct GpuBuffer
   u64                   gpu_addr     = 0;
 
   Option<void*>         mapped       = None;
-  D3D12_RESOURCE_STATES state        = D3D12_RESOURCE_STATE_COMMON;
 };
 GpuBuffer alloc_gpu_buffer_no_heap(
   const GraphicsDevice* device,

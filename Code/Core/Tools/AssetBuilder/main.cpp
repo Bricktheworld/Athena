@@ -35,7 +35,7 @@ int main(int argc, const char** argv)
   if (argc != 3)
   {
     printf("Invalid arguments!\n");
-    printf("AssetBuilder.exe <input_path> <output_build_directory>\n");
+    printf("AssetBuilder.exe <input_path> <project_root>\n");
     return 1;
   }
 

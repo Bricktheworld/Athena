@@ -18,7 +18,7 @@
 
 
 #ifdef DEBUG
-#define DEBUG_LAYER
+//#define DEBUG_LAYER
 #endif
 
 static IDXGIFactory7*
@@ -553,7 +553,6 @@ alloc_gpu_texture_no_heap(const GraphicsDevice* device, GpuTextureDesc desc, con
   wchar_t wname[1024];
   mbstowcs(wname, name, 1024);
   ret.d3d12_texture->SetName(wname);
-  ret.state = desc.initial_state;
 
   return ret;
 }
@@ -635,7 +634,6 @@ alloc_gpu_texture(
   wchar_t wname[1024];
   mbstowcs(wname, name, 1024);
   ret.d3d12_texture->SetName(wname);
-  ret.state = desc.initial_state;
 
   allocator->pos = new_pos;
 
@@ -671,7 +669,6 @@ alloc_gpu_buffer_no_heap(
     ret.d3d12_buffer->Map(0, nullptr, &mapped);
     ret.mapped = mapped;
   }
-  ret.state = desc.initial_state;
 
   return ret;
 }
@@ -728,8 +725,6 @@ alloc_gpu_buffer(
   }
 
   allocator->pos = new_pos;
-
-  ret.state = desc.initial_state;
 
   return ret;
 }

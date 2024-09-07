@@ -34,12 +34,12 @@ init_post_processing(
   PostProcessingParams* params = HEAP_ALLOC(PostProcessingParams, g_InitHeap, 1);
   zero_memory(params, sizeof(PostProcessingParams));
 
-  RgPassBuilder* pass    = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "Post Processing", params, &render_handler_post_processing, 1, 1);
+  RgPassBuilder* pass      = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "Post Processing", params, &render_handler_post_processing, 1, 1);
 
   RgHandle<GpuTexture> ret = rg_create_texture(builder, "Post Processing Buffer", FULL_RES(builder), DXGI_FORMAT_R8G8B8A8_UNORM);
 
-  params->hdr_buffer     = rg_read_texture(pass, hdr_buffer, kReadTextureSrv);
-  params->dst            = rg_write_texture(pass, &ret, kWriteTextureColorTarget);
+  params->hdr_buffer       = rg_read_texture(pass, hdr_buffer, kReadTextureSrv);
+  params->dst              = rg_write_texture(pass, &ret, kWriteTextureColorTarget);
 
   return ret;
 }

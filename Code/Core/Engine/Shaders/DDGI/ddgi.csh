@@ -4,14 +4,15 @@
 
 ConstantBuffer<ProbeBlendingCSResources> g_ProbeBlendingResources : register(b0);
 
+
 [RootSignature(BINDLESS_ROOT_SIGNATURE)]
 [numthreads(kProbeNumIrradianceTexels, kProbeNumIrradianceTexels, 1)]
 void CS_ProbeBlending(
   uint3 dispatch_thread_id : SV_DispatchThreadID,
   uint3 group_thread_id    : SV_GroupThreadID,
   uint3 group_id           : SV_GroupID,
-  uint  group_index        : SV_GroupIndex)
-{
+  uint  group_index        : SV_GroupIndex
+) {
   bool is_border_texel = (group_thread_id.x == 0 || group_thread_id.x == (kProbeNumIrradianceInteriorTexels + 1));
   is_border_texel     |= (group_thread_id.y == 0 || group_thread_id.y == (kProbeNumIrradianceInteriorTexels + 1));
 
@@ -183,7 +184,7 @@ void CS_ProbeDistanceBlending(
       
       // Something to do with banding and sharpness...
       static const float probe_distance_exponent = 50.0f;
-      weight = pow(weight, probe_distance_exponent);
+      // weight = pow(weight, probe_distance_exponent);
 
       float max_ray_dist = length(vol_desc.probe_spacing) * 1.5f;
       sample_distance    = min(abs(sample_distance), max_ray_dist);

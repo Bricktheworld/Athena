@@ -18,7 +18,7 @@ static void
 render_handler_probe_trace(RenderContext* ctx, const void* data)
 {
   ProbeTraceParams* params = (ProbeTraceParams*)data;
-  params->vol_desc.probe_ray_rotation = generate_random_rotation();
+  params->vol_desc.probe_ray_rotation = Mat4(); // generate_random_rotation();
 
   ctx->write_cpu_upload_buffer(params->vol_desc_buffer, &params->vol_desc, sizeof(params->vol_desc));
 

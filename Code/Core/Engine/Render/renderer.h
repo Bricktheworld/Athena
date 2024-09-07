@@ -6,7 +6,7 @@
 #include "Core/Engine/Render/render_graph.h"
 
 #include "Core/Engine/Shaders/interlop.hlsli"
-#include "Core/shader_table.h"
+#include "Core/Engine/Generated/shader_table.h"
 
 constant D3D12_COMPARISON_FUNC kDepthComparison = D3D12_COMPARISON_FUNC_GREATER;
 

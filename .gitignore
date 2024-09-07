@@ -364,3 +364,6 @@ FodyWeavers.xsd
 builddir/
 *.10x
 Assets/Built/*
+Code/Core/Engine/Generated/*
+Code/Core/Engine/Generated/Shaders/*
+vs/*

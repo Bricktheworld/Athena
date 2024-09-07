@@ -209,17 +209,14 @@ float3 get_vol_irradiance(
 		float  trilinear_weight   = trilinear.x * trilinear.y * trilinear.z;
 		float  weight             = 1.0f;
 
-		float3 adj_dist_uv = get_probe_uv(adj_probe_index,
-                                      octahedral_encode_dir(-biased_to_adj_dir),
-                                      kProbeNumDistanceInteriorTexels,
-                                      vol_desc);
-
 		weight *= trilinear_weight;
 
-		float3 irradiance_uv = get_probe_uv(adj_probe_index,
-                                        octahedral_encode_dir(normal),
-                                        kProbeNumIrradianceInteriorTexels,
-                                        vol_desc);
+		float3 irradiance_uv = get_probe_uv(
+		  adj_probe_index,
+      octahedral_encode_dir(normal),
+      kProbeNumIrradianceInteriorTexels,
+      vol_desc
+    );
 
 		float3 adj_irradiance = probe_irradiance_tex.SampleLevel(g_ClampSampler, irradiance_uv, 0).rgb;
 
