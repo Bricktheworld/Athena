@@ -53,6 +53,7 @@ namespace Athena
   {
     public CustomBuildShaderFile(AthenaProject project, string src, string dst)
     {
+      Strings hlsli_files = new Strings(project.ResolvedSourceFiles.Where(file => Regex.IsMatch(file, @".*\.hlsli$")));
       string output_full = project.GetSourcePath(dst);
       KeyInput = src;
       Output = output_full;
@@ -63,6 +64,7 @@ namespace Athena
       Executable = python_path;
       ExecutableArguments = string.Format(@"{0} {1} -o {2} --path_to_dxc {3}", compile_shaders_py_path, src, output_full, dxc_path);
       Description = string.Format("Compiling shader {0}", src);
+      AdditionalInputs = hlsli_files;
     }
 
     public static void AddFilesExt(Project project)
@@ -78,7 +80,6 @@ namespace Athena
       Strings hlsl_files = new Strings(project.ResolvedSourceFiles.Where(file => Regex.IsMatch(file, @".*\.[vpcrtm]+sh$")));
       foreach (string file in hlsl_files)
       {
-
         string base_name = Path.GetFileNameWithoutExtension(file);
         var output = string.Format(@"Generated\Shaders\{0}.built.h", Path.GetFileName(file));
 
@@ -129,6 +130,7 @@ namespace Athena
       Name = "Engine";
       SourceRootPath = @"[project.SharpmakeCsPath]\Code\Core\Engine";
       SourceFilesExtensions.Add(".py");
+      SourceFilesExtensions.Add(".hlsli");
       SourceFiles.Add(ShaderTableHeader);
       SourceFiles.Add(ShaderTableSource);
       CustomBuildShaderFile.AddFilesExt(this);

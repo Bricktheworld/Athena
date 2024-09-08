@@ -1,6 +1,7 @@
 #ifndef __LIGHTING_COMMON__
 #define __LIGHTING_COMMON__
 
+
 #include "../include/rt_common.hlsli"
 #include "../include/math.hlsli"
 
