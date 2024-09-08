@@ -33,7 +33,7 @@ namespace Athena
     [Configure]
     public virtual void ConfigureAll(Project.Configuration conf, Target target)
     {
-      conf.Name = @"[target.Optimization] [target.OutputType]";
+      conf.Name = @"[target.Optimization]";
       conf.ProjectPath = @"[project.SharpmakeCsPath]\VS\[project.Name]";
       conf.Options.Add(Options.Vc.Compiler.CppLanguageStandard.CPP20);
       if (target.Optimization == Optimization.Debug)
