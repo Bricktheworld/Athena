@@ -2,3 +2,5 @@
 mkdir Code\Core\Engine\Generated
 mkdir Code\Core\Engine\Generated\Shaders
 mkdir Assets\Built
+echo "Success! Press spacebar to close"
+pause
