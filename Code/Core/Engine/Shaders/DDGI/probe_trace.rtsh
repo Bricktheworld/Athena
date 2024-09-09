@@ -109,11 +109,10 @@ void ray_gen()
   );
 
   // TODO(Brandon): Get this from the actual payload data
-  float3 lambertian = 1.0f / kPI;
   float3 albedo = 1.0f;
 
   // Write everything back out
-  float3 radiance = (direct_diffuse_lighting + saturate(pow(indirect, 1.9f))) * lambertian;
+  float3 radiance = (direct_diffuse_lighting + saturate(indirect));
   ray_data[output_coords] = float4(saturate(radiance), payload.t);
 }
 

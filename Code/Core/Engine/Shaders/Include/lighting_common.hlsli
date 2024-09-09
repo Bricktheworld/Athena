@@ -63,15 +63,16 @@ float  evaluate_cos_theta(float3 light_direction, float3 normal)
   return max(dot(light_direction, normal), 0.0f);
 }
 
-float3 evaluate_directional_light(float3 light_direction,
-																	float3 light_diffuse,
-																	float  light_intensity,
-																	float3 view_direction,
-																	float3 normal,
-																	float roughness,
-																	float metallic,
-																	float3 diffuse)
-{
+float3 evaluate_directional_light(
+  float3 light_direction,
+  float3 light_diffuse,
+  float  light_intensity,
+  float3 view_direction,
+  float3 normal,
+  float roughness,
+  float metallic,
+  float3 diffuse
+) {
   light_direction = -normalize(light_direction);
 
   // The light direction from the fragment position
@@ -115,21 +116,23 @@ float light_visibility(float3 light_direction,
                        float t_max,
                        float normal_bias)
 {
-	RayDesc ray;
-	ray.Origin    = ws_pos + normal * normal_bias;
-	ray.Direction = normalize(-light_direction);
-	ray.TMin      = 0.01f;
-	ray.TMax      = t_max;
+  RayDesc ray;
+  ray.Origin    = ws_pos + normal * normal_bias;
+  ray.Direction = normalize(-light_direction);
+  ray.TMin      = 0.01f;
+  ray.TMax      = t_max;
 
-	Payload payload = (Payload)0;
-	TraceRay(g_AccelerationStructure,
-           RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER,
-           0xFF,
-           0,
-           0,
-           0,
-           ray,
-           payload);
+  Payload payload = (Payload)0;
+  TraceRay(
+    g_AccelerationStructure,
+    RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER,
+    0xFF,
+    0,
+    0,
+    0,
+    ray,
+    payload
+  );
 
   return payload.t < 0.0f;
 }

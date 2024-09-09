@@ -59,7 +59,7 @@ void ray_gen()
   gbuffer_depth.GetDimensions(screen_size.x, screen_size.y);
 
 
-  float3 ws_pos       = screen_to_world(float3(float2(launch_index) + 0.5f, depth), screen_size); // gbuffer_positions       [launch_index].xyz;
+  float3 ws_pos       = screen_to_world(float3(float2(launch_index) + 0.5f, depth), screen_size);
 
 	if (material_id == 0)
 	{
@@ -95,11 +95,10 @@ void ray_gen()
   float3 indirect        = get_vol_irradiance(ws_pos, surface_bias, normal, vol_desc, probe_irradiance, probe_distance);
 
   float3 irradiance      = direct_lighting + saturate(indirect);
-  float3 lambertian      = evaluate_lambertian(1.0f);
 
-	float3 color           = payload.t < 0.0f ? float3(0.0f, 0.0f, 0.0f) : lambertian * irradiance;
+  float3 color           = payload.t < 0.0f ? float3(0.0f, 0.0f, 0.0f) : irradiance;
 
-	render_target[launch_index] = color;
+  render_target[launch_index] = color;
 }
 
 [shader("miss")]

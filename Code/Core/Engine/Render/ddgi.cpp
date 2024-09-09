@@ -18,7 +18,7 @@ static void
 render_handler_probe_trace(RenderContext* ctx, const void* data)
 {
   ProbeTraceParams* params = (ProbeTraceParams*)data;
-  params->vol_desc.probe_ray_rotation = Mat4(); // generate_random_rotation();
+  params->vol_desc.probe_ray_rotation = generate_random_rotation();
 
   ctx->write_cpu_upload_buffer(params->vol_desc_buffer, &params->vol_desc, sizeof(params->vol_desc));
 
@@ -114,11 +114,11 @@ Ddgi
 init_ddgi(AllocHeap heap, RgBuilder* builder)
 {
   DDGIVolDesc desc = {0};
-  desc.origin                 = Vec4(0.0f, 4.5f, -0.3f, 0.0f);
-  desc.probe_spacing          = Vec4(1.4f, 2.0f, 1.7f, 0.0f);
-  desc.probe_count_x          = 19;
+  desc.origin                 = Vec4(0.0f, 5.0f, 0.0f, 0.0f);
+  desc.probe_spacing          = Vec4(0.5f, 0.5f, 0.5f, 0.0f);
+  desc.probe_count_x          = 22;
   desc.probe_count_y          = 5;
-  desc.probe_count_z          = 8;
+  desc.probe_count_z          = 22;
 
   desc.probe_num_rays         = 128;
   desc.probe_hysteresis       = 0.97f;
@@ -132,7 +132,7 @@ init_ddgi(AllocHeap heap, RgBuilder* builder)
     desc.probe_num_rays,
     desc.probe_count_x * desc.probe_count_z,
     desc.probe_count_y,
-    DXGI_FORMAT_R32G32B32A32_FLOAT
+    DXGI_FORMAT_R11G11B10_FLOAT
   );
 
   RgHandle<GpuTexture> probe_irradiance = rg_create_texture_array_ex(
@@ -141,7 +141,7 @@ init_ddgi(AllocHeap heap, RgBuilder* builder)
     desc.probe_count_x * kProbeNumIrradianceTexels,
     desc.probe_count_z * kProbeNumIrradianceTexels,
     desc.probe_count_y,
-    DXGI_FORMAT_R32G32B32A32_FLOAT,
+    DXGI_FORMAT_R10G10B10A2_UNORM,
     kInfiniteLifetime // We want the irradiance data from the previous frame to blend with on the current frame
   );
 

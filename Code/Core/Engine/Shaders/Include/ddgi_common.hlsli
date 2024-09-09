@@ -175,17 +175,17 @@ float3 get_vol_irradiance(
 ) {
   int3 probe_counts        = int3(vol_desc.probe_count_x, vol_desc.probe_count_y, vol_desc.probe_count_z);
 
-	float3 biased_ws_pos     = ws_pos + surface_bias;
+  float3 biased_ws_pos     = ws_pos + surface_bias;
 
-	int3   base_probe_coords = get_base_probe_grid_coords(biased_ws_pos, vol_desc);
+  int3   base_probe_coords = get_base_probe_grid_coords(biased_ws_pos, vol_desc);
 
-	float3 base_probe_dist   = biased_ws_pos - get_probe_ws_pos(base_probe_coords, vol_desc);
-	float3 alpha             = clamp(base_probe_dist / vol_desc.probe_spacing.xyz, 0.0f, 1.0f);
+  float3 base_probe_dist   = biased_ws_pos - get_probe_ws_pos(base_probe_coords, vol_desc);
+  float3 alpha             = clamp(base_probe_dist / vol_desc.probe_spacing.xyz, 0.0f, 1.0f);
 
-	float3 irradiance        = 0.0f;
-	float  total_weights     = 0.0f;
-	for (int iprobe = 0; iprobe < 8; iprobe++)
-	{
+  float3 irradiance        = 0.0f;
+  float  total_weights     = 0.0f;
+  for (int iprobe = 0; iprobe < 8; iprobe++)
+  {
     // iprobe = 0 -> (0, 0, 0)
     // iprobe = 1 -> (1, 0, 0)
     // iprobe = 2 -> (0, 1, 0)
@@ -194,48 +194,42 @@ float3 get_vol_irradiance(
     // iprobe = 5 -> (1, 0, 1)
     // iprobe = 6 -> (0, 1, 1)
     // iprobe = 7 -> (1, 1, 1)
-		int3   adj_coord_offset   = int3(iprobe, iprobe >> 1, iprobe >> 2) & int3(1, 1, 1);
+    int3   adj_coord_offset   = int3(iprobe, iprobe >> 1, iprobe >> 2) & int3(1, 1, 1);
 
-		int3   adj_probe_coords   = clamp(base_probe_coords + adj_coord_offset, 0, probe_counts - 1);
+    int3   adj_probe_coords   = clamp(base_probe_coords + adj_coord_offset, 0, probe_counts - 1);
 
-		int    adj_probe_index    = get_probe_index(adj_probe_coords, vol_desc);
-		float3 adj_probe_ws_pos   = get_probe_ws_pos(adj_probe_coords, vol_desc);
+    int    adj_probe_index    = get_probe_index(adj_probe_coords, vol_desc);
+    float3 adj_probe_ws_pos   = get_probe_ws_pos(adj_probe_coords, vol_desc);
 
-		float3 ws_to_adj_dir      = normalize(adj_probe_ws_pos - ws_pos);
-		float3 biased_to_adj_dir  = normalize(adj_probe_ws_pos - biased_ws_pos);
-		float  biased_to_adj_dist = length(adj_probe_ws_pos - biased_ws_pos);
+    float3 ws_to_adj_dir      = normalize(adj_probe_ws_pos - ws_pos);
+    float3 biased_to_adj_dir  = normalize(adj_probe_ws_pos - biased_ws_pos);
+    float  biased_to_adj_dist = length(adj_probe_ws_pos - biased_ws_pos);
+    
+    float3 trilinear          = max(0.001f, lerp(1.0f - alpha, alpha, adj_coord_offset));
+    float  trilinear_weight   = trilinear.x * trilinear.y * trilinear.z;
 
-		float3 trilinear          = max(0.001f, lerp(1.0f - alpha, alpha, adj_coord_offset));
-		float  trilinear_weight   = trilinear.x * trilinear.y * trilinear.z;
-		float  weight             = 1.0f;
-
-		weight *= trilinear_weight;
-
-		float3 irradiance_uv = get_probe_uv(
-		  adj_probe_index,
+    float3 irradiance_uv = get_probe_uv(
+      adj_probe_index,
       octahedral_encode_dir(normal),
       kProbeNumIrradianceInteriorTexels,
       vol_desc
     );
 
-		float3 adj_irradiance = probe_irradiance_tex.SampleLevel(g_ClampSampler, irradiance_uv, 0).rgb;
+    float3 adj_irradiance = probe_irradiance_tex.SampleLevel(g_ClampSampler, irradiance_uv, 0).rgb;
+    // Decompress encoding gamma
+    adj_irradiance = pow(adj_irradiance, 5.0f);
 
-		irradiance    += weight * adj_irradiance;
-		total_weights += weight;
-	}
+    irradiance    += trilinear_weight * adj_irradiance;
+    total_weights += trilinear_weight;
+  }
 
-	if (total_weights == 0.0f)
+  if (total_weights == 0.0f)
     return float3(0.0f, 0.0f, 0.0f);
 
   // Figure out the weighted average
-	irradiance /= total_weights;
+  irradiance /= total_weights;
 
-  // This gamma-esque correction makes it so that we only really care about the big amounts of indirect lighting.
-  // We really don't want the sort of feeling that the entire scene is being illuminated by nothing
-  // NOTE that this power is not based on any physical data, it's just what looks good to my eye
-  irradiance  = pow(irradiance, 2.1f);
-
-	return irradiance;
+  return irradiance;
 }
 
 #endif

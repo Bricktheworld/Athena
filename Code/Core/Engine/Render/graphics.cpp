@@ -18,7 +18,7 @@
 
 
 #ifdef DEBUG
-//#define DEBUG_LAYER
+#define DEBUG_LAYER
 #endif
 
 static IDXGIFactory7*
@@ -1464,7 +1464,7 @@ init_swap_chain(HWND window, const GraphicsDevice* device)
   GetClientRect(window, &client_rect);
   ret.width = client_rect.right - client_rect.left;
   ret.height = client_rect.bottom - client_rect.top;
-  ret.format = DXGI_FORMAT_R8G8B8A8_UNORM;
+  ret.format = DXGI_FORMAT_R10G10B10A2_UNORM;
   ret.tearing_supported = check_tearing_support(factory);
   ret.vsync = true;
 
@@ -1480,7 +1480,7 @@ init_swap_chain(HWND window, const GraphicsDevice* device)
   swap_chain_desc.Scaling = DXGI_SCALING_STRETCH;
   swap_chain_desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
   swap_chain_desc.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
-  swap_chain_desc.Flags = 0;  //ret.tearing_supported ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0;
+  swap_chain_desc.Flags = 0;
 
   IDXGISwapChain1* swap_chain1 = nullptr;
   HASSERT(
@@ -1497,6 +1497,8 @@ init_swap_chain(HWND window, const GraphicsDevice* device)
   HASSERT(factory->MakeWindowAssociation(window, DXGI_MWA_NO_ALT_ENTER));
   HASSERT(swap_chain1->QueryInterface(IID_PPV_ARGS(&ret.d3d12_swap_chain)));
   COM_RELEASE(swap_chain1);
+
+  // ret.d3d12_swap_chain->SetColorSpace1(DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709);
 
   ret.fence = init_fence(device);
   zero_memory(ret.frame_fence_values, sizeof(ret.frame_fence_values));
