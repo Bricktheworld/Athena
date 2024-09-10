@@ -63,4 +63,4 @@
 #*.RTF   diff=astextplain
 
 ###############################################################################
-Bin/* linguist-vendored
+Bin/** linguist-vendored
