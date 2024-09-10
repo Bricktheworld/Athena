@@ -63,4 +63,4 @@
 #*.RTF   diff=astextplain
 
 ###############################################################################
-Bin/* linguist-detectable=false
+*.py linguist-detectable=false
