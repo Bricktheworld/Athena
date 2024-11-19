@@ -6,11 +6,18 @@
 template <typename T>
 struct Pool
 {
-  T* pool = nullptr;
-  size_t size = 0;
+  union PoolItem
+  {
+    T   value;
+    u32 next_free;
 
-  T** free = nullptr;
-  size_t free_count = 0;
+    static_assert(offsetof(PoolItem, value) == 0);
+  };
+
+  PoolItem* memory       = nullptr;
+  u32       size       = 0;
+  u32       first_free = 0;
+
 };
 
 
@@ -18,7 +25,7 @@ struct Pool
 // memory arena.
 template <typename T>
 Pool<T>
-init_pool(AllocHeap heap, size_t size)
+init_pool(AllocHeap heap, u32 size)
 {
 #if 0
   if (size == 0)
@@ -35,17 +42,16 @@ init_pool(AllocHeap heap, size_t size)
   ASSERT(size > 0);
 
   Pool<T> ret = {0};
-  ret.pool = HEAP_ALLOC(T, heap, size); // push_memory_arena<T>(MEMORY_ARENA_FWD, size);
-  ret.free = HEAP_ALLOC(T*, heap, size); // push_memory_arena<T*>(MEMORY_ARENA_FWD, size);
+  ret.memory = HEAP_ALLOC(Pool<T>::PoolItem, heap, size); // push_memory_arena<T>(MEMORY_ARENA_FWD, size);
 
-  zero_memory(ret.pool, sizeof(T) * size);
-  for (size_t i = 0; i < size; i++)
+  zero_memory(ret.memory, sizeof(Pool<T>::PoolItem) * size);
+  for (u32 i = 0; i < size; i++)
   {
-    ret.free[i] = ret.pool + i;
+    ret.memory[i].next_free = i + 1;
   }
 
-  ret.size = size;
-  ret.free_count = ret.size;
+  ret.size       = size;
+  ret.first_free = 0;
 
   return ret;
 }
@@ -53,22 +59,29 @@ init_pool(AllocHeap heap, size_t size)
 template <typename T>
 T* pool_alloc(Pool<T>* pool)
 {
-  ASSERT(pool->free_count >= 1);
+  ASSERT(pool->first_free < pool->size);
 
-  pool->free_count--;
-  T* ret = pool->free[pool->free_count];
+  auto* ret        = pool->memory + pool->first_free;
 
-  zero_memory(ret, sizeof(T));
+  pool->first_free = ret->next_free;
 
-  return ret;
+  zero_memory(ret, sizeof(*ret));
+
+  return &ret->value;
 }
 
 template <typename T>
 void pool_free(Pool<T>* pool, T* memory)
 {
-  ASSERT(pool->pool <= memory && pool->pool + pool->size > memory);
+  ASSERT(pool->memory <= memory && pool->memory + pool->size > memory);
 
-  pool->free[pool->free_count] = memory;
+  auto* item       = (Pool<T>::PoolItem*)memory;
+  u32   idx        = (u32)(item - pool->memory);
+
+  item->next_free = pool->first_free;
+  pool->first_free = idx;
+
+
   pool->free_count++;
   zero_memory(memory, sizeof(T));
 }
