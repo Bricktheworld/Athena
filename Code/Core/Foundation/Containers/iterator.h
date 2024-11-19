@@ -44,11 +44,11 @@ struct Iterator
     return Iterator(m_container, orig);
   }
 
-  const T &operator*() const { return (*m_container)[m_index]; }
-  T &operator*() { return (*m_container)[m_index]; }
+  const T operator*() const { return (*m_container)[m_index]; }
+  T operator*() { return (*m_container)[m_index]; }
 
-  auto operator->() const { return m_container + m_index; }
-  auto operator->() { return m_container + m_index; }
+  auto operator->() const { return &m_container[m_index]; }
+  auto operator->() { return &m_container[m_index]; }
 
   Iterator &operator=(const Iterator &other)
   {
@@ -73,13 +73,13 @@ struct Iterator
 };
 
 #define USE_ITERATOR(Container, T) \
-  Iterator<Container, T> begin() { return Iterator<Container, T>::begin(this);  } \
-  Iterator<Container, T> end() { return Iterator<Container, T>::end(this);  } \
-  Iterator<const Container, const T> begin() const { return Iterator<const Container, const T>::begin(this);  } \
-  Iterator<const Container, const T> end() const { return Iterator<const Container, const T>::end(this);  } \
+  Iterator<Container, T&> begin() { return Iterator<Container, T&>::begin(this);  } \
+  Iterator<Container, T&> end() { return Iterator<Container, T&>::end(this);  } \
+  Iterator<const Container, const T&> begin() const { return Iterator<const Container, const T&>::begin(this);  } \
+  Iterator<const Container, const T&> end() const { return Iterator<const Container, const T&>::end(this);  } \
   private: \
-  friend Iterator<Container, T>; \
-  friend Iterator<const Container, const T>; \
+  friend Iterator<Container, T&>; \
+  friend Iterator<const Container, const T&>; \
   size_t m_increment_idx(size_t idx) const { return idx + 1; } \
   size_t m_decrement_idx(size_t idx) const { return idx - 1; } \
   size_t m_begin_idx() const { return 0; }\
@@ -87,10 +87,10 @@ struct Iterator
 
 
 #define USE_CONST_ITERATOR(Container, T) \
-  Iterator<const Container, const T> begin() const { return Iterator<const Container, const T>::begin(this);  } \
-  Iterator<const Container, const T> end() const { return Iterator<const Container, const T>::end(this);  } \
+  Iterator<const Container, const T&> begin() const { return Iterator<const Container, const T&>::begin(this);  } \
+  Iterator<const Container, const T&> end() const { return Iterator<const Container, const T&>::end(this);  } \
   private: \
-  friend Iterator<const Container, const T>; \
+  friend Iterator<const Container, const T&>; \
   size_t m_increment_idx(size_t idx) const { return idx + 1; } \
   size_t m_decrement_idx(size_t idx) const { return idx - 1; } \
   size_t m_begin_idx() const { return 0; }\

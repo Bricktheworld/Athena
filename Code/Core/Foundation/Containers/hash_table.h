@@ -2,6 +2,7 @@
 #include "Core/Foundation/memory.h"
 
 #include "Core/Foundation/Containers/option.h"
+#include "Core/Foundation/Containers/iterator.h"
 
 #include "Core/Foundation/Vendor/xxhash/xxhash.h"
 
@@ -13,8 +14,8 @@ hash_u64(const void* data, size_t size)
 
 enum HashTableCtrl : u8
 {
-  kHashTableCtrlEmpty     = 0x80,
-  kHashTableCtrlDeleted   = 0xFF,
+  kHashTableCtrlEmpty    = 0x80,
+  kHashTableCtrlDeleted  = 0xFF,
   kHashTableCtrlFullMask = 0x7F,
 };
 
@@ -45,6 +46,18 @@ struct HashTable
     K keys[16];
   };
 
+  struct MutableKeyValue
+  {
+    K& key;
+    V& value;
+  };
+
+  struct ConstKeyValue
+  {
+    const K& key;
+    const V& value;
+  };
+
   typedef u64 (*HashFunc)(const void* data, size_t size);
 
   Group* groups = nullptr;
@@ -56,67 +69,112 @@ struct HashTable
 
   u64 used = 0;
 
-#if 0
-  Iterator<HashTable, T> begin() { return Iterator<Container, T>::begin(this);  }
-  Iterator<Container, T> end() { return Iterator<Container, T>::end(this);  }
-  Iterator<const Container, const T> begin() const { return Iterator<const Container, const T>::begin(this);  }
-  Iterator<const Container, const T> end() const { return Iterator<const Container, const T>::end(this);  }
+  Iterator<HashTable, MutableKeyValue> begin() { return Iterator<HashTable, MutableKeyValue>::begin(this);  }
+  Iterator<HashTable, MutableKeyValue> end() { return Iterator<HashTable, MutableKeyValue>::end(this);  }
+  Iterator<const HashTable, ConstKeyValue> begin() const { return Iterator<const HashTable, ConstKeyValue>::begin(this);  }
+  Iterator<const HashTable, ConstKeyValue> end() const { return Iterator<const HashTable, ConstKeyValue>::end(this);  }
 private:
-  friend Iterator<Container, T>;
-  friend Iterator<const Container, const T>;
+  friend Iterator<HashTable, MutableKeyValue>;
+  friend Iterator<const HashTable, ConstKeyValue>;
+
+  MutableKeyValue operator[](size_t idx)
+  {
+    return {groups[idx / 16].keys[idx % 16], values[idx]};
+  }
+
+
+  const ConstKeyValue operator[](size_t idx) const
+  {
+    return {groups[idx / 16].keys[idx % 16], values[idx]};
+  }
+
   size_t m_increment_idx(size_t idx) const
   { 
     ASSERT(idx < groups_size * 16);
     idx++;
 
-    while (idx / 16 < groups_size)
+    return m_increment_to_valid_idx(idx);
+  }
+
+  size_t m_increment_to_valid_idx(size_t idx) const
+  {
+    u64 start_index = idx / 16;
+    u64 group_index = start_index;
+    ASSERT(group_index < groups_size);
+
+    u8  offset      = idx % 16;
+
+    do
     {
-      HashTable::Group* group = this->groups + idx / 16;
-      u16 mask = _mm_movemask_epi8(_mm_cmpeq_epi8(_mm_set1_epi8(kHashTableCtrlFullMask), group->ctrls_sse));
+      auto* group = groups + group_index;
+      // We AND with the ctrl_empty mask because we also want to include
+      // tombstones here.
+      u16 mask = _mm_movemask_epi8(_mm_and_si128(_mm_set1_epi8(kHashTableCtrlEmpty), group->ctrls_sse));
 
-      do
+      // Find the first non-empty/deleted element in the hashmap
+      for (u8 i = offset; i < 16; i++)
       {
-        u64 shift = idx % 16;
-        if ((mask & (1 << shift)) != 0)
+        if ((mask & (1 << i)) == 0)
+        {
           return idx;
-
+        }
+ 
         idx++;
       }
-      while (idx % 16 != 0);
-    }
 
-    ASSERT(idx == groups_size * 16);
-    return idx;
+      offset      = 0;
+      group_index = (group_index + 1) % groups_size;
+    } while (group_index != start_index);
+
+    return m_end_idx();
   }
 
   size_t m_decrement_idx(size_t idx) const
   { 
     ASSERT(idx > 0);
+    size_t orig_idx = idx;
     idx--;
 
-    while (idx > 0)
+    u64 start_index = idx / 16;
+    u64 group_index = start_index;
+
+    u8  offset      = idx % 16;
+    do
     {
-      HashTable::Group* group = this->groups + idx / 16;
-      u16 mask = _mm_movemask_epi8(_mm_cmpeq_epi8(_mm_set1_epi8(kHashTableCtrlFullMask), group->ctrls_sse));
+      auto* group = groups + group_index;
+      // We AND with the ctrl_empty mask because we also want to include
+      // tombstones here.
+      u16 mask = _mm_movemask_epi8(_mm_and_si128(_mm_set1_epi8(kHashTableCtrlEmpty), group->ctrls_sse));
 
-      do
+      // Find the first non-empty/deleted element in the hashmap
+      for (s16 i = offset; i >= 0; i--)
       {
-        u64 shift = idx % 16;
-        if ((mask & (1 << shift)) != 0)
+        if ((mask & (1 << i)) == 0)
+        {
           return idx;
-
+        }
+ 
         idx--;
       }
-      while (idx % 16 != 0);
-    }
 
-    ASSERT(idx == 0);
-    return idx;
+      if (group_index == 0)
+      {
+        return orig_idx;
+      }
+
+      offset      = 15;
+      group_index = (group_index - 1) % groups_size;
+    } while (group_index != start_index);
+
+    return orig_idx;
+
   }
 
-  size_t m_begin_idx() const { return m_increment_idx(0); }
+  size_t m_begin_idx() const 
+  {
+    return m_increment_to_valid_idx(0);
+  }
   size_t m_end_idx() const { return groups_size * 16; }
-#endif
 };
 
 template <typename K, typename V>
