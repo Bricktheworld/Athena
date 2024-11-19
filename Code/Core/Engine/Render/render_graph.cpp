@@ -1335,8 +1335,6 @@ rg_create_texture_array_ex(
   desc->texture_desc.array_size       = array_size;
   desc->texture_desc.format           = format;
 
-  dbgln("Insert resource %u, %s", resource_handle.id, desc->name);
-
   // TODO(Brandon): We don't want to hard-code these values
   if (is_depth_format(format))
   {
@@ -1384,8 +1382,6 @@ rg_create_upload_buffer(
   desc->buffer_desc.stride            = stride == 0 ? size : stride;
   desc->buffer_desc.heap_type         = kGpuHeapTypeUpload;
 
-  dbgln("Insert resource %u, %s", resource_handle.id, name);
-
   RgHandle<GpuBuffer> ret = {resource_handle.id, resource_handle.version, resource_handle.temporal_lifetime};
   return ret;
 }
@@ -1413,8 +1409,6 @@ rg_create_buffer_ex(
   desc->buffer_desc.size              = size;
   desc->buffer_desc.stride            = stride;
   desc->buffer_desc.heap_type         = kGpuHeapTypeLocal;
-
-  dbgln("Insert resource %u, %s", resource_handle.id, name);
 
   RgHandle<GpuBuffer> ret = {resource_handle.id, resource_handle.version, resource_handle.temporal_lifetime};
   return ret;
