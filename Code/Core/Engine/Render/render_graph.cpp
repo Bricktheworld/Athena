@@ -7,6 +7,12 @@
 
 constant u32 kMaxTemporalLifetime = 3;
 
+#if defined(RENDER_GRAPH_VERBOSE)
+#define RG_DBGLN(...) dbgln(__VA_ARGS__)
+#else
+#define RG_DBGLN(...) do { } while(0)
+#endif
+
 static u32
 handle_index(RgBuilder* graph)
 {
@@ -1015,7 +1021,44 @@ compile_render_graph(AllocHeap heap, const RgBuilder& builder, const GraphicsDev
   ret.buffer_map      = physical_resource_map.buffers;
   ret.texture_map     = physical_resource_map.textures;
 
+
   return ret;
+}
+
+void
+destroy_render_graph(RenderGraph* graph)
+{
+  for (auto [_, buffer] : graph->buffer_map)
+  {
+    free_gpu_buffer(&buffer);
+  }
+
+  for (auto [key, texture] : graph->texture_map)
+  {
+    if (key.id == graph->back_buffer.id)
+    {
+      continue;
+    }
+    free_gpu_texture(&texture);
+  }
+
+  destroy_gpu_linear_allocator(&graph->local_heap);
+  for (GpuLinearAllocator& upload_heap : graph->upload_heaps)
+  {
+    destroy_gpu_linear_allocator(&upload_heap);
+  }
+
+  for (GpuLinearAllocator& temporal_heap : graph->temporal_heaps)
+  {
+    destroy_gpu_linear_allocator(&temporal_heap);
+  }
+
+  destroy_descriptor_linear_allocator(&graph->descriptor_heap.cbv_srv_uav);
+  destroy_descriptor_linear_allocator(&graph->descriptor_heap.rtv);
+  destroy_descriptor_linear_allocator(&graph->descriptor_heap.dsv);
+
+  destroy_cmd_list_allocator(&graph->cmd_allocator);
+  zero_memory(graph, sizeof(RenderGraph));
 }
 
 static u32
@@ -1145,7 +1188,7 @@ execute_render_graph(RenderGraph* graph, const GraphicsDevice* device, const Gpu
   // Main render loop
   for (u32 ilevel = 0; ilevel < graph->dependency_levels.size; ilevel++)
   {
-    dbgln("Level %u", ilevel);
+    RG_DBGLN("Level %u", ilevel);
     const RgDependencyLevel& level = graph->dependency_levels[ilevel];
     if (level.barriers.size > 0)
     {
@@ -1165,7 +1208,7 @@ execute_render_graph(RenderGraph* graph, const GraphicsDevice* device, const Gpu
 
     for (RenderPassId pass_id : level.render_passes)
     {
-      dbgln("%s", graph->render_passes[pass_id].name);
+      RG_DBGLN("%s", graph->render_passes[pass_id].name);
       set_graphics_root_signature(&cmd_buffer);
       set_compute_root_signature(&cmd_buffer);
       set_descriptor_heaps(&cmd_buffer, {&graph->descriptor_heap.cbv_srv_uav});
@@ -1292,6 +1335,8 @@ rg_create_texture_array_ex(
   desc->texture_desc.array_size       = array_size;
   desc->texture_desc.format           = format;
 
+  dbgln("Insert resource %u, %s", resource_handle.id, desc->name);
+
   // TODO(Brandon): We don't want to hard-code these values
   if (is_depth_format(format))
   {
@@ -1339,6 +1384,8 @@ rg_create_upload_buffer(
   desc->buffer_desc.stride            = stride == 0 ? size : stride;
   desc->buffer_desc.heap_type         = kGpuHeapTypeUpload;
 
+  dbgln("Insert resource %u, %s", resource_handle.id, name);
+
   RgHandle<GpuBuffer> ret = {resource_handle.id, resource_handle.version, resource_handle.temporal_lifetime};
   return ret;
 }
@@ -1366,6 +1413,8 @@ rg_create_buffer_ex(
   desc->buffer_desc.size              = size;
   desc->buffer_desc.stride            = stride;
   desc->buffer_desc.heap_type         = kGpuHeapTypeLocal;
+
+  dbgln("Insert resource %u, %s", resource_handle.id, name);
 
   RgHandle<GpuBuffer> ret = {resource_handle.id, resource_handle.version, resource_handle.temporal_lifetime};
   return ret;

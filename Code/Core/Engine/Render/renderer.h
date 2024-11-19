@@ -115,6 +115,7 @@ void init_renderer(
   const ShaderManager& shader_manager,
   HWND window
 );
+void renderer_on_resize(const GraphicsDevice* device, const SwapChain* swap_chain);
 void destroy_renderer();
 
 

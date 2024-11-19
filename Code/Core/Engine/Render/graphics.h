@@ -8,11 +8,12 @@
 #include "Core/Foundation/math.h"
 
 #include <d3d12.h>
+#include <dxgidebug.h>
 #include <dxgi1_6.h>
 #include <wrl.h>
 
-typedef Vec4 Rgba;
-typedef Vec3 Rgb;
+struct GraphicsDevice;
+extern GraphicsDevice* g_GpuDevice;
 
 enum : u8
 {
@@ -21,8 +22,10 @@ enum : u8
   kCommandAllocators     = kFramesInFlight * kMaxCommandListThreads,
 };
 
-struct GraphicsDevice;
 typedef u64 FenceValue;
+
+typedef Vec4 Rgba;
+typedef Vec3 Rgb;
 
 struct Fence
 {
@@ -97,6 +100,7 @@ FenceValue submit_cmd_lists(
 struct GraphicsDevice
 {
   ID3D12Device6*   d3d12 = nullptr;
+  IDXGIDebug*      d3d12_debug = nullptr;
   CmdQueue         graphics_queue;
   CmdListAllocator graphics_cmd_allocator;
   CmdQueue         compute_queue;
@@ -105,10 +109,10 @@ struct GraphicsDevice
   CmdListAllocator copy_cmd_allocator;
 };
 
-GraphicsDevice init_graphics_device();
-void destroy_graphics_device(GraphicsDevice* device);
+void init_graphics_device();
+void destroy_graphics_device();
 
-void wait_for_device_idle(GraphicsDevice* device);
+void wait_for_gpu_device_idle(GraphicsDevice* device);
 
 enum GpuHeapType : u8
 {
@@ -470,6 +474,7 @@ void destroy_swap_chain(SwapChain* swap_chain);
 
 const GpuTexture* swap_chain_acquire(SwapChain* swap_chain);
 void swap_chain_submit(SwapChain* swap_chain, const GraphicsDevice* device, const GpuTexture* rtv);
+void swap_chain_resize(SwapChain* swap_chain, HWND window, GraphicsDevice* device);
 
 void set_descriptor_heaps(CmdList* cmd, const DescriptorPool* heaps, u32 num_heaps);
 void set_descriptor_heaps(CmdList* cmd, Span<const DescriptorLinearAllocator*> heaps);

@@ -44,16 +44,11 @@ destroy_shader_manager(ShaderManager* shader_manager)
   zero_memory(shader_manager, sizeof(ShaderManager));
 }
 
-void
-init_renderer(
+static void
+init_renderer_dependency_graph(
   const GraphicsDevice* device,
-  const SwapChain* swap_chain,
-  const ShaderManager& shader_manager,
-  HWND window
+  const SwapChain* swap_chain
 ) {
-  zero_memory(&g_Renderer, sizeof(g_Renderer));
-
-
   ScratchAllocator scratch_arena = alloc_scratch_arena();
   defer { free_scratch_arena(&scratch_arena); };
 
@@ -85,7 +80,18 @@ init_renderer(
   init_back_buffer_blit(scratch_arena, &builder, post_buffer);
 
   g_Renderer.graph = compile_render_graph(g_InitHeap, builder, device);
+}
 
+void
+init_renderer(
+  const GraphicsDevice* device,
+  const SwapChain* swap_chain,
+  const ShaderManager& shader_manager,
+  HWND window
+) {
+  zero_memory(&g_Renderer, sizeof(g_Renderer));
+
+  init_renderer_dependency_graph(device, swap_chain);
 
   GraphicsPipelineDesc visibility_pipeline_desc =
   {
@@ -132,8 +138,29 @@ init_renderer(
 }
 
 void
+renderer_on_resize(
+  const GraphicsDevice* device,
+  const SwapChain* swap_chain
+) {
+  destroy_render_graph(&g_Renderer.graph);
+  init_renderer_dependency_graph(device, swap_chain);
+}
+
+void
 destroy_renderer()
 {
+  destroy_graphics_pipeline(&g_Renderer.vbuffer_pso);
+  destroy_compute_pipeline(&g_Renderer.debug_vbuffer_pso);
+  destroy_compute_pipeline(&g_Renderer.taa_pso);
+  destroy_graphics_pipeline(&g_Renderer.post_processing_pipeline);
+  destroy_ray_tracing_pipeline(&g_Renderer.standard_brdf_pso);
+  destroy_shader_table(&g_Renderer.standard_brdf_st);
+  destroy_graphics_pipeline(&g_Renderer.back_buffer_blit_pso);
+  destroy_ray_tracing_pipeline(&g_Renderer.ddgi_probe_trace_pso);
+  destroy_shader_table(&g_Renderer.ddgi_probe_trace_st);
+  destroy_compute_pipeline(&g_Renderer.ddgi_probe_blend_pso);
+
+  destroy_render_graph(&g_Renderer.graph);
   destroy_imgui_ctx();
   zero_memory(&g_Renderer, sizeof(g_Renderer));
 }

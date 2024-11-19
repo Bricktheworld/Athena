@@ -17,9 +17,11 @@
 #pragma comment(lib, "d3dcompiler.lib")
 
 
-#ifdef DEBUG
+#if defined(DEBUG) || 1
 #define DEBUG_LAYER
 #endif
+
+GraphicsDevice* g_GpuDevice = nullptr;
 
 static IDXGIFactory7*
 init_factory()
@@ -406,53 +408,58 @@ destroy_gpu_linear_allocator(GpuLinearAllocator* allocator)
   destroy_gpu_resource_heap(&allocator->heap);
 }
 
-GraphicsDevice
+void
 init_graphics_device()
 {
+  if (g_GpuDevice == nullptr)
+  {
+    g_GpuDevice = HEAP_ALLOC(GraphicsDevice, g_InitHeap, 1);
+  }
+
 #ifdef DEBUG_LAYER
   ID3D12Debug* debug_interface = nullptr;
   HASSERT(D3D12GetDebugInterface(IID_PPV_ARGS(&debug_interface)));
   debug_interface->EnableDebugLayer();
-//    defer { COM_RELEASE(debug_interface); };
+  defer { COM_RELEASE(debug_interface); };
 #endif
 
-  GraphicsDevice res;
   IDXGIFactory7* factory = init_factory();
   defer { COM_RELEASE(factory); };
 
   IDXGIAdapter1* adapter; 
-  GraphicsDevice ret = {0};
-  init_d3d12_device(factory, &adapter, &ret.d3d12);
+  init_d3d12_device(factory, &adapter, &g_GpuDevice->d3d12);
   defer { COM_RELEASE(adapter); };
 
-  ret.graphics_queue = init_cmd_queue(&ret, kCmdQueueTypeGraphics);
+  g_GpuDevice->graphics_queue = init_cmd_queue(g_GpuDevice, kCmdQueueTypeGraphics);
 
-  ret.graphics_cmd_allocator = init_cmd_list_allocator(
+  g_GpuDevice->graphics_cmd_allocator = init_cmd_list_allocator(
     g_InitHeap,
-    &ret,
-    &ret.graphics_queue,
+    g_GpuDevice,
+    &g_GpuDevice->graphics_queue,
     kFramesInFlight * 16
   );
-  ret.compute_queue = init_cmd_queue(&ret, kCmdQueueTypeCompute);
-  ret.compute_cmd_allocator = init_cmd_list_allocator(
+  g_GpuDevice->compute_queue = init_cmd_queue(g_GpuDevice, kCmdQueueTypeCompute);
+  g_GpuDevice->compute_cmd_allocator = init_cmd_list_allocator(
     g_InitHeap,
-    &ret,
-    &ret.compute_queue,
+    g_GpuDevice,
+    &g_GpuDevice->compute_queue,
     kFramesInFlight * 8
   );
-  ret.copy_queue = init_cmd_queue(&ret, kCmdQueueTypeCopy);
-  ret.copy_cmd_allocator = init_cmd_list_allocator(
+  g_GpuDevice->copy_queue = init_cmd_queue(g_GpuDevice, kCmdQueueTypeCopy);
+  g_GpuDevice->copy_cmd_allocator = init_cmd_list_allocator(
     g_InitHeap,
-    &ret,
-    &ret.copy_queue,
+    g_GpuDevice,
+    &g_GpuDevice->copy_queue,
     kFramesInFlight * 8
   );
 
-  return ret;
+#ifdef DEBUG_LAYER
+  HASSERT(DXGIGetDebugInterface1(0, IID_PPV_ARGS(&g_GpuDevice->d3d12_debug)));
+#endif
 }
 
 void
-wait_for_device_idle(GraphicsDevice* device)
+wait_for_gpu_device_idle(GraphicsDevice* device)
 {
   FenceValue value = cmd_queue_signal(&device->graphics_queue, &device->graphics_cmd_allocator.fence);
   block_for_fence_value(&device->graphics_cmd_allocator.fence, value);
@@ -465,18 +472,22 @@ wait_for_device_idle(GraphicsDevice* device)
 }
 
 void
-destroy_graphics_device(GraphicsDevice* device)
+destroy_graphics_device()
 {
-  destroy_cmd_list_allocator(&device->graphics_cmd_allocator);
-  destroy_cmd_list_allocator(&device->compute_cmd_allocator);
-  destroy_cmd_list_allocator(&device->copy_cmd_allocator);
+  destroy_cmd_list_allocator(&g_GpuDevice->graphics_cmd_allocator);
+  destroy_cmd_list_allocator(&g_GpuDevice->compute_cmd_allocator);
+  destroy_cmd_list_allocator(&g_GpuDevice->copy_cmd_allocator);
 
-  destroy_cmd_queue(&device->graphics_queue);
-  destroy_cmd_queue(&device->compute_queue);
-  destroy_cmd_queue(&device->copy_queue);
+  destroy_cmd_queue(&g_GpuDevice->graphics_queue);
+  destroy_cmd_queue(&g_GpuDevice->compute_queue);
+  destroy_cmd_queue(&g_GpuDevice->copy_queue);
 
-  COM_RELEASE(device->d3d12);
-  zero_memory(device, sizeof(GraphicsDevice));
+#ifdef DEBUG_LAYER
+  g_GpuDevice->d3d12_debug->ReportLiveObjects(DXGI_DEBUG_ALL, DXGI_DEBUG_RLO_ALL);
+#endif
+
+  COM_RELEASE(g_GpuDevice->d3d12);
+  zero_memory(g_GpuDevice, sizeof(GraphicsDevice));
 }
 
 bool
@@ -1345,7 +1356,7 @@ init_acceleration_structure(
 
   submit_cmd_lists(&device->graphics_cmd_allocator, {cmd_list});
 
-  wait_for_device_idle(device);
+  wait_for_gpu_device_idle(device);
 //    block_for_fence_value(&fence, fence_value);
 
   return ret;
@@ -1462,11 +1473,11 @@ init_swap_chain(HWND window, const GraphicsDevice* device)
 
   RECT client_rect;
   GetClientRect(window, &client_rect);
-  ret.width = client_rect.right - client_rect.left;
-  ret.height = client_rect.bottom - client_rect.top;
-  ret.format = DXGI_FORMAT_R10G10B10A2_UNORM;
+  ret.width             = client_rect.right - client_rect.left;
+  ret.height            = client_rect.bottom - client_rect.top;
+  ret.format            = DXGI_FORMAT_R10G10B10A2_UNORM;
   ret.tearing_supported = check_tearing_support(factory);
-  ret.vsync = true;
+  ret.vsync             = true;
 
 
   DXGI_SWAP_CHAIN_DESC1 swap_chain_desc = { 0 };
@@ -1522,7 +1533,7 @@ init_swap_chain(HWND window, const GraphicsDevice* device)
 void
 destroy_swap_chain(SwapChain* swap_chain)
 {
-  for (auto* texture : swap_chain->back_buffers)
+  for (GpuTexture* texture : swap_chain->back_buffers)
   {
     free_gpu_texture(texture);
   }
@@ -1555,6 +1566,41 @@ swap_chain_submit(SwapChain* swap_chain, const GraphicsDevice* device, const Gpu
   HASSERT(swap_chain->d3d12_swap_chain->Present(sync_interval, present_flags));
 
   swap_chain->back_buffer_index = swap_chain->d3d12_swap_chain->GetCurrentBackBufferIndex();
+}
+
+void
+swap_chain_resize(SwapChain* swap_chain, HWND window, GraphicsDevice* device)
+{
+  wait_for_gpu_device_idle(device);
+
+  RECT client_rect;
+  GetClientRect(window, &client_rect);
+
+  swap_chain->width  = client_rect.right - client_rect.left;
+  swap_chain->height = client_rect.bottom - client_rect.top;
+
+  swap_chain->back_buffer_index = 0;
+
+  for (GpuTexture* texture : swap_chain->back_buffers)
+  {
+    free_gpu_texture(texture);
+  }
+
+  HASSERT(
+    swap_chain->d3d12_swap_chain->ResizeBuffers(
+      ARRAY_LENGTH(swap_chain->back_buffers),
+      swap_chain->width,
+      swap_chain->height,
+      swap_chain->format,
+      0
+    )
+  );
+
+  alloc_back_buffers_from_swap_chain(
+    swap_chain,
+    swap_chain->back_buffers,
+    ARRAY_LENGTH(swap_chain->back_buffers)
+  );
 }
 
 

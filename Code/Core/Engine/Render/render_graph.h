@@ -363,7 +363,7 @@ struct RgBuilder
   Array<ResourceHandle>                 resource_list;
   HashTable<u32, TransientResourceDesc> resource_descs;
 
-  RgHandle<GpuTexture>                    back_buffer;
+  RgHandle<GpuTexture>                  back_buffer;
 
   u32                                   handle_index = 0;
   u32                                   width        = 0;
@@ -480,7 +480,7 @@ struct RenderGraph
   HashTable<RgResourceKey,   GpuBuffer > buffer_map;
   HashTable<RgResourceKey,   GpuTexture> texture_map;
 
-  RgHandle<GpuTexture>                     back_buffer;
+  RgHandle<GpuTexture>                   back_buffer;
 
   Array<RgResourceBarrier>               exit_barriers;
 
@@ -493,6 +493,7 @@ struct RenderGraph
 
 RgBuilder   init_rg_builder(AllocHeap heap, u32 width, u32 height);
 RenderGraph compile_render_graph(AllocHeap heap, const RgBuilder& builder, const GraphicsDevice* device);
+void        destroy_render_graph(RenderGraph* graph);
 void        execute_render_graph(RenderGraph* graph, const GraphicsDevice* device, const GpuTexture* back_buffer, u32 frame_index);
 
 RgPassBuilder* add_render_pass(

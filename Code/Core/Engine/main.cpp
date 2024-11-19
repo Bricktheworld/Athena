@@ -27,6 +27,14 @@ extern "C" { __declspec(dllexport) extern const char* D3D12SDKPath = "."; }
 extern IMGUI_IMPL_API LRESULT
 ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
+struct Window
+{
+  SwapChain swap_chain;
+};
+
+static Window* g_MainWindow = nullptr;
+
+
 LRESULT CALLBACK
 window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM lparam) 
 {
@@ -38,6 +46,11 @@ window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM lparam)
   {
     case WM_SIZE:
     {
+      if (g_MainWindow != nullptr)
+      {
+        swap_chain_resize(&g_MainWindow->swap_chain, window, g_GpuDevice);
+        renderer_on_resize(g_GpuDevice, &g_MainWindow->swap_chain);
+      }
     } break;
     case WM_DESTROY:
     {
@@ -206,25 +219,27 @@ application_entry(HINSTANCE instance, int show_code)
   ShowWindow(window, show_code);
   UpdateWindow(window);
 
-  GraphicsDevice graphics_device = init_graphics_device();
-  defer { destroy_graphics_device(&graphics_device); };
+  init_graphics_device();
+  defer { destroy_graphics_device(); };
 
-  SwapChain swap_chain = init_swap_chain(window, &graphics_device);
-  defer { destroy_swap_chain(&swap_chain); };
+  g_MainWindow = HEAP_ALLOC(Window, g_InitHeap, 1);
 
-  init_global_upload_context(&graphics_device);
+  g_MainWindow->swap_chain = init_swap_chain(window, g_GpuDevice);
+  defer { destroy_swap_chain(&g_MainWindow->swap_chain); };
+
+  init_global_upload_context(g_GpuDevice);
   defer { destroy_global_upload_context(); };
 
-  ShaderManager shader_manager = init_shader_manager(&graphics_device);
+  ShaderManager shader_manager = init_shader_manager(g_GpuDevice);
   defer { destroy_shader_manager(&shader_manager); };
 
-  init_renderer(&graphics_device, &swap_chain, shader_manager, window);
+  init_renderer(g_GpuDevice, &g_MainWindow->swap_chain, shader_manager, window);
   defer { destroy_renderer(); };
 
-  init_unified_geometry_buffer(&graphics_device);
+  init_unified_geometry_buffer(g_GpuDevice);
   defer { destroy_unified_geometry_buffer(); };
 
-  Scene scene       = init_scene(g_InitHeap, &graphics_device);
+  Scene scene       = init_scene(g_InitHeap, g_GpuDevice);
 
   SceneObject* sponza = nullptr;
   {
@@ -247,7 +262,7 @@ application_entry(HINSTANCE instance, int show_code)
     sponza = add_scene_object(&scene, shader_manager, model, kVS_Basic, kPS_BasicNormalGloss);
   }
 
-  build_acceleration_structures(&graphics_device);
+  build_acceleration_structures(g_GpuDevice);
 
   DirectX::Keyboard d3d12_keyboard;
   DirectX::Mouse d3d12_mouse;
@@ -329,12 +344,12 @@ application_entry(HINSTANCE instance, int show_code)
     begin_renderer_recording();
     submit_scene(scene);
 
-    const GpuTexture* back_buffer = swap_chain_acquire(&swap_chain);
-    execute_render_graph(&g_Renderer.graph, &graphics_device, back_buffer, swap_chain.back_buffer_index);
-    swap_chain_submit(&swap_chain, &graphics_device, back_buffer);
+    const GpuTexture* back_buffer = swap_chain_acquire(&g_MainWindow->swap_chain);
+    execute_render_graph(&g_Renderer.graph, g_GpuDevice, back_buffer, g_MainWindow->swap_chain.back_buffer_index);
+    swap_chain_submit(&g_MainWindow->swap_chain, g_GpuDevice, back_buffer);
   }
 
-  wait_for_device_idle(&graphics_device);
+  wait_for_gpu_device_idle(g_GpuDevice);
 //  kill_job_system(job_system);
 }
 
