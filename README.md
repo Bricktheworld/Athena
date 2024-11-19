@@ -14,7 +14,7 @@ Features:
 # Setup
 
 1. Run `setup.bat` from the root directory
-2. Open `vs\athena_win64_release.sln` in Visual Studio 2022
+2. Open `vs\athena.sln` in Visual Studio 2022
 3. Build the full solution
 4. Open a command prompt in the root of this repository and run 
   

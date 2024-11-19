@@ -237,7 +237,7 @@ namespace Athena
     [Configure]
     public void ConfigureAll(Configuration conf, Target target)
     {
-      conf.SolutionFileName = "[solution.Name]_[target.Platform]_[target.Optimization]";
+      conf.SolutionFileName = "[solution.Name]";
       conf.SolutionPath = @"[solution.SharpmakeCsPath]\VS";
       conf.AddProject<EngineProject>(target);
       conf.AddProject<FoundationProject>(target);
