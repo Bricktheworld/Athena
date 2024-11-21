@@ -169,7 +169,7 @@ block_gpu_fence(GpuFence* fence, FenceValue value)
   HASSERT(fence->d3d12_fence->SetEventOnCompletion(value, fence->cpu_event));
   fence->already_waiting = true;
 
-  WaitForSingleObject(fence->cpu_event, -1);
+  WaitForSingleObject(fence->cpu_event, (DWORD)-1);
   poll_fence_value(fence);
   fence->already_waiting = false;
 }
@@ -351,7 +351,6 @@ get_d3d12_heap_type(GpuHeapType type)
     default:
       UNREACHABLE;
   }
-  return D3D12_HEAP_TYPE_DEFAULT;
 }
 
 GpuResourceHeap
@@ -550,7 +549,7 @@ alloc_gpu_texture_no_heap(const GpuDevice* device, GpuTextureDesc desc, const ch
 
 //    ret.d3d12_image->SetName(name);
   wchar_t wname[1024];
-  mbstowcs(wname, name, 1024);
+  mbstowcs_s(nullptr, wname, name, 1024);
   ret.d3d12_texture->SetName(wname);
 
   return ret;
@@ -631,7 +630,7 @@ alloc_gpu_texture(
   );
 
   wchar_t wname[1024];
-  mbstowcs(wname, name, 1024);
+  mbstowcs_s(nullptr, wname, name, 1024);
   ret.d3d12_texture->SetName(wname);
 
   allocator->pos = new_pos;
@@ -664,7 +663,7 @@ alloc_gpu_buffer_no_heap(
   );
 
   wchar_t wname[1024];
-  mbstowcs(wname, name, 1024);
+  mbstowcs_s(nullptr, wname, name, 1024);
   ret.d3d12_buffer->SetName(wname);
   ret.gpu_addr = ret.d3d12_buffer->GetGPUVirtualAddress();
   if (type == kGpuHeapTypeUpload)
@@ -717,7 +716,7 @@ alloc_gpu_buffer(
   );
 
   wchar_t wname[1024];
-  mbstowcs(wname, name, 1024);
+  mbstowcs_s(nullptr, wname, name, 1024);
   ret.d3d12_buffer->SetName(wname);
 
   ret.gpu_addr = ret.d3d12_buffer->GetGPUVirtualAddress();
@@ -959,14 +958,15 @@ init_buffer_cbv(
   Descriptor* descriptor,
   const GpuBuffer* buffer,
   u64 offset,
-  u32 size
+  u64 size
 ) {
   ASSERT(descriptor->type == kDescriptorHeapTypeCbvSrvUav);
   ASSERT(buffer_is_aligned(buffer, 256, offset));
+  ASSERT(size <= U32_MAX);
 
   D3D12_CONSTANT_BUFFER_VIEW_DESC desc = {0};
   desc.BufferLocation = buffer->gpu_addr + offset;
-  desc.SizeInBytes = size;
+  desc.SizeInBytes = (u32)size;
   device->d3d12->CreateConstantBufferView(&desc, descriptor->cpu_handle);
 }
 
@@ -1189,7 +1189,7 @@ init_graphics_pipeline(
   HASSERT(device->d3d12->CreateGraphicsPipelineState(&pso_desc, IID_PPV_ARGS(&ret.d3d12_pso)));
 
   wchar_t wname[1024];
-  mbstowcs(wname, name, 1024);
+  mbstowcs_s(nullptr, wname, name, 1024);
   ret.d3d12_pso->SetName(wname);
 
   return ret;
@@ -1216,7 +1216,7 @@ init_compute_pipeline(const GpuDevice* device, GpuShader compute_shader, const c
   HASSERT(device->d3d12->CreateComputePipelineState(&desc, IID_PPV_ARGS(&ret.d3d12_pso)));
 
   wchar_t wname[1024];
-  mbstowcs(wname, name, 1024);
+  mbstowcs_s(nullptr, wname, name, 1024);
   ret.d3d12_pso->SetName(wname);
 
   return ret;
@@ -1239,6 +1239,8 @@ init_acceleration_structure(
   u32 index_count,
   const char* name
 ) {
+  // TODO(bshihabi): Give the acceleration structure a name!
+  UNREFERENCED_PARAMETER(name);
   GpuBvh ret = {0};
 
   D3D12_RAYTRACING_GEOMETRY_DESC geometry_desc = {};
@@ -1289,7 +1291,8 @@ init_acceleration_structure(
   ret.instance_desc_buffer = alloc_gpu_buffer_no_heap(
     device,
     {.size = ALIGN_POW2(sizeof(instance_desc), D3D12_RAYTRACING_INSTANCE_DESCS_BYTE_ALIGNMENT)},
-    kGpuHeapTypeUpload, "Instance Desc"
+    kGpuHeapTypeUpload,
+    "Instance Desc"
   );
   memcpy(unwrap(ret.instance_desc_buffer.mapped), &instance_desc, sizeof(instance_desc));
 
@@ -1397,7 +1400,7 @@ init_ray_tracing_pipeline(const GpuDevice* device, GpuShader ray_tracing_library
   HASSERT(ret.d3d12_pso->QueryInterface(IID_PPV_ARGS(&ret.d3d12_properties)));
 
   wchar_t wname[1024];
-  mbstowcs(wname, name, 1024);
+  mbstowcs_s(nullptr, wname, name, 1024);
   ret.d3d12_pso->SetName(wname);
 
   return ret;

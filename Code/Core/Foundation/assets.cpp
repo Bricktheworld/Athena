@@ -27,7 +27,7 @@ path_to_asset_id(const char* path)
       c = '/';
     }
 
-    buf[len++] = tolower(c);
+    buf[len++] = (char)tolower(c);
   }
   buf[len] = 0;
 

@@ -253,4 +253,7 @@ init_os_allocator()
   OSAllocator ret = {};
   return ret;
 }
-void destroy_os_allocator(OSAllocator* self) {}
+void destroy_os_allocator(OSAllocator* self) 
+{
+  UNREFERENCED_PARAMETER(self);
+}

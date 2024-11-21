@@ -239,7 +239,7 @@ application_entry(HINSTANCE instance, int show_code)
   init_unified_geometry_buffer(g_GpuDevice);
   defer { destroy_unified_geometry_buffer(); };
 
-  Scene scene       = init_scene(g_InitHeap, g_GpuDevice);
+  Scene scene       = init_scene(g_InitHeap);
 
   SceneObject* sponza = nullptr;
   {
@@ -345,7 +345,7 @@ application_entry(HINSTANCE instance, int show_code)
     submit_scene(scene);
 
     const GpuTexture* back_buffer = swap_chain_acquire(&g_MainWindow->swap_chain);
-    execute_render_graph(&g_Renderer.graph, g_GpuDevice, back_buffer, g_MainWindow->swap_chain.back_buffer_index);
+    execute_render_graph(&g_Renderer.graph, g_GpuDevice, back_buffer);
     swap_chain_submit(&g_MainWindow->swap_chain, g_GpuDevice, back_buffer);
   }
 
@@ -356,6 +356,9 @@ application_entry(HINSTANCE instance, int show_code)
 int APIENTRY
 WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, int show_code)
 {
+  UNREFERENCED_PARAMETER(cmdline);
+  UNREFERENCED_PARAMETER(prev_instance);
+
   set_current_thread_name(L"Athena Main");
 
   profiler::init();

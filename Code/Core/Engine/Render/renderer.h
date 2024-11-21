@@ -181,7 +181,7 @@ struct Scene
   LinearAllocator             scene_object_allocator;
 };
 
-Scene init_scene(AllocHeap heap, const GpuDevice* device);
+Scene init_scene(AllocHeap heap);
 
 SceneObject* add_scene_object(
   Scene* scene,

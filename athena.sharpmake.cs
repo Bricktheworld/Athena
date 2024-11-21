@@ -36,6 +36,15 @@ namespace Athena
       conf.Name = @"[target.Optimization]";
       conf.ProjectPath = @"[project.SharpmakeCsPath]\VS\[project.Name]";
       conf.Options.Add(Options.Vc.Compiler.CppLanguageStandard.CPP20);
+      conf.Options.Add(Options.Vc.Compiler.Exceptions.Disable);
+      conf.Options.Add(Options.Vc.General.TreatWarningsAsErrors.Enable);
+      conf.Options.Add(
+        new Options.Vc.Compiler.DisableSpecificWarnings(
+          "4201", // Nonstandard extension used: nameless struct/union
+          "5054", // Deprecated & between enumrations of different types
+          "4530"  // TODO(bshihabi): Exception handler used
+        )
+      );
       if (target.Optimization == Optimization.Debug)
       {
         conf.Options.Add(Options.Vc.Compiler.RuntimeLibrary.MultiThreadedDebugDLL);

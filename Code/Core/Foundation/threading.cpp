@@ -19,10 +19,10 @@ thread_entry_proc(LPVOID void_param)
   // We no longer want anything inside of this memory arena,
   // since it has all been copied out now.
 
-  UNREACHABLE;
   // init_context(params.heap);
 
   u32 res = params.proc(params.user_param);
+
   return res;
 }
 

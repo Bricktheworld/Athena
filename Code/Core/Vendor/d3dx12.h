@@ -3307,7 +3307,7 @@ public:
         Init(Type);
     }
     void SetStateObjectType(D3D12_STATE_OBJECT_TYPE Type) noexcept { m_Desc.Type = Type; }
-    operator const D3D12_STATE_OBJECT_DESC&()
+    operator const D3D12_STATE_OBJECT_DESC&() noexcept
     {
         // Do final preparation work
         m_RepointedAssociations.clear();

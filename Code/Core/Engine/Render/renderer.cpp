@@ -66,12 +66,12 @@ init_renderer_dependency_graph(
   Ddgi ddgi = init_ddgi(scratch_arena, &builder);
 
   RgHandle<GpuTexture> hdr_buffer  = init_hdr_buffer(&builder);
-  init_lighting(scratch_arena, &builder, device, gbuffer, ddgi, &hdr_buffer);
+  init_lighting(scratch_arena, &builder, gbuffer, ddgi, &hdr_buffer);
 
   RgHandle<GpuTexture> taa_buffer  = init_taa_buffer(&builder);
   init_taa(scratch_arena, &builder, hdr_buffer, gbuffer, &taa_buffer);
 
-  RgHandle<GpuTexture> post_buffer = init_post_processing(scratch_arena, &builder, device, taa_buffer);
+  RgHandle<GpuTexture> post_buffer = init_post_processing(scratch_arena, &builder, taa_buffer);
 
   init_imgui_pass(scratch_arena, &builder, &post_buffer);
 
@@ -224,7 +224,7 @@ destroy_unified_geometry_buffer()
 }
 
 Scene
-init_scene(AllocHeap heap, const GpuDevice* device)
+init_scene(AllocHeap heap)
 {
   Scene ret = {0};
   ret.scene_objects = init_array<SceneObject>(heap, 128);
@@ -325,7 +325,7 @@ alloc_into_index_uber(u32 index_count)
 }
 
 static RenderModel
-init_render_model(AllocHeap heap, const ModelData& model, Scene* scene, const ShaderManager& shader_manager)
+init_render_model(AllocHeap heap, const ModelData& model, const ShaderManager& shader_manager)
 {
   RenderModel ret = {0};
   ret.mesh_insts = init_array<RenderMeshInst>(heap, model.mesh_insts.size);
@@ -336,9 +336,9 @@ init_render_model(AllocHeap heap, const ModelData& model, Scene* scene, const Sh
 
     reset_linear_allocator(&g_UploadContext.cpu_upload_arena);
 
-    u32 vertex_buffer_offset = alloc_into_vertex_uber(src->vertices.size);
+    u32 vertex_buffer_offset = alloc_into_vertex_uber((u32)src->vertices.size);
 
-    dst->index_count         = src->indices.size;
+    dst->index_count         = (u32)src->indices.size;
     dst->index_buffer_offset = alloc_into_index_uber(dst->index_count);
     dst->vertex_shader       = kVS_Basic;
     dst->material_shader     = kPS_BasicNormalGloss;
@@ -388,9 +388,11 @@ add_scene_object(
   EngineShaderIndex vertex_shader,
   EngineShaderIndex material_shader
 ) {
+  UNREFERENCED_PARAMETER(vertex_shader);
+  UNREFERENCED_PARAMETER(material_shader);
   SceneObject* ret = array_add(&scene->scene_objects);
   ret->flags = kSceneObjectMesh;
-  ret->model = init_render_model(scene->scene_object_allocator, model, scene, shader_manager);
+  ret->model = init_render_model(scene->scene_object_allocator, model, shader_manager);
 
   return ret;
 }

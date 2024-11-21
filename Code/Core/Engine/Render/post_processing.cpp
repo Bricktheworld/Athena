@@ -28,7 +28,6 @@ RgHandle<GpuTexture>
 init_post_processing(
   AllocHeap heap,
   RgBuilder* builder,
-  const GpuDevice* device,
   RgHandle<GpuTexture> hdr_buffer
 ) {
   PostProcessingParams* params = HEAP_ALLOC(PostProcessingParams, g_InitHeap, 1);

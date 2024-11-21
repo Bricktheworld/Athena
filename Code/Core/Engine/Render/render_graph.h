@@ -79,25 +79,29 @@ struct RgHandle
 {
   u32 id                = 0;
   u32 version           = 0;
-  u64 temporal_lifetime = 0;
+  u8  temporal_lifetime = 0;
+  u8  __pad0__          = 0;
+  u16 __pad1__          = 0;
 
-  operator ResourceHandle() const { return { id, version, kResourceType<T>, (u8)temporal_lifetime, 0 }; }
+  operator ResourceHandle() const { return { id, version, kResourceType<T>, temporal_lifetime, 0 }; }
 };
 
 template <typename T>
 struct RgReadHandle
 {
   u32 id                = 0;
-  u16 temporal_lifetime = 0;
-  s16 temporal_frame    = 0;
+  u8  temporal_lifetime = 0;
+  s8  temporal_frame    = 0;
+  u16 __pad__           = 0;
 };
 
 template <typename T>
 struct RgWriteHandle
 {
   u32 id                = 0;
-  u16 temporal_lifetime = 0;
-  s16 temporal_frame    = 0;
+  u8  temporal_lifetime = 0;
+  s8  temporal_frame    = 0;
+  u16 __pad__           = 0;
 
   operator RgReadHandle<T>() const { return { id, temporal_lifetime, temporal_frame }; };
 };
@@ -493,7 +497,7 @@ enum RenderGraphDestroyFlags : u32
 RgBuilder init_rg_builder(AllocHeap heap, u32 width, u32 height);
 void      compile_render_graph(AllocHeap heap, const RgBuilder& builder, const GpuDevice* device, RenderGraph* out, RenderGraphDestroyFlags flags = kRgDestroyAll);
 void      destroy_render_graph(RenderGraph* graph, RenderGraphDestroyFlags flags = kRgDestroyAll);
-void      execute_render_graph(RenderGraph* graph, const GpuDevice* device, const GpuTexture* back_buffer, u32 frame_index);
+void      execute_render_graph(RenderGraph* graph, const GpuDevice* device, const GpuTexture* back_buffer);
 
 RgPassBuilder* add_render_pass(
   AllocHeap heap,
@@ -577,9 +581,6 @@ enum WriteBufferAccess : u32
 
 RgReadHandle<GpuBuffer>  rg_read_buffer (RgPassBuilder* builder, RgHandle<GpuBuffer>  buffer, ReadBufferAccessMask access);
 RgWriteHandle<GpuBuffer> rg_write_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer>* buffer, WriteBufferAccess    access);
-
-constant u32 kRgWindowWidth    = -1;
-constant u32 kRgWindowHeight   = -2;
 
 constant u8  kInfiniteLifetime = 0xFF;
 

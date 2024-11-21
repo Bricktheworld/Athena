@@ -59,16 +59,19 @@ fs::close_file(FileStream* file_stream)
   zero_memory(file_stream, sizeof(FileStream));
 }
 
+// TODO(bshihabi): If you need to read more than 4 gigs this is not gonna work, need to support paging since apparently I can't write/read more than that from a file at a time on win32...
 bool
-fs::write_file(FileStream file_stream, const void* src, size_t size)
+fs::write_file(FileStream file_stream, const void* src, u64 size)
 {
-  return WriteFile(file_stream.handle, src, size, NULL, NULL);
+  ASSERT(size <= U32_MAX);
+  return WriteFile(file_stream.handle, src, (u32)size, NULL, NULL);
 }
 
 bool
-fs::read_file(FileStream file_stream, void* dst, size_t size)
+fs::read_file(FileStream file_stream, void* dst, u64 size)
 {
-  return ReadFile(file_stream.handle, dst, size, NULL, NULL);
+  ASSERT(size <= U32_MAX);
+  return ReadFile(file_stream.handle, dst, (u32)size, NULL, NULL);
 }
 
 u64

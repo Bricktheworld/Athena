@@ -678,10 +678,10 @@ inline Mat4
 operator*(Mat4 a, f32 scale)
 {
   Mat4 res;
-  res.cols[0] *= scale;
-  res.cols[1] *= scale;
-  res.cols[2] *= scale;
-  res.cols[3] *= scale;
+  res.cols[0] = scale * a.cols[0];
+  res.cols[1] = scale * a.cols[1];
+  res.cols[2] = scale * a.cols[2];
+  res.cols[3] = scale * a.cols[3];
   return res;
 }
 

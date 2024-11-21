@@ -13,7 +13,7 @@ template <typename T>
 struct Option
 {
   Option() { zero_memory(&value, sizeof(T));  }
-  Option(NoneT none) { zero_memory(&value, sizeof(T)); }
+  Option(NoneT) { zero_memory(&value, sizeof(T)); }
   template <typename U>
   Option(const U& v) : value(v), m_has_value(true) {}
 
@@ -29,7 +29,7 @@ template <typename T>
 struct Option<T*>
 {
   Option() = default;
-  Option(NoneT none) {}
+  Option(NoneT) {}
   Option(T* ptr) : value(ptr) {}
 
   operator bool() const { return value != nullptr; }

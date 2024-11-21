@@ -251,7 +251,7 @@ init_dependency_levels(AllocHeap heap, const RgBuilder& builder)
 
     // TODO(Brandon): This actually is using a _bit_ more memory because a resource can be read
     // multiple times inside of a single level, so if we want to get some small gains we could fix this...
-    level_barrier_counts[level_index] += pass.read_resources.size + 2 * pass.write_resources.size;
+    level_barrier_counts[level_index] += (u32)(pass.read_resources.size + 2 * pass.write_resources.size);
   }
 
   Array<RgDependencyLevel> ret = init_array_zeroed<RgDependencyLevel>(heap, dependency_level_count);
@@ -271,14 +271,14 @@ init_dependency_levels(AllocHeap heap, const RgBuilder& builder)
   return ret;
 }
 
-static u32
+static u8
 get_temporal_lifetime(u32 temporal_lifetime)
 {
   if (temporal_lifetime == kInfiniteLifetime)
     return 0;
   
   ASSERT(temporal_lifetime < kMaxTemporalLifetime);
-  return temporal_lifetime;
+  return (u8)temporal_lifetime;
 }
 
 struct PhysicalResourceMap
@@ -591,8 +591,8 @@ init_physical_descriptors(
 
     for (u32 iframe = 0; iframe <= get_temporal_lifetime(handle.temporal_lifetime); iframe++)
     {
-      resource_key.temporal_frame = iframe;
-      key.temporal_frame          = iframe;
+      resource_key.temporal_frame = (u8)iframe;
+      key.temporal_frame          = (u8)iframe;
 
       if (type_mask & kDescriptorTypeCbv)
       {
@@ -621,7 +621,7 @@ init_physical_descriptors(
             dst,
             buffer,
             0,
-            desc->buffer_desc.size / desc->buffer_desc.stride,
+            (u32)(desc->buffer_desc.size / desc->buffer_desc.stride),
             desc->buffer_desc.stride
           );
         }
@@ -650,7 +650,7 @@ init_physical_descriptors(
             dst,
             buffer,
             0,
-            desc->buffer_desc.size / desc->buffer_desc.stride,
+            (u32)(desc->buffer_desc.size / desc->buffer_desc.stride),
             desc->buffer_desc.stride
           );
         }
@@ -806,7 +806,6 @@ static void
 init_dependency_barriers(
   AllocHeap heap,
   const RgBuilder& builder,
-  PhysicalResourceMap resource_map,
   Array<RgDependencyLevel> out_dependency_levels,
   Array<RgResourceBarrier>* out_exit_barriers
 ) {
@@ -902,7 +901,7 @@ init_dependency_barriers(
           dst->transition.after                      = states->current;
           dst->transition.resource_id                = handle.id;
           dst->transition.resource_type              = handle.type;
-          dst->transition.resource_temporal_frame    = temporal_frame;
+          dst->transition.resource_temporal_frame    = (s8)temporal_frame;
           dst->transition.resource_temporal_lifetime = handle.temporal_lifetime;
         }
   
@@ -940,7 +939,7 @@ init_dependency_barriers(
       dst->transition.after                      = D3D12_RESOURCE_STATE_COMMON;
       dst->transition.resource_id                = handle.id;
       dst->transition.resource_type              = handle.type;
-      dst->transition.resource_temporal_frame    = temporal_frame;
+      dst->transition.resource_temporal_frame    = (s8)temporal_frame;
       dst->transition.resource_temporal_lifetime = handle.temporal_lifetime;
     }
   }
@@ -995,8 +994,6 @@ compile_render_graph(AllocHeap heap, const RgBuilder& builder, const GpuDevice* 
     if (resource.id == builder.back_buffer.id)
       continue;
 
-    TransientResourceDesc* desc = unwrap(hash_table_find(&builder.resource_descs, resource.id));
-
     if      (resource.type == kResourceTypeBuffer)  { buffer_count++;  }
     else if (resource.type == kResourceTypeTexture) { texture_count++; }
     else                                            { UNREACHABLE;     }
@@ -1015,7 +1012,7 @@ compile_render_graph(AllocHeap heap, const RgBuilder& builder, const GpuDevice* 
       texture_count
     );
 
-    init_dependency_barriers(heap, builder, physical_resource_map, out->dependency_levels, &out->exit_barriers);
+    init_dependency_barriers(heap, builder, out->dependency_levels, &out->exit_barriers);
 
     PhysicalDescriptorMap physical_descriptor_map = init_physical_descriptors(
       heap,
@@ -1093,7 +1090,7 @@ destroy_render_graph(RenderGraph* graph, RenderGraphDestroyFlags flags)
   }
 }
 
-static u32
+static u8
 get_temporal_frame(u32 frame_id, u32 temporal_lifetime, s8 offset)
 {
   if (temporal_lifetime == kInfiniteLifetime)
@@ -1103,7 +1100,7 @@ get_temporal_frame(u32 frame_id, u32 temporal_lifetime, s8 offset)
   }
 
   ASSERT(offset <= 0);
-  ASSERT(-offset <= temporal_lifetime);
+  ASSERT(-offset <= (s64)temporal_lifetime);
 
   if (temporal_lifetime == 0)
     return 0;
@@ -1117,7 +1114,7 @@ get_temporal_frame(u32 frame_id, u32 temporal_lifetime, s8 offset)
   s64 ret = modulo(signed_frame_id, temporal_lifetime);
   ASSERT(ret >= 0);
   ASSERT((u32)ret < temporal_lifetime);
-  return (u32)ret;
+  return (u8)ret;
 }
 
 static void
@@ -1199,7 +1196,7 @@ lazy_init_back_buffer_descriptors(
 }
 
 void 
-execute_render_graph(RenderGraph* graph, const GpuDevice* device, const GpuTexture* back_buffer, u32 frame_index)
+execute_render_graph(RenderGraph* graph, const GpuDevice* device, const GpuTexture* back_buffer)
 {
   // NOTE(Brandon): This is honestly kinda dangerous, since we're just straight up copying the back buffer struct instead
   // of the pointer to the GpuImage which is what I really want... maybe there's a nicer way of doing this?
@@ -1235,7 +1232,7 @@ execute_render_graph(RenderGraph* graph, const GpuDevice* device, const GpuTextu
         get_d3d12_resource_barrier(graph, barrier, dst);
       }
 
-      cmd_buffer.d3d12_list->ResourceBarrier(d3d12_barriers.size, d3d12_barriers.memory);
+      cmd_buffer.d3d12_list->ResourceBarrier((u32)d3d12_barriers.size, d3d12_barriers.memory);
     }
 
     for (RenderPassId pass_id : level.render_passes)
@@ -1266,7 +1263,7 @@ execute_render_graph(RenderGraph* graph, const GpuDevice* device, const GpuTextu
       get_d3d12_resource_barrier(graph, barrier, dst);
     }
 
-    cmd_buffer.d3d12_list->ResourceBarrier(d3d12_barriers.size, d3d12_barriers.memory);
+    cmd_buffer.d3d12_list->ResourceBarrier((u32)d3d12_barriers.size, d3d12_barriers.memory);
   }
 
   submit_cmd_lists(&graph->cmd_allocator, {cmd_buffer});
@@ -1411,7 +1408,11 @@ rg_create_upload_buffer(
   desc->type                          = resource_handle.type;
   desc->temporal_lifetime             = resource_handle.temporal_lifetime;
   desc->buffer_desc.size              = size;
-  desc->buffer_desc.stride            = stride == 0 ? size : stride;
+  if (stride == 0)
+  {
+    ASSERT(size <= U32_MAX);
+  }
+  desc->buffer_desc.stride            = stride == 0 ? (u32)size : stride;
   desc->buffer_desc.heap_type         = kGpuHeapTypeUpload;
 
   RgHandle<GpuBuffer> ret = {resource_handle.id, resource_handle.version, resource_handle.temporal_lifetime};
@@ -1461,7 +1462,7 @@ rg_read_texture(RgPassBuilder* builder, RgHandle<GpuTexture> texture, ReadTextur
   data->temporal_frame = temporal_frame;
   data->is_write       = false;
 
-  return {texture.id, (u16)texture.temporal_lifetime, data->temporal_frame};
+  return {texture.id, texture.temporal_lifetime, data->temporal_frame};
 }
 
 RgWriteHandle<GpuTexture>
@@ -1701,7 +1702,8 @@ RenderContext::ia_set_index_buffer(const GpuBuffer* buffer, u32 stride, u32 size
 
   if (size == 0)
   {
-    size = buffer->desc.size;
+    ASSERT(buffer->desc.size <= U32_MAX);
+    size = (u32)buffer->desc.size;
   }
 
   DXGI_FORMAT format = DXGI_FORMAT_R32_UINT;
@@ -1877,13 +1879,13 @@ RenderContext::set_graphics_root_32bit_constants(
   Span<u32> src,
   u32 dst_offset
 ) {
-  m_CmdBuffer.d3d12_list->SetGraphicsRoot32BitConstants(root_parameter_index, src.size, src.memory, dst_offset);
+  m_CmdBuffer.d3d12_list->SetGraphicsRoot32BitConstants(root_parameter_index, (u32)src.size, src.memory, dst_offset);
 }
 
 void
 RenderContext::set_compute_root_32bit_constants(u32 root_parameter_index, Span<u32> src, u32 dst_offset)
 {
-  m_CmdBuffer.d3d12_list->SetComputeRoot32BitConstants(root_parameter_index, src.size, src.memory, dst_offset);
+  m_CmdBuffer.d3d12_list->SetComputeRoot32BitConstants(root_parameter_index, (u32)src.size, src.memory, dst_offset);
 }
 
 void

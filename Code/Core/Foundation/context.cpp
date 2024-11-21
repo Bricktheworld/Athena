@@ -8,6 +8,7 @@ thread_local Context tls_ctx = {0};
 Context
 init_context(AllocHeap heap, FreeHeap overflow_heap)
 {
+  UNREFERENCED_PARAMETER(overflow_heap);
   ASSERT(!CTX_IS_INITIALIZED);
 
   static constexpr u64 kDefaultScratchSize = MiB(64); // KiB(16);
@@ -19,24 +20,6 @@ init_context(AllocHeap heap, FreeHeap overflow_heap)
   {
     tls_ctx = ret;
   }
-
-  return ret;
-}
-
-void
-push_context(Context ctx)
-{
-  UNREACHABLE;
-}
-
-Context
-pop_context()
-{
-  UNREACHABLE;
-
-  ASSERT_CTX_INIT();
-
-  Context ret = tls_ctx;
 
   return ret;
 }

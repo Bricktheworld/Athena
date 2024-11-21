@@ -112,7 +112,7 @@ private:
       auto* group = groups + group_index;
       // We AND with the ctrl_empty mask because we also want to include
       // tombstones here.
-      u16 mask = _mm_movemask_epi8(_mm_and_si128(_mm_set1_epi8(kHashTableCtrlEmpty), group->ctrls_sse));
+      u16 mask = (u16)_mm_movemask_epi8(_mm_and_si128(_mm_set1_epi8(kHashTableCtrlEmpty), group->ctrls_sse));
 
       // Find the first non-empty/deleted element in the hashmap
       for (u8 i = offset; i < 16; i++)
@@ -224,7 +224,7 @@ hash_table_insert(HashTable<K, V>* table, const K& key)
     auto* group = table->groups + group_index;
     {
       // Look for already existing key.
-      u16 mask = _mm_movemask_epi8(_mm_cmpeq_epi8(_mm_set1_epi8(h.meta), group->ctrls_sse));
+      u16 mask = (u16)_mm_movemask_epi8(_mm_cmpeq_epi8(_mm_set1_epi8(h.meta), group->ctrls_sse));
       if (mask != 0)
       {
         for (u8 i = 0; i < 16; i++)
@@ -241,7 +241,7 @@ hash_table_insert(HashTable<K, V>* table, const K& key)
     {
       // We AND with the ctrl_empty mask because we also want to include
       // tombstones here.
-      u16 mask = _mm_movemask_epi8(_mm_and_si128(_mm_set1_epi8(kHashTableCtrlEmpty), group->ctrls_sse));
+      u16 mask = (u16)_mm_movemask_epi8(_mm_and_si128(_mm_set1_epi8(kHashTableCtrlEmpty), group->ctrls_sse));
 
       // Find the first empty/deleted element in the hashmap
       for (u8 i = 0; i < 16; i++)
@@ -264,7 +264,6 @@ hash_table_insert(HashTable<K, V>* table, const K& key)
   } while (group_index != start_index);
 
   UNREACHABLE;
-  return nullptr;
 }
 
 template <typename K, typename V>
@@ -281,7 +280,7 @@ hash_table_find(const HashTable<K, V>* table, const K& key)
   do
   {
     auto* group = table->groups + group_index;
-    u16 mask = _mm_movemask_epi8(_mm_cmpeq_epi8(_mm_set1_epi8(h.meta), group->ctrls_sse));
+    u16 mask = (u16)_mm_movemask_epi8(_mm_cmpeq_epi8(_mm_set1_epi8(h.meta), group->ctrls_sse));
     for (u8 i = 0; i < 16; i++)
     {
       if ((mask & (1 << i)) == 0)
@@ -291,7 +290,7 @@ hash_table_find(const HashTable<K, V>* table, const K& key)
       return &table->values[group_index * 16 + i];
     }
 
-    u16 empty_mask = _mm_movemask_epi8(_mm_cmpeq_epi8(_mm_set1_epi8(kHashTableCtrlEmpty), group->ctrls_sse));
+    u16 empty_mask = (u16)_mm_movemask_epi8(_mm_cmpeq_epi8(_mm_set1_epi8(kHashTableCtrlEmpty), group->ctrls_sse));
 
     // If there is at least one non-empty element, then that means that the hash _had_
     // a place to go, but there obviously isn't one.

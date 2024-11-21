@@ -28,9 +28,6 @@ struct ScratchAllocator
 
 FOUNDATION_API Context init_context(AllocHeap heap, FreeHeap overflow_heap);
 
-FOUNDATION_API void push_context(Context ctx);
-FOUNDATION_API Context pop_context();
-
 FOUNDATION_API ScratchAllocator alloc_scratch_arena();
 FOUNDATION_API void free_scratch_arena(ScratchAllocator* allocator);
 

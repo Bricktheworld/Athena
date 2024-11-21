@@ -161,7 +161,7 @@ struct GpuTextureDesc
 {
   u32                   width         = 0;
   u32                   height        = 0;
-  u32                   array_size    = 1;
+  u16                   array_size    = 1;
 
   // TODO(Brandon): Eventually make these less verbose and platform agnostic.
   DXGI_FORMAT           format        = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -338,7 +338,7 @@ void init_buffer_cbv(
   Descriptor* descriptor,
   const GpuBuffer* buffer,
   u64 offset,
-  u32 size
+  u64 size
 );
 
 void init_buffer_srv(
