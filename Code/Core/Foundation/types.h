@@ -219,6 +219,6 @@ template <class F> __Deferrer__<F> operator*(__DeferDummy__, F f) { return {f}; 
 #define HASSERT(hres) hres
 #endif
 
-#define UNREACHABLE ASSERT(false); __assume(0)
+#define UNREACHABLE ASSERT(false); __assume(false)
 
 

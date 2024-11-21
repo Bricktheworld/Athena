@@ -19,8 +19,11 @@ enum HashTableCtrl : u8
   kHashTableCtrlFullMask = 0x7F,
 };
 
+template <typename T>
+concept Hashable = __has_unique_object_representations(T);
+
 // Swiss-table implementation. Really simple to implement and really well optimized.
-template <typename K, typename V>
+template <Hashable K, typename V>
 struct HashTable
 {
   union Hash

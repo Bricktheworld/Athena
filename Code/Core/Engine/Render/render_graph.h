@@ -59,15 +59,8 @@ struct ResourceHandle
   u8           temporal_lifetime = 0;
   u16          __padding1__      = 0;
 
-
   auto operator<=>(const ResourceHandle& rhs) const = default;
 };
-static_assert(offsetof(ResourceHandle, id)                == 0);
-static_assert(offsetof(ResourceHandle, version)           == 4);
-static_assert(offsetof(ResourceHandle, type)              == 8);
-static_assert(offsetof(ResourceHandle, temporal_lifetime) == 9);
-static_assert(offsetof(ResourceHandle, __padding1__)      == 10);
-static_assert(sizeof(ResourceHandle)                      == 12);
 
 struct Sampler;
 
@@ -213,7 +206,7 @@ struct RenderGraph;
 struct RenderContext
 {
   const RenderGraph*    m_Graph      = nullptr;
-  const GraphicsDevice* m_Device     = nullptr;
+  const GpuDevice* m_Device     = nullptr;
   CmdList               m_CmdBuffer;
 
   u32                   m_Width      = 0;
@@ -448,11 +441,6 @@ struct RgDescriptorKey
 
   auto operator<=>(const RgDescriptorKey& rhs) const = default;
 };
-static_assert(offsetof(RgDescriptorKey, id)             == 0);
-static_assert(offsetof(RgDescriptorKey, type)           == 4);
-static_assert(offsetof(RgDescriptorKey, temporal_frame) == 5);
-static_assert(offsetof(RgDescriptorKey, __padding1__)   == 6);
-static_assert(sizeof  (RgDescriptorKey)                 == 8);
 
 struct RgResourceKey
 {
@@ -461,9 +449,6 @@ struct RgResourceKey
 
   auto operator<=>(const RgResourceKey& rhs) const = default;
 };
-static_assert(offsetof(RgResourceKey, id)             == 0);
-static_assert(offsetof(RgResourceKey, temporal_frame) == 4);
-static_assert(sizeof  (RgResourceKey)                 == 8);
 
 struct RenderGraph
 {
@@ -491,10 +476,24 @@ struct RenderGraph
   u32                                    height   = 0;
 };
 
-RgBuilder   init_rg_builder(AllocHeap heap, u32 width, u32 height);
-RenderGraph compile_render_graph(AllocHeap heap, const RgBuilder& builder, const GraphicsDevice* device);
-void        destroy_render_graph(RenderGraph* graph);
-void        execute_render_graph(RenderGraph* graph, const GraphicsDevice* device, const GpuTexture* back_buffer, u32 frame_index);
+
+enum RenderGraphDestroyFlags : u32
+{
+  kRgFreePhysicalResources    = 1U << 0,
+  kRgDestroyResourceHeaps     = 1U << 1,
+  kRgDestroyCmdListAllocators = 1U << 2,
+
+  // If you're using approximately the same render graph, but just the resources changed (i.e., just reinit the physical resources)
+  kRgDestroyMinimal           = kRgFreePhysicalResources,
+
+  // If you want to free the entire graph
+  kRgDestroyAll               = kRgFreePhysicalResources | kRgDestroyResourceHeaps | kRgDestroyCmdListAllocators,
+};
+
+RgBuilder init_rg_builder(AllocHeap heap, u32 width, u32 height);
+void      compile_render_graph(AllocHeap heap, const RgBuilder& builder, const GpuDevice* device, RenderGraph* out, RenderGraphDestroyFlags flags = kRgDestroyAll);
+void      destroy_render_graph(RenderGraph* graph, RenderGraphDestroyFlags flags = kRgDestroyAll);
+void      execute_render_graph(RenderGraph* graph, const GpuDevice* device, const GpuTexture* back_buffer, u32 frame_index);
 
 RgPassBuilder* add_render_pass(
   AllocHeap heap,

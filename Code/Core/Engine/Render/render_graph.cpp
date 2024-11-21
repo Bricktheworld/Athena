@@ -291,7 +291,7 @@ static PhysicalResourceMap
 init_physical_resources(
   AllocHeap heap,
   const RgBuilder& builder,
-  const GraphicsDevice* device,
+  const GpuDevice* device,
   GpuLinearAllocator* local_heap,
   GpuLinearAllocator* upload_heaps,
   GpuLinearAllocator* temporal_heaps,
@@ -462,7 +462,7 @@ static PhysicalDescriptorMap
 init_physical_descriptors(
   AllocHeap heap,
   const RgBuilder& builder,
-  const GraphicsDevice* device,
+  const GpuDevice* device,
   const PhysicalResourceMap& resource_map
 ) {
   ScratchAllocator scratch_arena = alloc_scratch_arena();
@@ -946,33 +946,46 @@ init_dependency_barriers(
   }
 }
 
-RenderGraph
-compile_render_graph(AllocHeap heap, const RgBuilder& builder, const GraphicsDevice* device)
+void
+compile_render_graph(AllocHeap heap, const RgBuilder& builder, const GpuDevice* device, RenderGraph* out, RenderGraphDestroyFlags flags)
 {
   // You must write to the back buffer exactly once, never more.
   ASSERT(builder.back_buffer.version == 1);
 
-  RenderGraph ret       = {0};
-  ret.cmd_allocator     = init_cmd_list_allocator(heap, device, &device->graphics_queue, 4);
-  ret.render_passes     = init_array<RenderPass>(heap, builder.render_passes.size);
-  ret.dependency_levels = init_dependency_levels(heap, builder);
-  ret.back_buffer       = builder.back_buffer;
-  ret.frame_id          = 0;
-  ret.width             = builder.width;
-  ret.height            = builder.height;
+  if (flags & kRgDestroyCmdListAllocators)
+  {
+    out->cmd_allocator     = init_cmd_list_allocator(heap, device, &device->graphics_queue, 4);
+  }
+
+  out->render_passes     = init_array<RenderPass>(heap, builder.render_passes.size);
+  out->dependency_levels = init_dependency_levels(heap, builder);
+  out->back_buffer       = builder.back_buffer;
+  out->frame_id          = 0;
+  out->width             = builder.width;
+  out->height            = builder.height;
 
   for (const RgPassBuilder& pass_builder : builder.render_passes)
   {
-    RenderPass* dst     = array_add(&ret.render_passes);
+    RenderPass* dst     = array_add(&out->render_passes);
     dst->handler        = pass_builder.handler;
     dst->data           = pass_builder.data;
     dst->name           = pass_builder.name;
   }
 
-  ret.local_heap        = init_gpu_linear_allocator(device, MiB(700), kGpuHeapTypeLocal);
-  for (u32 i = 0; i < kFramesInFlight; i++)
+  if (flags & kRgDestroyResourceHeaps)
   {
-    ret.upload_heaps[i] = init_gpu_linear_allocator(device, MiB(4), kGpuHeapTypeUpload);
+    out->local_heap        = init_gpu_linear_allocator(device, MiB(700), kGpuHeapTypeLocal);
+    for (u32 i = 0; i < kFramesInFlight; i++)
+    {
+      out->upload_heaps[i] = init_gpu_linear_allocator(device, MiB(4), kGpuHeapTypeUpload);
+    }
+
+    out->temporal_heaps = init_array<GpuLinearAllocator>(heap, kMaxTemporalLifetime);
+    for (u8 i = 0; i < kMaxTemporalLifetime; i++)
+    {
+      GpuLinearAllocator* dst = array_add(&out->temporal_heaps);
+      *dst                    = init_gpu_linear_allocator(device, MiB(128), kGpuHeapTypeLocal);
+    }
   }
 
   u32 buffer_count          = 0;
@@ -989,76 +1002,95 @@ compile_render_graph(AllocHeap heap, const RgBuilder& builder, const GraphicsDev
     else                                            { UNREACHABLE;     }
   }
 
-  ret.temporal_heaps = init_array<GpuLinearAllocator>(heap, kMaxTemporalLifetime);
-  for (u8 i = 0; i < kMaxTemporalLifetime; i++)
+  if (flags & kRgFreePhysicalResources)
   {
-    GpuLinearAllocator* dst = array_add(&ret.temporal_heaps);
-    *dst                    = init_gpu_linear_allocator(device, MiB(32), kGpuHeapTypeLocal);
+    PhysicalResourceMap physical_resource_map = init_physical_resources(
+      heap,
+      builder,
+      device,
+      &out->local_heap,
+      out->upload_heaps,
+      out->temporal_heaps.memory,
+      buffer_count,
+      texture_count
+    );
+
+    init_dependency_barriers(heap, builder, physical_resource_map, out->dependency_levels, &out->exit_barriers);
+
+    PhysicalDescriptorMap physical_descriptor_map = init_physical_descriptors(
+      heap,
+      builder,
+      device,
+      physical_resource_map
+    );
+
+    out->descriptor_heap = physical_descriptor_map.descriptor_heap;
+    out->descriptor_map  = physical_descriptor_map.descriptor_map;
+    out->buffer_map      = physical_resource_map.buffers;
+    out->texture_map     = physical_resource_map.textures;
   }
-
-  PhysicalResourceMap physical_resource_map = init_physical_resources(
-    heap,
-    builder,
-    device,
-    &ret.local_heap,
-    ret.upload_heaps,
-    ret.temporal_heaps.memory,
-    buffer_count,
-    texture_count
-  );
-
-  init_dependency_barriers(heap, builder, physical_resource_map, ret.dependency_levels, &ret.exit_barriers);
-
-  PhysicalDescriptorMap physical_descriptor_map = init_physical_descriptors(
-    heap,
-    builder,
-    device,
-    physical_resource_map
-  );
-
-  ret.descriptor_heap = physical_descriptor_map.descriptor_heap;
-  ret.descriptor_map  = physical_descriptor_map.descriptor_map;
-  ret.buffer_map      = physical_resource_map.buffers;
-  ret.texture_map     = physical_resource_map.textures;
-
-
-  return ret;
 }
 
 void
-destroy_render_graph(RenderGraph* graph)
+destroy_render_graph(RenderGraph* graph, RenderGraphDestroyFlags flags)
 {
-  for (auto [_, buffer] : graph->buffer_map)
+  if (flags & kRgFreePhysicalResources)
   {
-    free_gpu_buffer(&buffer);
-  }
-
-  for (auto [key, texture] : graph->texture_map)
-  {
-    if (key.id == graph->back_buffer.id)
+    for (auto [_, buffer] : graph->buffer_map)
     {
-      continue;
+      free_gpu_buffer(&buffer);
     }
-    free_gpu_texture(&texture);
+
+    for (auto [key, texture] : graph->texture_map)
+    {
+      if (key.id == graph->back_buffer.id)
+      {
+        continue;
+      }
+      free_gpu_texture(&texture);
+    }
   }
 
-  destroy_gpu_linear_allocator(&graph->local_heap);
-  for (GpuLinearAllocator& upload_heap : graph->upload_heaps)
+  if (flags & kRgDestroyResourceHeaps)
   {
-    destroy_gpu_linear_allocator(&upload_heap);
-  }
+    destroy_gpu_linear_allocator(&graph->local_heap);
+    for (GpuLinearAllocator& upload_heap : graph->upload_heaps)
+    {
+      destroy_gpu_linear_allocator(&upload_heap);
+    }
 
-  for (GpuLinearAllocator& temporal_heap : graph->temporal_heaps)
+    for (GpuLinearAllocator& temporal_heap : graph->temporal_heaps)
+    {
+      destroy_gpu_linear_allocator(&temporal_heap);
+    }
+  }
+  else
   {
-    destroy_gpu_linear_allocator(&temporal_heap);
+    reset_gpu_linear_allocator(&graph->local_heap);
+    for (GpuLinearAllocator& upload_heap : graph->upload_heaps)
+    {
+      reset_gpu_linear_allocator(&upload_heap);
+    }
+
+    for (GpuLinearAllocator& temporal_heap : graph->temporal_heaps)
+    {
+      reset_gpu_linear_allocator(&temporal_heap);
+    }
   }
 
   destroy_descriptor_linear_allocator(&graph->descriptor_heap.cbv_srv_uav);
   destroy_descriptor_linear_allocator(&graph->descriptor_heap.rtv);
   destroy_descriptor_linear_allocator(&graph->descriptor_heap.dsv);
 
-  destroy_cmd_list_allocator(&graph->cmd_allocator);
-  zero_memory(graph, sizeof(RenderGraph));
+  if (flags & kRgDestroyCmdListAllocators)
+  {
+    destroy_cmd_list_allocator(&graph->cmd_allocator);
+  }
+
+  if (flags == kRgDestroyAll)
+  {
+    zero_memory(graph, sizeof(RenderGraph));
+  }
 }
 
 static u32
@@ -1145,7 +1177,7 @@ get_d3d12_resource_barrier(const RenderGraph* graph, const RgResourceBarrier& ba
 static void
 lazy_init_back_buffer_descriptors(
   RenderGraph* graph,
-  const GraphicsDevice* device,
+  const GpuDevice* device,
   RgHandle<GpuTexture> handle,
   const GpuTexture* texture,
   DescriptorType type
@@ -1167,7 +1199,7 @@ lazy_init_back_buffer_descriptors(
 }
 
 void 
-execute_render_graph(RenderGraph* graph, const GraphicsDevice* device, const GpuTexture* back_buffer, u32 frame_index)
+execute_render_graph(RenderGraph* graph, const GpuDevice* device, const GpuTexture* back_buffer, u32 frame_index)
 {
   // NOTE(Brandon): This is honestly kinda dangerous, since we're just straight up copying the back buffer struct instead
   // of the pointer to the GpuImage which is what I really want... maybe there's a nicer way of doing this?

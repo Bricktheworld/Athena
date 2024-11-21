@@ -22,7 +22,7 @@ Renderer g_Renderer;
 UnifiedGeometryBuffer g_UnifiedGeometryBuffer;
 
 ShaderManager
-init_shader_manager(const GraphicsDevice* device)
+init_shader_manager(const GpuDevice* device)
 {
   ShaderManager ret = {0};
   for (u32 i = 0; i < kEngineShaderCount; i++)
@@ -46,8 +46,9 @@ destroy_shader_manager(ShaderManager* shader_manager)
 
 static void
 init_renderer_dependency_graph(
-  const GraphicsDevice* device,
-  const SwapChain* swap_chain
+  const GpuDevice* device,
+  const SwapChain* swap_chain,
+  RenderGraphDestroyFlags flags
 ) {
   ScratchAllocator scratch_arena = alloc_scratch_arena();
   defer { free_scratch_arena(&scratch_arena); };
@@ -79,19 +80,22 @@ init_renderer_dependency_graph(
 
   init_back_buffer_blit(scratch_arena, &builder, post_buffer);
 
-  g_Renderer.graph = compile_render_graph(g_InitHeap, builder, device);
+  compile_render_graph(g_InitHeap, builder, device, &g_Renderer.graph, flags);
 }
 
 void
 init_renderer(
-  const GraphicsDevice* device,
+  const GpuDevice* device,
   const SwapChain* swap_chain,
   const ShaderManager& shader_manager,
   HWND window
 ) {
   zero_memory(&g_Renderer, sizeof(g_Renderer));
 
-  init_renderer_dependency_graph(device, swap_chain);
+  const uint32_t kGraphMemory = MiB(32);
+  g_Renderer.graph_allocator = init_linear_allocator(HEAP_ALLOC_ALIGNED(g_InitHeap, kGraphMemory, alignof(uint64_t)), kGraphMemory);
+
+  init_renderer_dependency_graph(device, swap_chain, kRgDestroyAll);
 
   GraphicsPipelineDesc visibility_pipeline_desc =
   {
@@ -139,11 +143,11 @@ init_renderer(
 
 void
 renderer_on_resize(
-  const GraphicsDevice* device,
+  const GpuDevice* device,
   const SwapChain* swap_chain
 ) {
-  destroy_render_graph(&g_Renderer.graph);
-  init_renderer_dependency_graph(device, swap_chain);
+  destroy_render_graph(&g_Renderer.graph, kRgDestroyAll);
+  init_renderer_dependency_graph(device, swap_chain, kRgDestroyAll);
 }
 
 void
@@ -160,13 +164,13 @@ destroy_renderer()
   destroy_shader_table(&g_Renderer.ddgi_probe_trace_st);
   destroy_compute_pipeline(&g_Renderer.ddgi_probe_blend_pso);
 
-  destroy_render_graph(&g_Renderer.graph);
+  destroy_render_graph(&g_Renderer.graph, kRgDestroyAll);
   destroy_imgui_ctx();
   zero_memory(&g_Renderer, sizeof(g_Renderer));
 }
 
 void
-build_acceleration_structures(GraphicsDevice* device)
+build_acceleration_structures(GpuDevice* device)
 {
   g_UnifiedGeometryBuffer.bvh = init_acceleration_structure(
     device,
@@ -193,7 +197,7 @@ submit_mesh(RenderMeshInst mesh)
 }
 
 void
-init_unified_geometry_buffer(const GraphicsDevice* device)
+init_unified_geometry_buffer(const GpuDevice* device)
 {
   zero_memory(&g_UnifiedGeometryBuffer, sizeof(g_UnifiedGeometryBuffer));
 
@@ -220,7 +224,7 @@ destroy_unified_geometry_buffer()
 }
 
 Scene
-init_scene(AllocHeap heap, const GraphicsDevice* device)
+init_scene(AllocHeap heap, const GpuDevice* device)
 {
   Scene ret = {0};
   ret.scene_objects = init_array<SceneObject>(heap, 128);
@@ -237,21 +241,21 @@ init_scene(AllocHeap heap, const GraphicsDevice* device)
   return ret;
 }
 
-static UploadContext g_upload_context;
+static UploadContext g_UploadContext;
 
 void
-init_global_upload_context(const GraphicsDevice* device)
+init_global_upload_context(const GpuDevice* device)
 {
   GpuBufferDesc staging_desc = {0};
   staging_desc.size = MiB(32);
 
-  g_upload_context.staging_buffer = alloc_gpu_buffer_no_heap(device, staging_desc, kGpuHeapTypeUpload, "Staging Buffer");
-  g_upload_context.staging_offset = 0;
-  g_upload_context.cmd_list_allocator = init_cmd_list_allocator(g_InitHeap, device, &device->copy_queue, 16);
-  g_upload_context.cmd_list = alloc_cmd_list(&g_upload_context.cmd_list_allocator);
-  g_upload_context.device = device;
+  g_UploadContext.staging_buffer = alloc_gpu_buffer_no_heap(device, staging_desc, kGpuHeapTypeUpload, "Staging Buffer");
+  g_UploadContext.staging_offset = 0;
+  g_UploadContext.cmd_list_allocator = init_cmd_list_allocator(g_InitHeap, device, &device->copy_queue, 16);
+  g_UploadContext.cmd_list = alloc_cmd_list(&g_UploadContext.cmd_list_allocator);
+  g_UploadContext.device = device;
   static constexpr u64 kCpuUploadArenaSize = MiB(4);
-  g_upload_context.cpu_upload_arena = init_linear_allocator(
+  g_UploadContext.cpu_upload_arena = init_linear_allocator(
     HEAP_ALLOC_ALIGNED(g_InitHeap, kCpuUploadArenaSize, 1), 
     kCpuUploadArenaSize
   );
@@ -269,33 +273,33 @@ destroy_global_upload_context()
 static void
 flush_upload_staging()
 {
-  if (g_upload_context.staging_offset == 0)
+  if (g_UploadContext.staging_offset == 0)
     return;
 
-  FenceValue value = submit_cmd_lists(&g_upload_context.cmd_list_allocator, {g_upload_context.cmd_list});
-  g_upload_context.cmd_list = alloc_cmd_list(&g_upload_context.cmd_list_allocator);
+  FenceValue value = submit_cmd_lists(&g_UploadContext.cmd_list_allocator, {g_UploadContext.cmd_list});
+  g_UploadContext.cmd_list = alloc_cmd_list(&g_UploadContext.cmd_list_allocator);
 
-  block_for_fence_value(&g_upload_context.cmd_list_allocator.fence, value);
+  block_gpu_fence(&g_UploadContext.cmd_list_allocator.fence, value);
 
-  g_upload_context.staging_offset = 0;
+  g_UploadContext.staging_offset = 0;
 }
 
 static void
 upload_gpu_data(GpuBuffer* dst_gpu, u64 dst_offset, const void* src, u64 size)
 {
-  if (g_upload_context.staging_buffer.desc.size - g_upload_context.staging_offset < size)
+  if (g_UploadContext.staging_buffer.desc.size - g_UploadContext.staging_offset < size)
   {
     flush_upload_staging();
   }
-  void* dst = (void*)(u64(unwrap(g_upload_context.staging_buffer.mapped)) + g_upload_context.staging_offset);
+  void* dst = (void*)(u64(unwrap(g_UploadContext.staging_buffer.mapped)) + g_UploadContext.staging_offset);
   memcpy(dst, src, size);
 
-  g_upload_context.cmd_list.d3d12_list->CopyBufferRegion(dst_gpu->d3d12_buffer,
+  g_UploadContext.cmd_list.d3d12_list->CopyBufferRegion(dst_gpu->d3d12_buffer,
                                                          dst_offset,
-                                                         g_upload_context.staging_buffer.d3d12_buffer,
-                                                         g_upload_context.staging_offset,
+                                                         g_UploadContext.staging_buffer.d3d12_buffer,
+                                                         g_UploadContext.staging_offset,
                                                          size);
-  g_upload_context.staging_offset += size;
+  g_UploadContext.staging_offset += size;
 }
 
 static u32
@@ -330,7 +334,7 @@ init_render_model(AllocHeap heap, const ModelData& model, Scene* scene, const Sh
     const MeshInstData* src = &model.mesh_insts[imesh_inst];
     RenderMeshInst* dst = array_add(&ret.mesh_insts);
 
-    reset_linear_allocator(&g_upload_context.cpu_upload_arena);
+    reset_linear_allocator(&g_UploadContext.cpu_upload_arena);
 
     u32 vertex_buffer_offset = alloc_into_vertex_uber(src->vertices.size);
 
@@ -349,9 +353,9 @@ init_render_model(AllocHeap heap, const ModelData& model, Scene* scene, const Sh
       .stencil_enable  = false,
     };
 
-    dst->gbuffer_pso = init_graphics_pipeline(g_upload_context.device, graphics_pipeline_desc, "Mesh PSO");
+    dst->gbuffer_pso = init_graphics_pipeline(g_UploadContext.device, graphics_pipeline_desc, "Mesh PSO");
 
-    u32* indices = HEAP_ALLOC(u32, (AllocHeap)g_upload_context.cpu_upload_arena, dst->index_count);
+    u32* indices = HEAP_ALLOC(u32, (AllocHeap)g_UploadContext.cpu_upload_arena, dst->index_count);
 
     for (u32 iindex = 0; iindex < dst->index_count; iindex++)
     {

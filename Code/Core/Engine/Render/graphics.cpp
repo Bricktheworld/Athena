@@ -17,11 +17,11 @@
 #pragma comment(lib, "d3dcompiler.lib")
 
 
-#if defined(DEBUG) || 1
+#if defined(DEBUG)
 #define DEBUG_LAYER
 #endif
 
-GraphicsDevice* g_GpuDevice = nullptr;
+GpuDevice* g_GpuDevice = nullptr;
 
 static IDXGIFactory7*
 init_factory()
@@ -101,7 +101,7 @@ get_d3d12_cmd_list_type(CmdQueueType type)
 }
 
 static ID3D12Fence* 
-init_fence(ID3D12Device2* d3d12_dev)
+init_gpu_fence(ID3D12Device2* d3d12_dev)
 {
   ID3D12Fence* fence = nullptr;
   HASSERT(d3d12_dev->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)));
@@ -110,10 +110,10 @@ init_fence(ID3D12Device2* d3d12_dev)
   return fence;
 }
 
-Fence
-init_fence(const GraphicsDevice* device)
+GpuFence
+init_fence(const GpuDevice* device)
 {
-  Fence ret = {0};
+  GpuFence ret = {0};
   HASSERT(device->d3d12->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&ret.d3d12_fence)));
   ASSERT(ret.d3d12_fence != nullptr);
 
@@ -127,28 +127,28 @@ init_fence(const GraphicsDevice* device)
 }
 
 void
-destroy_fence(Fence* fence)
+destroy_gpu_fence(GpuFence* fence)
 {
   CloseHandle(fence->cpu_event);
   COM_RELEASE(fence->d3d12_fence);
-  zero_memory(fence, sizeof(Fence));
+  zero_memory(fence, sizeof(GpuFence));
 }
 
 static FenceValue
-inc_fence(Fence* fence)
+inc_fence(GpuFence* fence)
 {
   return ++fence->value;
 }
 
 static FenceValue
-poll_fence_value(Fence* fence)
+poll_fence_value(GpuFence* fence)
 {
   fence->last_completed_value = max(fence->last_completed_value, fence->d3d12_fence->GetCompletedValue());
   return fence->last_completed_value;
 }
 
 static bool
-is_fence_complete(Fence* fence, FenceValue value)
+is_fence_complete(GpuFence* fence, FenceValue value)
 {
   if (value > fence->last_completed_value)
   {
@@ -159,21 +159,9 @@ is_fence_complete(Fence* fence, FenceValue value)
 }
 
 void
-yield_for_fence_value(Fence* fence, FenceValue value)
+block_gpu_fence(GpuFence* fence, FenceValue value)
 {
-  UNREACHABLE;
-  if (is_fence_complete(fence, value))
-    return;
-
-//  yield_async([&]()
-//  {
-//    block_for_fence_value(fence, value);
-//  });
-}
-
-void
-block_for_fence_value(Fence* fence, FenceValue value)
-{
+  // If you hit this assertion, it's because only a single thread can wait on a fence at a time
   ASSERT(!fence->already_waiting);
   if (is_fence_complete(fence, value))
     return;
@@ -187,7 +175,7 @@ block_for_fence_value(Fence* fence, FenceValue value)
 }
 
 CmdQueue
-init_cmd_queue(const GraphicsDevice* device, CmdQueueType type)
+init_cmd_queue(const GpuDevice* device, CmdQueueType type)
 {
   CmdQueue ret = {0};
 
@@ -213,13 +201,13 @@ destroy_cmd_queue(CmdQueue* queue)
 }
 
 void
-cmd_queue_gpu_wait_for_fence(const CmdQueue* queue, Fence* fence, FenceValue value)
+cmd_queue_gpu_wait_for_fence(const CmdQueue* queue, GpuFence* fence, FenceValue value)
 {
   HASSERT(queue->d3d12_queue->Wait(fence->d3d12_fence, value));
 }
 
 FenceValue
-cmd_queue_signal(const CmdQueue* queue, Fence* fence)
+cmd_queue_signal(const CmdQueue* queue, GpuFence* fence)
 {
   FenceValue value = inc_fence(fence);
   HASSERT(queue->d3d12_queue->Signal(fence->d3d12_fence, value));
@@ -230,7 +218,7 @@ cmd_queue_signal(const CmdQueue* queue, Fence* fence)
 CmdListAllocator
 init_cmd_list_allocator(
   AllocHeap heap,
-  const GraphicsDevice* device,
+  const GpuDevice* device,
   const CmdQueue* queue,
   u16 pool_size
 ) {
@@ -277,7 +265,7 @@ init_cmd_list_allocator(
 void
 destroy_cmd_list_allocator(CmdListAllocator* allocator)
 {
-  destroy_fence(&allocator->fence);
+  destroy_gpu_fence(&allocator->fence);
 
   while (!ring_queue_is_empty(allocator->lists))
   {
@@ -301,7 +289,7 @@ alloc_cmd_list(CmdListAllocator* allocator)
   CmdAllocator cmd_allocator = {0};
   ring_queue_pop(&allocator->allocators, &cmd_allocator);
 
-  block_for_fence_value(&allocator->fence, cmd_allocator.fence_value);
+  block_gpu_fence(&allocator->fence, cmd_allocator.fence_value);
 
   ring_queue_pop(&allocator->lists, &ret.d3d12_list);
 
@@ -314,7 +302,7 @@ alloc_cmd_list(CmdListAllocator* allocator)
 }
 
 FenceValue
-submit_cmd_lists(CmdListAllocator* allocator, Span<CmdList> lists, Option<Fence*> fence)
+submit_cmd_lists(CmdListAllocator* allocator, Span<CmdList> lists, Option<GpuFence*> fence)
 {
   FenceValue ret = 0;
 
@@ -367,7 +355,7 @@ get_d3d12_heap_type(GpuHeapType type)
 }
 
 GpuResourceHeap
-init_gpu_resource_heap(const GraphicsDevice* device, u64 size, GpuHeapType type)
+init_gpu_resource_heap(const GpuDevice* device, u64 size, GpuHeapType type)
 {
   D3D12_HEAP_DESC desc = {0};
   desc.SizeInBytes = size;
@@ -394,7 +382,7 @@ destroy_gpu_resource_heap(GpuResourceHeap* heap)
 }
 
 GpuLinearAllocator
-init_gpu_linear_allocator(const GraphicsDevice* device, u64 size, GpuHeapType type)
+init_gpu_linear_allocator(const GpuDevice* device, u64 size, GpuHeapType type)
 {
   GpuLinearAllocator ret = {0};
   ret.heap = init_gpu_resource_heap(device, size, type);
@@ -413,7 +401,7 @@ init_graphics_device()
 {
   if (g_GpuDevice == nullptr)
   {
-    g_GpuDevice = HEAP_ALLOC(GraphicsDevice, g_InitHeap, 1);
+    g_GpuDevice = HEAP_ALLOC(GpuDevice, g_InitHeap, 1);
   }
 
 #ifdef DEBUG_LAYER
@@ -459,16 +447,16 @@ init_graphics_device()
 }
 
 void
-wait_for_gpu_device_idle(GraphicsDevice* device)
+wait_for_gpu_device_idle(GpuDevice* device)
 {
   FenceValue value = cmd_queue_signal(&device->graphics_queue, &device->graphics_cmd_allocator.fence);
-  block_for_fence_value(&device->graphics_cmd_allocator.fence, value);
+  block_gpu_fence(&device->graphics_cmd_allocator.fence, value);
 
   value = cmd_queue_signal(&device->compute_queue, &device->compute_cmd_allocator.fence);
-  block_for_fence_value(&device->compute_cmd_allocator.fence, value);
+  block_gpu_fence(&device->compute_cmd_allocator.fence, value);
 
   value = cmd_queue_signal(&device->copy_queue, &device->copy_cmd_allocator.fence);
-  block_for_fence_value(&device->copy_cmd_allocator.fence, value);
+  block_gpu_fence(&device->copy_cmd_allocator.fence, value);
 }
 
 void
@@ -487,7 +475,7 @@ destroy_graphics_device()
 #endif
 
   COM_RELEASE(g_GpuDevice->d3d12);
-  zero_memory(g_GpuDevice, sizeof(GraphicsDevice));
+  zero_memory(g_GpuDevice, sizeof(GpuDevice));
 }
 
 bool
@@ -511,7 +499,7 @@ get_typeless_depth_format(DXGI_FORMAT format)
 }
 
 GpuTexture
-alloc_gpu_texture_no_heap(const GraphicsDevice* device, GpuTextureDesc desc, const char* name)
+alloc_gpu_texture_no_heap(const GpuDevice* device, GpuTextureDesc desc, const char* name)
 {
   GpuTexture ret = {0};
   ret.desc = desc;
@@ -596,7 +584,7 @@ d3d12_resource_desc(GpuTextureDesc desc)
 
 GpuTexture
 alloc_gpu_texture(
-  const GraphicsDevice* device,
+  const GpuDevice* device,
   GpuLinearAllocator* allocator,
   GpuTextureDesc desc,
   const char* name
@@ -653,7 +641,7 @@ alloc_gpu_texture(
 
 GpuBuffer
 alloc_gpu_buffer_no_heap(
-  const GraphicsDevice* device,
+  const GpuDevice* device,
   GpuBufferDesc desc,
   GpuHeapType type,
   const char* name
@@ -664,12 +652,17 @@ alloc_gpu_buffer_no_heap(
   D3D12_HEAP_PROPERTIES heap_props = CD3DX12_HEAP_PROPERTIES(get_d3d12_heap_type(type));
   auto resource_desc = CD3DX12_RESOURCE_DESC::Buffer(desc.size, desc.flags);
 
-  HASSERT(device->d3d12->CreateCommittedResource(&heap_props,
-                                                D3D12_HEAP_FLAG_NONE,
-                                                &resource_desc,
-                                                desc.initial_state,
-                                                nullptr,
-                                                IID_PPV_ARGS(&ret.d3d12_buffer)));
+  HASSERT(
+    device->d3d12->CreateCommittedResource(
+      &heap_props,
+      D3D12_HEAP_FLAG_NONE,
+      &resource_desc,
+      desc.initial_state,
+      nullptr,
+      IID_PPV_ARGS(&ret.d3d12_buffer)
+    )
+  );
+
   wchar_t wname[1024];
   mbstowcs(wname, name, 1024);
   ret.d3d12_buffer->SetName(wname);
@@ -693,7 +686,7 @@ free_gpu_buffer(GpuBuffer* buffer)
 
 GpuBuffer
 alloc_gpu_buffer(
-  const GraphicsDevice* device,
+  const GpuDevice* device,
   GpuLinearAllocator* allocator,
   GpuBufferDesc desc,
   const char* name
@@ -760,7 +753,7 @@ descriptor_type_is_shader_visible(DescriptorHeapType type)
 }
 
 static ID3D12DescriptorHeap*
-init_d3d12_descriptor_heap(const GraphicsDevice* device, u32 size, DescriptorHeapType type)
+init_d3d12_descriptor_heap(const GpuDevice* device, u32 size, DescriptorHeapType type)
 {
   D3D12_DESCRIPTOR_HEAP_DESC desc;
   desc.Type              = get_d3d12_descriptor_type(type);
@@ -782,7 +775,7 @@ init_d3d12_descriptor_heap(const GraphicsDevice* device, u32 size, DescriptorHea
 }
 
 DescriptorPool
-init_descriptor_pool(AllocHeap heap, const GraphicsDevice* device, u32 size, DescriptorHeapType type)
+init_descriptor_pool(AllocHeap heap, const GpuDevice* device, u32 size, DescriptorHeapType type)
 {
   DescriptorPool ret = {0};
   ret.num_descriptors = size;
@@ -814,7 +807,7 @@ destroy_descriptor_pool(DescriptorPool* pool)
 
 DescriptorLinearAllocator
 init_descriptor_linear_allocator(
-  const GraphicsDevice* device,
+  const GpuDevice* device,
   u32 size,
   DescriptorHeapType type
 ) {
@@ -903,7 +896,7 @@ alloc_descriptor(DescriptorLinearAllocator* allocator)
 
 
 void
-init_rtv(const GraphicsDevice* device, Descriptor* descriptor, const GpuTexture* texture)
+init_rtv(const GpuDevice* device, Descriptor* descriptor, const GpuTexture* texture)
 {
   ASSERT(descriptor->type == kDescriptorHeapTypeRtv);
 
@@ -916,7 +909,7 @@ init_rtv(const GraphicsDevice* device, Descriptor* descriptor, const GpuTexture*
 }
 
 void
-init_dsv(const GraphicsDevice* device, Descriptor* descriptor, const GpuTexture* texture)
+init_dsv(const GpuDevice* device, Descriptor* descriptor, const GpuTexture* texture)
 {
   ASSERT(descriptor->type == kDescriptorHeapTypeDsv);
 
@@ -934,7 +927,7 @@ init_dsv(const GraphicsDevice* device, Descriptor* descriptor, const GpuTexture*
 
 void
 init_buffer_srv(
-  const GraphicsDevice* device,
+  const GpuDevice* device,
   Descriptor* descriptor,
   const GpuBuffer* buffer,
   u32 first_element,
@@ -962,7 +955,7 @@ buffer_is_aligned(const GpuBuffer* buffer, u64 alignment, u64 offset = 0)
 
 void
 init_buffer_cbv(
-  const GraphicsDevice* device,
+  const GpuDevice* device,
   Descriptor* descriptor,
   const GpuBuffer* buffer,
   u64 offset,
@@ -979,7 +972,7 @@ init_buffer_cbv(
 
 void
 init_buffer_uav(
-  const GraphicsDevice* device,
+  const GpuDevice* device,
   Descriptor* descriptor,
   const GpuBuffer* buffer,
   u32 first_element,
@@ -1000,7 +993,7 @@ init_buffer_uav(
 }
 
 void
-init_texture_srv(const GraphicsDevice* device, Descriptor* descriptor, const GpuTexture* texture)
+init_texture_srv(const GpuDevice* device, Descriptor* descriptor, const GpuTexture* texture)
 {
   ASSERT(descriptor->type == kDescriptorHeapTypeCbvSrvUav);
 
@@ -1028,7 +1021,7 @@ init_texture_srv(const GraphicsDevice* device, Descriptor* descriptor, const Gpu
 }
 
 void
-init_texture_uav(const GraphicsDevice* device, Descriptor* descriptor, const GpuTexture* texture)
+init_texture_uav(const GpuDevice* device, Descriptor* descriptor, const GpuTexture* texture)
 {
   ASSERT(descriptor->type == kDescriptorHeapTypeCbvSrvUav);
 
@@ -1046,7 +1039,7 @@ init_texture_uav(const GraphicsDevice* device, Descriptor* descriptor, const Gpu
 }
 
 void
-init_sampler(const GraphicsDevice* device, Descriptor* descriptor)
+init_sampler(const GpuDevice* device, Descriptor* descriptor)
 {
   ASSERT(descriptor->type == kDescriptorHeapTypeSampler);
 
@@ -1063,7 +1056,7 @@ init_sampler(const GraphicsDevice* device, Descriptor* descriptor)
 }
 
 void
-init_bvh_srv(const GraphicsDevice* device, Descriptor* descriptor, const GpuBvh* bvh)
+init_bvh_srv(const GpuDevice* device, Descriptor* descriptor, const GpuBvh* bvh)
 {
   ASSERT(descriptor->type == kDescriptorHeapTypeCbvSrvUav);
 
@@ -1078,7 +1071,7 @@ init_bvh_srv(const GraphicsDevice* device, Descriptor* descriptor, const GpuBvh*
 static ID3D12RootSignature* g_root_signature = nullptr;
 
 static void
-init_root_signature(const GraphicsDevice* device, ID3DBlob* blob)
+init_root_signature(const GpuDevice* device, ID3DBlob* blob)
 {
   if (g_root_signature == nullptr)
   {
@@ -1104,7 +1097,7 @@ init_root_signature(const GraphicsDevice* device, ID3DBlob* blob)
 }
 
 GpuShader
-load_shader_from_file(const GraphicsDevice* device, const wchar_t* path)
+load_shader_from_file(const GpuDevice* device, const wchar_t* path)
 {
   GpuShader ret = {0};
   HASSERT(D3DReadFileToBlob(path, &ret.d3d12_shader));
@@ -1113,7 +1106,7 @@ load_shader_from_file(const GraphicsDevice* device, const wchar_t* path)
 }
 
 GpuShader
-load_shader_from_memory(const GraphicsDevice* device, const u8* src, size_t size)
+load_shader_from_memory(const GpuDevice* device, const u8* src, size_t size)
 {
   GpuShader ret = {0};
 
@@ -1134,7 +1127,7 @@ destroy_shader(GpuShader* shader)
 
 GraphicsPSO
 init_graphics_pipeline(
-  const GraphicsDevice* device,
+  const GpuDevice* device,
   GraphicsPipelineDesc desc,
   const char* name
 ) {
@@ -1210,7 +1203,7 @@ destroy_graphics_pipeline(GraphicsPSO* pipeline)
 }
 
 ComputePSO
-init_compute_pipeline(const GraphicsDevice* device, GpuShader compute_shader, const char* name)
+init_compute_pipeline(const GpuDevice* device, GpuShader compute_shader, const char* name)
 {
   ComputePSO ret;
   D3D12_COMPUTE_PIPELINE_STATE_DESC desc;
@@ -1238,7 +1231,7 @@ destroy_compute_pipeline(ComputePSO* pipeline)
 
 GpuBvh
 init_acceleration_structure(
-  GraphicsDevice* device,
+  GpuDevice* device,
   const GpuBuffer& vertex_uber_buffer,
   u32 vertex_count,
   u32 vertex_stride,
@@ -1269,16 +1262,20 @@ init_acceleration_structure(
 
   D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO bottom_level_prebuild_info;
   device->d3d12->GetRaytracingAccelerationStructurePrebuildInfo(&bottom_level_inputs, &bottom_level_prebuild_info);
-  bottom_level_prebuild_info.ScratchDataSizeInBytes = ALIGN_POW2(bottom_level_prebuild_info.ScratchDataSizeInBytes, D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT);
+  bottom_level_prebuild_info.ScratchDataSizeInBytes   = ALIGN_POW2(bottom_level_prebuild_info.ScratchDataSizeInBytes,   D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT);
   bottom_level_prebuild_info.ResultDataMaxSizeInBytes = ALIGN_POW2(bottom_level_prebuild_info.ResultDataMaxSizeInBytes, D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT);
   ASSERT(bottom_level_prebuild_info.ResultDataMaxSizeInBytes > 0);
 
-  ret.bottom_bvh          = alloc_gpu_buffer_no_heap(device,
-                                                    {.size = bottom_level_prebuild_info.ResultDataMaxSizeInBytes,
-                                                      .flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
-                                                      .initial_state = D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE},
-                                                    kGpuHeapTypeLocal,
-                                                    "Bottom BVH Buffer");
+  ret.bottom_bvh = alloc_gpu_buffer_no_heap(
+    device,
+    {
+      .size = bottom_level_prebuild_info.ResultDataMaxSizeInBytes,
+      .flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+      .initial_state = D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE
+    },
+    kGpuHeapTypeLocal,
+    "Bottom BVH Buffer"
+  );
 
   D3D12_RAYTRACING_INSTANCE_DESC instance_desc = {};
   instance_desc.Transform[0][0] = 1;
@@ -1289,9 +1286,11 @@ init_acceleration_structure(
   instance_desc.InstanceContributionToHitGroupIndex = 0;
   instance_desc.Flags = D3D12_RAYTRACING_INSTANCE_FLAG_TRIANGLE_CULL_DISABLE;
   instance_desc.AccelerationStructure = ret.bottom_bvh.gpu_addr;
-  ret.instance_desc_buffer = alloc_gpu_buffer_no_heap(device,
-                                                      {.size = ALIGN_POW2(sizeof(instance_desc), D3D12_RAYTRACING_INSTANCE_DESCS_BYTE_ALIGNMENT)},
-                                                      kGpuHeapTypeUpload, "Instance Desc");
+  ret.instance_desc_buffer = alloc_gpu_buffer_no_heap(
+    device,
+    {.size = ALIGN_POW2(sizeof(instance_desc), D3D12_RAYTRACING_INSTANCE_DESCS_BYTE_ALIGNMENT)},
+    kGpuHeapTypeUpload, "Instance Desc"
+  );
   memcpy(unwrap(ret.instance_desc_buffer.mapped), &instance_desc, sizeof(instance_desc));
 
   D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS top_level_inputs = {};
@@ -1308,29 +1307,42 @@ init_acceleration_structure(
   top_level_prebuild_info.ResultDataMaxSizeInBytes = ALIGN_POW2(top_level_prebuild_info.ResultDataMaxSizeInBytes, D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT);
   ASSERT(top_level_prebuild_info.ResultDataMaxSizeInBytes > 0);
 
-  ret.top_bvh             = alloc_gpu_buffer_no_heap(device,
-                                                    {.size = top_level_prebuild_info.ResultDataMaxSizeInBytes,
-                                                      .flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
-                                                      .initial_state = D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE},
-                                                    kGpuHeapTypeLocal,
-                                                    "Top BVH Buffer");
+  ret.top_bvh = alloc_gpu_buffer_no_heap(
+    device,
+    {
+      .size = top_level_prebuild_info.ResultDataMaxSizeInBytes,
+      .flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+      .initial_state = D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE
+    },
+    kGpuHeapTypeLocal,
+    "Top BVH Buffer"
+  );
 
-  GpuBuffer top_level_scratch = alloc_gpu_buffer_no_heap(device,
-                                                        {.size = top_level_prebuild_info.ScratchDataSizeInBytes,
-                                                          .flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS},
-                                                        kGpuHeapTypeLocal,
-                                                        "BVH Scratch Buffer");
+  GpuBuffer top_level_scratch = alloc_gpu_buffer_no_heap(
+    device,
+    {
+      .size = top_level_prebuild_info.ScratchDataSizeInBytes,
+      .flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS
+    },
+    kGpuHeapTypeLocal,
+    "BVH Scratch Buffer"
+  );
 
-  GpuBuffer bottom_level_scratch = alloc_gpu_buffer_no_heap(device,
-                                                        {.size = bottom_level_prebuild_info.ScratchDataSizeInBytes,
-                                                          .flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS},
-                                                        kGpuHeapTypeLocal,
-                                                        "BVH Scratch Buffer");
-//    defer 
-//		{
-//			free_gpu_buffer(&top_level_scratch); 
-//			free_gpu_buffer(&bottom_level_scratch);
-//		};
+  GpuBuffer bottom_level_scratch = alloc_gpu_buffer_no_heap(
+    device,
+    {
+      .size = bottom_level_prebuild_info.ScratchDataSizeInBytes,
+      .flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS
+    },
+    kGpuHeapTypeLocal,
+    "BVH Scratch Buffer"
+  );
+
+  defer
+  {
+    free_gpu_buffer(&top_level_scratch); 
+    free_gpu_buffer(&bottom_level_scratch);
+  };
 
   D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC bottom_level_build_desc = {};
   bottom_level_build_desc.Inputs                           = bottom_level_inputs;
@@ -1351,13 +1363,12 @@ init_acceleration_structure(
   cmd_list.d3d12_list->ResourceBarrier(1, &uav_barrier);
   cmd_list.d3d12_list->BuildRaytracingAccelerationStructure(&top_level_build_desc, 0, nullptr);
   cmd_list.d3d12_list->ResourceBarrier(1, &uav_barrier);
-//    Fence fence = init_fence(device);
-//    defer { destroy_fence(&fence); };
+  GpuFence fence = init_fence(device);
+  defer { destroy_gpu_fence(&fence); };
 
-  submit_cmd_lists(&device->graphics_cmd_allocator, {cmd_list});
+  FenceValue fence_value = submit_cmd_lists(&device->graphics_cmd_allocator, {cmd_list}, &fence);
 
-  wait_for_gpu_device_idle(device);
-//    block_for_fence_value(&fence, fence_value);
+  block_gpu_fence(&fence, fence_value);
 
   return ret;
 }
@@ -1372,7 +1383,7 @@ destroy_acceleration_structure(GpuBvh* bvh)
 }
 
 RayTracingPSO
-init_ray_tracing_pipeline(const GraphicsDevice* device, GpuShader ray_tracing_library, const char* name)
+init_ray_tracing_pipeline(const GpuDevice* device, GpuShader ray_tracing_library, const char* name)
 {
   RayTracingPSO ret;
 
@@ -1400,7 +1411,7 @@ destroy_ray_tracing_pipeline(RayTracingPSO* pipeline)
 }
 
 ShaderTable
-init_shader_table(const GraphicsDevice* device, RayTracingPSO pipeline, const char* name)
+init_shader_table(const GpuDevice* device, RayTracingPSO pipeline, const char* name)
 {
   ShaderTable ret = {0};
 
@@ -1464,7 +1475,7 @@ alloc_back_buffers_from_swap_chain(
 
 
 SwapChain
-init_swap_chain(HWND window, const GraphicsDevice* device)
+init_swap_chain(HWND window, const GpuDevice* device)
 {
   auto* factory = init_factory();
   defer { COM_RELEASE(factory); };
@@ -1537,7 +1548,7 @@ destroy_swap_chain(SwapChain* swap_chain)
   {
     free_gpu_texture(texture);
   }
-  destroy_fence(&swap_chain->fence);
+  destroy_gpu_fence(&swap_chain->fence);
   COM_RELEASE(swap_chain->d3d12_swap_chain);
 }
 
@@ -1546,14 +1557,13 @@ const GpuTexture*
 swap_chain_acquire(SwapChain* swap_chain)
 {
   u32 index = swap_chain->back_buffer_index;
-  block_for_fence_value(&swap_chain->fence,
-                        swap_chain->frame_fence_values[index]);
+  block_gpu_fence(&swap_chain->fence, swap_chain->frame_fence_values[index]);
 
   return swap_chain->back_buffers[index];
 }
 
 void
-swap_chain_submit(SwapChain* swap_chain, const GraphicsDevice* device, const GpuTexture* rtv)
+swap_chain_submit(SwapChain* swap_chain, const GpuDevice* device, const GpuTexture* rtv)
 {
   u32 index = swap_chain->back_buffer_index;
   ASSERT(swap_chain->back_buffers[index] == rtv);
@@ -1569,7 +1579,7 @@ swap_chain_submit(SwapChain* swap_chain, const GraphicsDevice* device, const Gpu
 }
 
 void
-swap_chain_resize(SwapChain* swap_chain, HWND window, GraphicsDevice* device)
+swap_chain_resize(SwapChain* swap_chain, HWND window, GpuDevice* device)
 {
   wait_for_gpu_device_idle(device);
 
@@ -1648,7 +1658,7 @@ set_compute_root_signature(CmdList* cmd)
 
 void
 init_imgui_ctx(
-  const GraphicsDevice* device,
+  const GpuDevice* device,
   const SwapChain* swap_chain,
   HWND window,
   DescriptorLinearAllocator* cbv_srv_uav_heap

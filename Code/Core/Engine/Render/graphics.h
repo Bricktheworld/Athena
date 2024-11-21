@@ -12,8 +12,8 @@
 #include <dxgi1_6.h>
 #include <wrl.h>
 
-struct GraphicsDevice;
-extern GraphicsDevice* g_GpuDevice;
+struct GpuDevice;
+extern GpuDevice* g_GpuDevice;
 
 enum : u8
 {
@@ -27,7 +27,7 @@ typedef u64 FenceValue;
 typedef Vec4 Rgba;
 typedef Vec3 Rgb;
 
-struct Fence
+struct GpuFence
 {
   ID3D12Fence* d3d12_fence          = nullptr;
   FenceValue   value                = 0;
@@ -36,10 +36,9 @@ struct Fence
   bool         already_waiting      = false;
 };
 
-Fence init_fence(const GraphicsDevice* device);
-void  destroy_fence(Fence* fence);
-void  yield_for_fence_value(Fence* fence, FenceValue value);
-void  block_for_fence_value(Fence* fence, FenceValue value);
+GpuFence init_gpu_fence(const GpuDevice* device);
+void     destroy_gpu_fence(GpuFence* fence);
+void     block_gpu_fence(GpuFence* fence, FenceValue value);
 
 enum CmdQueueType : u8
 {
@@ -56,10 +55,10 @@ struct CmdQueue
   CmdQueueType        type        = kCmdQueueTypeGraphics;
 };
 
-CmdQueue   init_cmd_queue(const GraphicsDevice* device, CmdQueueType type);
+CmdQueue   init_cmd_queue(const GpuDevice* device, CmdQueueType type);
 void       destroy_cmd_queue(CmdQueue* queue);
-void       cmd_queue_gpu_wait_for_fence(const CmdQueue* queue, Fence* fence, FenceValue value);
-FenceValue cmd_queue_signal(const CmdQueue* queue, Fence* fence);
+void       cmd_queue_gpu_wait_for_fence(const CmdQueue* queue, GpuFence* fence, FenceValue value);
+FenceValue cmd_queue_signal(const CmdQueue* queue, GpuFence* fence);
 
 struct CmdAllocator
 {
@@ -73,7 +72,7 @@ struct CmdListAllocator
 
   RingQueue<CmdAllocator>                allocators;
   RingQueue<ID3D12GraphicsCommandList4*> lists;
-  Fence                                  fence;
+  GpuFence                                  fence;
 };
 
 struct CmdList
@@ -84,7 +83,7 @@ struct CmdList
 
 CmdListAllocator init_cmd_list_allocator(
   AllocHeap heap,
-  const GraphicsDevice* device,
+  const GpuDevice* device,
   const CmdQueue* queue,
   u16 pool_size
 );
@@ -94,10 +93,10 @@ CmdList    alloc_cmd_list(CmdListAllocator* allocator);
 FenceValue submit_cmd_lists(
   CmdListAllocator* allocator,
   Span<CmdList> lists,
-  Option<Fence*> fence = None
+  Option<GpuFence*> fence = None
 );
 
-struct GraphicsDevice
+struct GpuDevice
 {
   ID3D12Device6*   d3d12 = nullptr;
   IDXGIDebug*      d3d12_debug = nullptr;
@@ -112,7 +111,7 @@ struct GraphicsDevice
 void init_graphics_device();
 void destroy_graphics_device();
 
-void wait_for_gpu_device_idle(GraphicsDevice* device);
+void wait_for_gpu_device_idle(GpuDevice* device);
 
 enum GpuHeapType : u8
 {
@@ -132,7 +131,7 @@ struct GpuResourceHeap
 };
 
 GpuResourceHeap init_gpu_resource_heap(
-  const GraphicsDevice* device,
+  const GpuDevice* device,
   u64 size,
   GpuHeapType type
 );
@@ -145,7 +144,7 @@ struct GpuLinearAllocator
 };
 
 GpuLinearAllocator init_gpu_linear_allocator(
-  const GraphicsDevice* device,
+  const GpuDevice* device,
   u64 size,
   GpuHeapType type
 );
@@ -187,21 +186,21 @@ struct GpuTexture
 };
 
 GpuTexture alloc_gpu_texture_no_heap(
-  const GraphicsDevice* device,
+  const GpuDevice* device,
   GpuTextureDesc desc,
   const char* name
 );
 void free_gpu_texture(GpuTexture* texture);
 
 GpuTexture alloc_gpu_texture(
-  const GraphicsDevice* device,
+  const GpuDevice* device,
   GpuLinearAllocator* allocator,
   GpuTextureDesc desc,
   const char* name
 );
 
 void upload_gpu_texture(
-  const GraphicsDevice* device,
+  const GpuDevice* device,
   const void* rgba,
   GpuTexture* dst
 );
@@ -224,7 +223,7 @@ struct GpuBuffer
   Option<void*>         mapped       = None;
 };
 GpuBuffer alloc_gpu_buffer_no_heap(
-  const GraphicsDevice* device,
+  const GpuDevice* device,
   GpuBufferDesc desc,
   GpuHeapType type,
   const char* name
@@ -232,7 +231,7 @@ GpuBuffer alloc_gpu_buffer_no_heap(
 void free_gpu_buffer(GpuBuffer* buffer);
 
 GpuBuffer alloc_gpu_buffer(
-  const GraphicsDevice* device,
+  const GpuDevice* device,
   GpuLinearAllocator* allocator,
   GpuBufferDesc desc,
   const char* name
@@ -247,7 +246,7 @@ struct GpuBvh
 
 // TODO(Brandon): We eventually will want to have this not take uber buffers but instead be more fine-grained...
 GpuBvh init_acceleration_structure(
-  GraphicsDevice* device,
+  GpuDevice* device,
   const GpuBuffer& vertex_uber_buffer,
   u32 vertex_count,
   u32 vertex_stride,
@@ -290,7 +289,7 @@ struct DescriptorPool
 
 DescriptorPool init_descriptor_pool(
   AllocHeap heap,
-  const GraphicsDevice* device,
+  const GpuDevice* device,
   u32 size,
   DescriptorHeapType type
 );
@@ -312,7 +311,7 @@ struct DescriptorLinearAllocator
 };
 
 DescriptorLinearAllocator init_descriptor_linear_allocator(
-  const GraphicsDevice* device,
+  const GpuDevice* device,
   u32 size,
   DescriptorHeapType type
 );
@@ -335,7 +334,7 @@ Descriptor alloc_descriptor(DescriptorLinearAllocator* allocator);
 
 
 void init_buffer_cbv(
-  const GraphicsDevice* device,
+  const GpuDevice* device,
   Descriptor* descriptor,
   const GpuBuffer* buffer,
   u64 offset,
@@ -343,7 +342,7 @@ void init_buffer_cbv(
 );
 
 void init_buffer_srv(
-  const GraphicsDevice* device,
+  const GpuDevice* device,
   Descriptor* descriptor,
   const GpuBuffer* buffer,
   u32 first_element,
@@ -352,7 +351,7 @@ void init_buffer_srv(
 );
 
 void init_buffer_uav(
-  const GraphicsDevice* device,
+  const GpuDevice* device,
   Descriptor* descriptor,
   const GpuBuffer* buffer,
   u32 first_element,
@@ -360,22 +359,22 @@ void init_buffer_uav(
   u32 stride
 );
 
-void init_rtv(const GraphicsDevice* device, Descriptor* descriptor, const GpuTexture* texture);
-void init_dsv(const GraphicsDevice* device, Descriptor* descriptor, const GpuTexture* texture);
-void init_texture_srv(const GraphicsDevice* device, Descriptor* descriptor, const GpuTexture* texture);
-void init_texture_uav(const GraphicsDevice* device, Descriptor* descriptor, const GpuTexture* texture);
+void init_rtv(const GpuDevice* device, Descriptor* descriptor, const GpuTexture* texture);
+void init_dsv(const GpuDevice* device, Descriptor* descriptor, const GpuTexture* texture);
+void init_texture_srv(const GpuDevice* device, Descriptor* descriptor, const GpuTexture* texture);
+void init_texture_uav(const GpuDevice* device, Descriptor* descriptor, const GpuTexture* texture);
 
-void init_sampler(const GraphicsDevice* device, Descriptor* descriptor);
+void init_sampler(const GpuDevice* device, Descriptor* descriptor);
 
-void init_bvh_srv(const GraphicsDevice* device, Descriptor* descriptor, const GpuBvh* bvh);
+void init_bvh_srv(const GpuDevice* device, Descriptor* descriptor, const GpuBvh* bvh);
 
 struct GpuShader
 {
   ID3DBlob* d3d12_shader = nullptr;
 };
 
-GpuShader load_shader_from_file(const GraphicsDevice* device, const wchar_t* path);
-GpuShader load_shader_from_memory(const GraphicsDevice* device, const u8* src, size_t size);
+GpuShader load_shader_from_file(const GpuDevice* device, const wchar_t* path);
+GpuShader load_shader_from_memory(const GpuDevice* device, const u8* src, size_t size);
 void destroy_shader(GpuShader* shader);
 
 struct GraphicsPipelineDesc
@@ -390,21 +389,12 @@ struct GraphicsPipelineDesc
 
   auto operator<=>(const GraphicsPipelineDesc& rhs) const = default;
 };
-static_assert(offsetof(GraphicsPipelineDesc, vertex_shader)   == 0);
-static_assert(offsetof(GraphicsPipelineDesc, pixel_shader)    == 8);
-static_assert(sizeof(DXGI_FORMAT) == 4);
-static_assert(offsetof(GraphicsPipelineDesc, rtv_formats)     == 16);
-static_assert(sizeof(Array<DXGI_FORMAT, 8>) == 48);
-static_assert(offsetof(GraphicsPipelineDesc, dsv_format)      == 64);
-static_assert(offsetof(GraphicsPipelineDesc, comparison_func) == 68);
-static_assert(offsetof(GraphicsPipelineDesc, stencil_enable)  == 72);
-static_assert(sizeof(GraphicsPipelineDesc) == 80);
 
 struct GraphicsPSO
 {
   ID3D12PipelineState* d3d12_pso = nullptr;
 };
-GraphicsPSO init_graphics_pipeline(const GraphicsDevice* device,
+GraphicsPSO init_graphics_pipeline(const GpuDevice* device,
                                   GraphicsPipelineDesc desc,
                                   const char* name);
 void destroy_graphics_pipeline(GraphicsPSO* pipeline);
@@ -414,7 +404,7 @@ struct ComputePSO
   ID3D12PipelineState* d3d12_pso = nullptr;
 };
 
-ComputePSO init_compute_pipeline(const GraphicsDevice* device, GpuShader compute_shader, const char* name);
+ComputePSO init_compute_pipeline(const GpuDevice* device, GpuShader compute_shader, const char* name);
 void destroy_compute_pipeline(ComputePSO* pipeline);
 
 struct RayTracingPSO
@@ -424,7 +414,7 @@ struct RayTracingPSO
 };
 
 RayTracingPSO init_ray_tracing_pipeline(
-  const GraphicsDevice* device,
+  const GpuDevice* device,
   GpuShader ray_tracing_library,
   const char* name
 );
@@ -445,7 +435,7 @@ struct ShaderTable
 };
 
 ShaderTable init_shader_table(
-  const GraphicsDevice* device,
+  const GpuDevice* device,
   RayTracingPSO pipeline,
   const char* name
 );
@@ -458,7 +448,7 @@ struct SwapChain
   DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
 
   IDXGISwapChain4* d3d12_swap_chain = nullptr;
-  Fence fence;
+  GpuFence fence;
   FenceValue frame_fence_values[kFramesInFlight] = {0};
 
   GpuTexture* back_buffers[kFramesInFlight] = {0};
@@ -469,12 +459,12 @@ struct SwapChain
   bool fullscreen = false;
 };
 
-SwapChain init_swap_chain(HWND window, const GraphicsDevice* device);
+SwapChain init_swap_chain(HWND window, const GpuDevice* device);
 void destroy_swap_chain(SwapChain* swap_chain);
 
 const GpuTexture* swap_chain_acquire(SwapChain* swap_chain);
-void swap_chain_submit(SwapChain* swap_chain, const GraphicsDevice* device, const GpuTexture* rtv);
-void swap_chain_resize(SwapChain* swap_chain, HWND window, GraphicsDevice* device);
+void swap_chain_submit(SwapChain* swap_chain, const GpuDevice* device, const GpuTexture* rtv);
+void swap_chain_resize(SwapChain* swap_chain, HWND window, GpuDevice* device);
 
 void set_descriptor_heaps(CmdList* cmd, const DescriptorPool* heaps, u32 num_heaps);
 void set_descriptor_heaps(CmdList* cmd, Span<const DescriptorLinearAllocator*> heaps);
@@ -482,7 +472,7 @@ void set_graphics_root_signature(CmdList* cmd);
 void set_compute_root_signature(CmdList* cmd);
 
 void init_imgui_ctx(
-  const GraphicsDevice* device,
+  const GpuDevice* device,
   const SwapChain* swap_chain,
   HWND window,
   DescriptorLinearAllocator* cbv_srv_uav_heap
