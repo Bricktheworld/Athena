@@ -29,7 +29,7 @@ DeferredPSOut PS_BasicNormalGloss(BasicVSOut ps_in)
 {
   DeferredPSOut ret;
 
-	ConstantBuffer<Transform> transform = ResourceDescriptorHeap[g_Resources.transform];
+  ConstantBuffer<Transform> transform = ResourceDescriptorHeap[g_Resources.transform];
 
   ret.material_id       = 1;
   ret.diffuse_metallic  = float4(1.0f, 1.0f, 1.0f, 0.5f);
