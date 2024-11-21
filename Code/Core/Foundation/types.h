@@ -185,8 +185,7 @@ template <class F> __Deferrer__<F> operator*(__DeferDummy__, F f) { return {f}; 
 #define DEBUG
 #endif
 
-//#ifdef DEBUG
-#if 1
+#ifdef DEBUG
 #define DEBUG_BREAK() __debugbreak()
 
 #define ASSERT(expr) \
@@ -215,7 +214,7 @@ template <class F> __Deferrer__<F> operator*(__DeferDummy__, F f) { return {f}; 
   } while(0)
 #else
 #define DEBUG_BREAK() do { } while(0)
-#define ASSERT(expr) do { } while(0)
+#define ASSERT(expr) do { if (expr) { } } while(0)
 #define HASSERT(hres) hres
 #endif
 
