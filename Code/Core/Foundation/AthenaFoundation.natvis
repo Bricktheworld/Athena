@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?> 
+<AutoVisualizer xmlns="http://schemas.microsoft.com/vstudio/debugger/natvis/2010"> 
+  <Type Name="Array&lt;*&gt;">
+    <DisplayString>{{ size={size} }}</DisplayString>
+    <DisplayString>{{ capacity={capacity} }}</DisplayString> 
+    <Expand>
+        <Item Name="[size]" ExcludeView="simple">size</Item>
+        <Item Name="[capacity]" ExcludeView="simple">capacity</Item>
+        <ArrayItems>
+            <Size>size</Size>
+            <ValuePointer>memory</ValuePointer>
+        </ArrayItems>
+    </Expand>
+  </Type>
+
+  <Type Name="HashTable&lt;*&gt;">
+    <DisplayString>{{ size={used} }}</DisplayString>
+    <DisplayString>{{ capacity={capacity} }}</DisplayString> 
+    <Expand>
+      <CustomListItems>
+        <Variable Name="Idx" InitialValue="0"/>
+
+        <Size>used</Size>
+        <If Condition="groups != nullptr &amp;&amp; values != nullptr">
+          <Loop>
+            <If Condition="(groups[Idx / 16].ctrls[Idx % 16] &amp; 0x80) != 0">
+              <Loop>
+                <Exec>Idx++</Exec>
+                <Break Condition="Idx / 16 >= groups_size"/>
+                <Break Condition="(groups[Idx / 16].ctrls[Idx % 16] &amp; 0x80) == 0"/>
+              </Loop>
+            </If>
+            <Break Condition="Idx / 16 >= groups_size"/>
+            <Item Name="{groups[Idx / 16].keys[Idx % 16]}">values[Idx]</Item>
+            <Exec>Idx++</Exec>
+          </Loop>
+        </If>
+
+      </CustomListItems>
+
+    </Expand>
+  </Type>
+
+</AutoVisualizer>
