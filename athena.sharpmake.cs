@@ -38,6 +38,9 @@ namespace Athena
       conf.Options.Add(Options.Vc.Compiler.CppLanguageStandard.CPP20);
       conf.Options.Add(Options.Vc.Compiler.Exceptions.Disable);
       conf.Options.Add(Options.Vc.General.TreatWarningsAsErrors.Enable);
+      conf.Options.Add(Options.Vc.Linker.CreateHotPatchableImage.Enable);
+      conf.Options.Add(Options.Vc.Linker.EnableCOMDATFolding.DoNotRemoveRedundantCOMDATs);
+      conf.Options.Add(Options.Vc.Linker.GenerateDebugInformation.Enable);
       conf.Options.Add(
         new Options.Vc.Compiler.DisableSpecificWarnings(
           "4201", // Nonstandard extension used: nameless struct/union
@@ -53,6 +56,7 @@ namespace Athena
       {
         conf.Options.Add(Options.Vc.Compiler.RuntimeLibrary.MultiThreadedDLL);
       }
+      conf.Options.Add(Options.Vc.Linker.Reference.KeepUnreferencedData);
       conf.Defines.Add("UNICODE");
     }
   }

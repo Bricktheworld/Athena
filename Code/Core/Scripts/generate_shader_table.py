@@ -1,5 +1,6 @@
 import sys, os, re 
 import argparse
+import pathlib
 
 def main():
   parser = argparse.ArgumentParser(
@@ -14,8 +15,13 @@ def main():
   args = parser.parse_args()
 
   source_lines_list = []
+  built_includes = '\n'
+  generated_path = pathlib.PureWindowsPath(args.output_header.name).parents[0]
+
   for input in args.inputs:
     source_lines_list.extend(input.readlines())
+    built = pathlib.PureWindowsPath(input.name)
+    built_includes += '#include "' + built.relative_to(generated_path).as_posix() + '"\n'
 
   source_lines = ''.join(source_lines_list)
   shader_binaries = []
@@ -30,12 +36,13 @@ def main():
     shader_enums += '  k' + shader_name + ',\n'
     shader_binary_variables += '  __kShaderSource__' + shader_name + ',\n'
     shader_binary_sizes += '  sizeof(__kShaderSource__' + shader_name + '),\n'
-  
+
   output_header_lines = '#pragma once\nenum EngineShaderIndex\n{\n' + shader_enums + '  kEngineShaderCount,\n};\nextern const unsigned char* kEngineShaderBinSrcs[];\nextern const size_t kEngineShaderBinSizes[];'
 
   local_header_name = os.path.basename(args.output_header.name)
+
   
-  output_source_lines = '#include "' + local_header_name +'"\n' + source_lines + '\nconst unsigned char* kEngineShaderBinSrcs[] = \n{\n' + shader_binary_variables + '};\nconst size_t kEngineShaderBinSizes[] = \n{\n' + shader_binary_sizes + '};\n'
+  output_source_lines = '#include "' + local_header_name +'"\n' + built_includes + '\nconst unsigned char* kEngineShaderBinSrcs[] = \n{\n' + shader_binary_variables + '};\nconst size_t kEngineShaderBinSizes[] = \n{\n' + shader_binary_sizes + '};\n'
   args.output_header.write(output_header_lines)
   args.output_source.write(output_source_lines)
 

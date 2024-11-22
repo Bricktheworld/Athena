@@ -379,8 +379,8 @@ void destroy_shader(GpuShader* shader);
 
 struct GraphicsPipelineDesc
 {
-  GpuShader vertex_shader;
-  GpuShader pixel_shader;
+  const GpuShader* vertex_shader;
+  const GpuShader* pixel_shader;
   Array<DXGI_FORMAT, 8> rtv_formats;
   DXGI_FORMAT dsv_format = DXGI_FORMAT_UNKNOWN;
   D3D12_COMPARISON_FUNC comparison_func = D3D12_COMPARISON_FUNC_GREATER;
@@ -394,9 +394,11 @@ struct GraphicsPSO
 {
   ID3D12PipelineState* d3d12_pso = nullptr;
 };
-GraphicsPSO init_graphics_pipeline(const GpuDevice* device,
-                                  GraphicsPipelineDesc desc,
-                                  const char* name);
+GraphicsPSO init_graphics_pipeline(
+  const GpuDevice* device,
+  const GraphicsPipelineDesc& desc,
+  const char* name
+);
 void destroy_graphics_pipeline(GraphicsPSO* pipeline);
 
 struct ComputePSO
@@ -404,7 +406,7 @@ struct ComputePSO
   ID3D12PipelineState* d3d12_pso = nullptr;
 };
 
-ComputePSO init_compute_pipeline(const GpuDevice* device, GpuShader compute_shader, const char* name);
+ComputePSO init_compute_pipeline(const GpuDevice* device, const GpuShader* compute_shader, const char* name);
 void destroy_compute_pipeline(ComputePSO* pipeline);
 
 struct RayTracingPSO
@@ -415,7 +417,7 @@ struct RayTracingPSO
 
 RayTracingPSO init_ray_tracing_pipeline(
   const GpuDevice* device,
-  GpuShader ray_tracing_library,
+  const GpuShader* ray_tracing_library,
   const char* name
 );
 void destroy_ray_tracing_pipeline(RayTracingPSO* pipeline);

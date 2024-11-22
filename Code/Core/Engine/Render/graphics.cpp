@@ -1068,12 +1068,12 @@ init_bvh_srv(const GpuDevice* device, Descriptor* descriptor, const GpuBvh* bvh)
   device->d3d12->CreateShaderResourceView(nullptr, &desc, descriptor->cpu_handle);
 }
 
-static ID3D12RootSignature* g_root_signature = nullptr;
+static ID3D12RootSignature* g_RootSignature = nullptr;
 
 static void
 init_root_signature(const GpuDevice* device, ID3DBlob* blob)
 {
-  if (g_root_signature == nullptr)
+  if (g_RootSignature == nullptr)
   {
     ID3DBlob* root_signature_blob = nullptr;
     defer { COM_RELEASE(root_signature_blob); };
@@ -1091,7 +1091,7 @@ init_root_signature(const GpuDevice* device, ID3DBlob* blob)
       0,
       root_signature_blob->GetBufferPointer(),
       root_signature_blob->GetBufferSize(),
-      IID_PPV_ARGS(&g_root_signature)
+      IID_PPV_ARGS(&g_RootSignature)
     );
   }
 }
@@ -1128,7 +1128,7 @@ destroy_shader(GpuShader* shader)
 GraphicsPSO
 init_graphics_pipeline(
   const GpuDevice* device,
-  GraphicsPipelineDesc desc,
+  const GraphicsPipelineDesc& desc,
   const char* name
 ) {
   GraphicsPSO ret = {0};
@@ -1163,8 +1163,8 @@ init_graphics_pipeline(
 
 
   D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc = {0};
-  pso_desc.VS = CD3DX12_SHADER_BYTECODE(desc.vertex_shader.d3d12_shader);
-  pso_desc.PS = CD3DX12_SHADER_BYTECODE(desc.pixel_shader.d3d12_shader);
+  pso_desc.VS = CD3DX12_SHADER_BYTECODE(desc.vertex_shader->d3d12_shader);
+  pso_desc.PS = CD3DX12_SHADER_BYTECODE(desc.pixel_shader->d3d12_shader);
   pso_desc.BlendState = blend_desc,
   pso_desc.SampleMask = UINT32_MAX,
   pso_desc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT),
@@ -1203,12 +1203,12 @@ destroy_graphics_pipeline(GraphicsPSO* pipeline)
 }
 
 ComputePSO
-init_compute_pipeline(const GpuDevice* device, GpuShader compute_shader, const char* name)
+init_compute_pipeline(const GpuDevice* device, const GpuShader* compute_shader, const char* name)
 {
   ComputePSO ret;
   D3D12_COMPUTE_PIPELINE_STATE_DESC desc;
-  desc.pRootSignature = g_root_signature;
-  desc.CS = CD3DX12_SHADER_BYTECODE(compute_shader.d3d12_shader);
+  desc.pRootSignature = g_RootSignature;
+  desc.CS = CD3DX12_SHADER_BYTECODE(compute_shader->d3d12_shader);
   desc.NodeMask = 0;
   desc.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
   desc.CachedPSO.pCachedBlob = nullptr;
@@ -1386,14 +1386,14 @@ destroy_acceleration_structure(GpuBvh* bvh)
 }
 
 RayTracingPSO
-init_ray_tracing_pipeline(const GpuDevice* device, GpuShader ray_tracing_library, const char* name)
+init_ray_tracing_pipeline(const GpuDevice* device, const GpuShader* ray_tracing_library, const char* name)
 {
   RayTracingPSO ret;
 
   CD3DX12_STATE_OBJECT_DESC desc = {D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE};
 
   auto* library = desc.CreateSubobject<CD3DX12_DXIL_LIBRARY_SUBOBJECT>();
-  auto shader_byte_code = CD3DX12_SHADER_BYTECODE(ray_tracing_library.d3d12_shader);
+  auto shader_byte_code = CD3DX12_SHADER_BYTECODE(ray_tracing_library->d3d12_shader);
   library->SetDXILLibrary(&shader_byte_code);
   HASSERT(device->d3d12->CreateStateObject(desc, IID_PPV_ARGS(&ret.d3d12_pso)));
 
@@ -1648,15 +1648,15 @@ set_descriptor_heaps(CmdList* cmd, Span<const DescriptorLinearAllocator*> heaps)
 void
 set_graphics_root_signature(CmdList* cmd)
 {
-  ASSERT(g_root_signature != nullptr);
-  cmd->d3d12_list->SetGraphicsRootSignature(g_root_signature);
+  ASSERT(g_RootSignature != nullptr);
+  cmd->d3d12_list->SetGraphicsRootSignature(g_RootSignature);
 }
 
 void
 set_compute_root_signature(CmdList* cmd)
 {
-  ASSERT(g_root_signature != nullptr);
-  cmd->d3d12_list->SetComputeRootSignature(g_root_signature);
+  ASSERT(g_RootSignature != nullptr);
+  cmd->d3d12_list->SetComputeRootSignature(g_RootSignature);
 }
 
 void

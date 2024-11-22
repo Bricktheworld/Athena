@@ -41,7 +41,7 @@ create_thread(
 
   ASSERT(core_index < 32);
   Thread ret = {0};
-  ret.handle = CreateThread(0, stack_size, &thread_entry_proc, params, 0, &ret.id);
+ret.handle = CreateThread(0, stack_size, &thread_entry_proc, params, 0, &ret.id);
   SetThreadAffinityMask(ret.handle, (1ULL << core_index));
 
   return ret;

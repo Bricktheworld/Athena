@@ -21,6 +21,8 @@
 #include "Core/Engine/Vendor/DirectXTK/Mouse.h"
 #include "Core/Engine/Vendor/DirectXTK/Keyboard.h"
 
+#include "Core/Vendor/LivePP/API/x64/LPP_API_x64_CPP.h"
+
 extern "C" { __declspec(dllexport) extern const UINT D3D12SDKVersion = 610;}
 extern "C" { __declspec(dllexport) extern const char* D3D12SDKPath = "."; }
 
@@ -118,9 +120,6 @@ draw_debug(DirectionalLight* out_directional_light, Camera* out_camera)
   ImGui_ImplWin32_NewFrame();
   ImGui::NewFrame();
 
-  bool show = true;
-  ImGui::ShowDemoWindow(&show);
-
   ImGui::Begin("Rendering");
 
 #if 0
@@ -157,19 +156,6 @@ draw_debug(DirectionalLight* out_directional_light, Camera* out_camera)
 
   ImGui::Checkbox("Disable TAA", &g_Renderer.disable_taa);
 
-  static Vec2 bezier_size  = Vec2(36.0f, 36.0f);
-  ImGui::DragFloat2("Bezier Size", (f32*)&bezier_size, 0.2f);
-
-  ImDrawList* draw_list = ImGui::GetWindowDrawList();
-  const ImVec2 p = ImGui::GetCursorScreenPos();
-  f32 x = p.x;
-  f32 y = p.y;
-
-  ImVec2 cp4[4] = { ImVec2(x, y), ImVec2(x + bezier_size.x * 0.5f, y), ImVec2(x + bezier_size.x * 0.5f, y + bezier_size.y), ImVec2(x + bezier_size.x, y + bezier_size.y) };
-  draw_list->AddBezierCubic(cp4[0], cp4[1], cp4[2], cp4[3], IM_COL32_WHITE, 1.0f);
-//  draw_list->PathLineTo(ImVec2(10.0f, 10.0f));
-//  draw_list->PathStroke(IM_COL32(1.0f, 1.0f, 1.0f, 1.0f));
-
   ImGui::End();
 
   ImGui::Render();
@@ -193,12 +179,13 @@ application_entry(HINSTANCE instance, int show_code)
   RegisterClassExW(&wc);
 
   RECT window_rect = {0, 0, 1920, 1080};
-//#define FULLSCREEN
+
 #ifndef FULLSCREEN
-  DWORD dw_style = WS_OVERLAPPEDWINDOW; // WS_POPUP
+  DWORD dw_style = WS_OVERLAPPEDWINDOW;
 #else
   DWORD dw_style = WS_POPUP;
 #endif
+
   AdjustWindowRect(&window_rect, dw_style, 0);
 
   HWND window = CreateWindowExW(
@@ -230,10 +217,11 @@ application_entry(HINSTANCE instance, int show_code)
   init_global_upload_context(g_GpuDevice);
   defer { destroy_global_upload_context(); };
 
-  ShaderManager shader_manager = init_shader_manager(g_GpuDevice);
-  defer { destroy_shader_manager(&shader_manager); };
 
-  init_renderer(g_GpuDevice, &g_MainWindow->swap_chain, shader_manager, window);
+  init_shader_manager(g_GpuDevice);
+  defer { destroy_shader_manager(); };
+
+  init_renderer(g_GpuDevice, &g_MainWindow->swap_chain, window);
   defer { destroy_renderer(); };
 
   init_unified_geometry_buffer(g_GpuDevice);
@@ -247,7 +235,6 @@ application_entry(HINSTANCE instance, int show_code)
     defer { free_scratch_arena(&scratch_arena); };
 
     fs::FileStream sponza_built_file = open_built_asset_file(path_to_asset_id("Assets/Source/sponza/Sponza.gltf"));
-//    fs::FileStream sponza_built_file = open_built_asset_file(path_to_asset_id("Assets/Source/cube.fbx"));
     defer { fs::close_file(&sponza_built_file); };
 
     u64 buf_size = fs::get_file_size(sponza_built_file);
@@ -259,7 +246,7 @@ application_entry(HINSTANCE instance, int show_code)
     AssetLoadResult res = load_model(scratch_arena, buf, buf_size, &model);
     ASSERT(res == AssetLoadResult::kOk);
 
-    sponza = add_scene_object(&scene, shader_manager, model, kVS_Basic, kPS_BasicNormalGloss);
+    sponza = add_scene_object(&scene, model, kVS_Basic, kPS_BasicNormalGloss);
   }
 
   build_acceleration_structures(g_GpuDevice);
@@ -270,9 +257,41 @@ application_entry(HINSTANCE instance, int show_code)
 
   RenderOptions render_options;
 
+  lpp::LppSynchronizedAgent lpp_agent = lpp::LppCreateSynchronizedAgent(nullptr, L"Code/Core/Vendor/LivePP");
+
+  bool lpp_is_valid = lpp::LppIsValidSynchronizedAgent(&lpp_agent);
+  if (!lpp_is_valid)
+  {
+    dbgln("Warning, LPP not initialized! You probably aren't running the engine in the correct working directory...");
+  }
+  else
+  {
+    lpp_agent.EnableModule(lpp::LppGetCurrentModulePath(), lpp::LPP_MODULES_OPTION_ALL_IMPORT_MODULES, nullptr, nullptr);
+  }
+
   bool done = false;
   while (!done)
   {
+    if (lpp_is_valid)
+    {
+      if (lpp_agent.WantsReload())
+      {
+        dbgln("Live++ Hot Reloading...");
+        wait_for_gpu_device_idle(g_GpuDevice);
+
+        lpp_agent.CompileAndReloadChanges(lpp::LPP_RELOAD_BEHAVIOUR_WAIT_UNTIL_CHANGES_ARE_APPLIED);
+
+        dbgln("Live++ Hot Reloaded Successfully!");
+
+      }
+
+      if (lpp_agent.WantsRestart())
+      {
+        dbgln("Live++ Requested Restart, Terminating...");
+        lpp_agent.Restart(lpp::LPP_RESTART_BEHAVIOUR_INSTANT_TERMINATION, 0u);
+      }
+    }
+
     reset_frame_heap();
 
     MSG message;
@@ -349,6 +368,9 @@ application_entry(HINSTANCE instance, int show_code)
     swap_chain_submit(&g_MainWindow->swap_chain, g_GpuDevice, back_buffer);
   }
 
+  lpp::LppDestroySynchronizedAgent(&lpp_agent);
+
+
   wait_for_gpu_device_idle(g_GpuDevice);
 //  kill_job_system(job_system);
 }
@@ -364,11 +386,8 @@ WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, int show_code
   profiler::init();
 
 //#ifdef DEBUG
-//	LoadLibrary(L"C:\\Program Files\\Microsoft PIX\\2305.10\\WinPixGpuCapturer.dll");
+//  LoadLibrary(L"C:\\Program Files\\Microsoft PIX\\2305.10\\WinPixGpuCapturer.dll");
 //#endif
-
-  // TODO(Brandon): lol
-  static constexpr size_t kHeapSize = GiB(2);
 
   init_engine_memory();
   defer { destroy_engine_memory(); };

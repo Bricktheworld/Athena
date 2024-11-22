@@ -12,6 +12,9 @@ constant D3D12_COMPARISON_FUNC kDepthComparison = D3D12_COMPARISON_FUNC_GREATER;
 
 constant f32 kZNear = 0.1f;
 
+struct ShaderManager;
+extern ShaderManager* g_ShaderManager;
+
 // TODO(Brandon): This entire system will be reworked once I figure out,
 // generally how I want to handle render entries in this engine. For now,
 // everything will just get created at the start and there will be no streaming.
@@ -34,8 +37,10 @@ struct ShaderManager
   GpuShader shaders[kEngineShaderCount];
 };
 
-ShaderManager init_shader_manager(const GpuDevice* device);
-void destroy_shader_manager(ShaderManager* shader_manager);
+void init_shader_manager(const GpuDevice* device);
+void destroy_shader_manager();
+const GpuShader* get_engine_shader(u32 index);
+
 
 struct RenderMeshInst
 {
@@ -113,10 +118,10 @@ extern Renderer g_Renderer;
 void init_renderer(
   const GpuDevice* device,
   const SwapChain* swap_chain,
-  const ShaderManager& shader_manager,
   HWND window
 );
 void renderer_on_resize(const GpuDevice* device, const SwapChain* swap_chain);
+void renderer_hot_reload(const GpuDevice* device, const SwapChain* swap_chain);
 void destroy_renderer();
 
 
@@ -185,7 +190,6 @@ Scene init_scene(AllocHeap heap);
 
 SceneObject* add_scene_object(
   Scene* scene,
-  const ShaderManager& shader_manager,
   const ModelData& model,
   EngineShaderIndex vertex_shader,
   EngineShaderIndex material_shader

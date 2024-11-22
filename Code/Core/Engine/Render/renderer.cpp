@@ -21,27 +21,39 @@ Renderer g_Renderer;
 
 UnifiedGeometryBuffer g_UnifiedGeometryBuffer;
 
-ShaderManager
+ShaderManager* g_ShaderManager = nullptr;
+
+void
 init_shader_manager(const GpuDevice* device)
 {
-  ShaderManager ret = {0};
-  for (u32 i = 0; i < kEngineShaderCount; i++)
+  if (g_ShaderManager == nullptr)
   {
-    ret.shaders[i] = load_shader_from_memory(device, kEngineShaderBinSrcs[i], kEngineShaderBinSizes[i]);
+    g_ShaderManager = HEAP_ALLOC(ShaderManager, g_InitHeap, 1);
   }
 
-  return ret;
+  for (u32 i = 0; i < kEngineShaderCount; i++)
+  {
+    g_ShaderManager->shaders[i] = load_shader_from_memory(device, kEngineShaderBinSrcs[i], kEngineShaderBinSizes[i]);
+  }
 }
 
 void
-destroy_shader_manager(ShaderManager* shader_manager)
+destroy_shader_manager()
 {
   for (u32 i = 0; i < kEngineShaderCount; i++)
   {
-    destroy_shader(&shader_manager->shaders[i]);
+    destroy_shader(&g_ShaderManager->shaders[i]);
   }
 
-  zero_memory(shader_manager, sizeof(ShaderManager));
+  zero_memory(g_ShaderManager, sizeof(ShaderManager));
+}
+
+const GpuShader*
+get_engine_shader(u32 index)
+{
+  ASSERT(g_ShaderManager != nullptr);
+  ASSERT(index < kEngineShaderCount);
+  return &g_ShaderManager->shaders[index];
 }
 
 static void
@@ -83,11 +95,72 @@ init_renderer_dependency_graph(
   compile_render_graph(g_InitHeap, builder, device, &g_Renderer.graph, flags);
 }
 
+static void
+init_renderer_psos(
+  const GpuDevice* device,
+  const SwapChain* swap_chain
+) {
+  GraphicsPipelineDesc visibility_pipeline_desc =
+  {
+    .vertex_shader   = get_engine_shader(kVS_Basic),
+    .pixel_shader    = get_engine_shader(kPS_VisibilityBuffer),
+    .rtv_formats     = Span{DXGI_FORMAT_R32_UINT},
+    .dsv_format      = DXGI_FORMAT_D32_FLOAT,
+    .comparison_func = kDepthComparison,
+    .stencil_enable  = false,
+  };
+  g_Renderer.vbuffer_pso       = init_graphics_pipeline(device, visibility_pipeline_desc, "Visibility Buffer");
+  g_Renderer.debug_vbuffer_pso = init_compute_pipeline(device, get_engine_shader(kCS_VisibilityBufferVisualize), "Visibility Buffer Visualize");
+
+
+  g_Renderer.taa_pso = init_compute_pipeline(device, get_engine_shader(kCS_TAA), "TAA");
+
+  GraphicsPipelineDesc post_pipeline_desc = 
+  {
+    .vertex_shader = get_engine_shader(kVS_Fullscreen),
+    .pixel_shader  = get_engine_shader(kPS_ToneMapping),
+    .rtv_formats   = Span{swap_chain->format},
+  };
+  g_Renderer.post_processing_pipeline = init_graphics_pipeline(device, post_pipeline_desc, "Post Processing");
+
+  GraphicsPipelineDesc fullscreen_pipeline_desc =
+  {
+    .vertex_shader = get_engine_shader(kVS_Fullscreen),
+    .pixel_shader  = get_engine_shader(kPS_Fullscreen),
+    .rtv_formats   = Span{swap_chain->format},
+  };
+
+  g_Renderer.back_buffer_blit_pso = init_graphics_pipeline(device, fullscreen_pipeline_desc, "Blit");
+
+  g_Renderer.standard_brdf_pso = init_ray_tracing_pipeline(device, get_engine_shader(kRT_StandardBrdf), "Standard BRDF RT");
+  g_Renderer.standard_brdf_st  = init_shader_table(device, g_Renderer.standard_brdf_pso, "Standard BRDF Shader Table");
+
+  g_Renderer.ddgi_probe_trace_pso = init_ray_tracing_pipeline(device, get_engine_shader(kRT_ProbeTrace), "Probe Trace RT");
+  g_Renderer.ddgi_probe_trace_st  = init_shader_table(device, g_Renderer.ddgi_probe_trace_pso, "Probe Trace Shader Table");
+
+  g_Renderer.ddgi_probe_blend_pso = init_compute_pipeline(device, get_engine_shader(kCS_ProbeBlending), "Probe Blending");
+
+}
+
+static void
+destroy_renderer_psos()
+{
+  destroy_graphics_pipeline(&g_Renderer.vbuffer_pso);
+  destroy_compute_pipeline(&g_Renderer.debug_vbuffer_pso);
+  destroy_compute_pipeline(&g_Renderer.taa_pso);
+  destroy_graphics_pipeline(&g_Renderer.post_processing_pipeline);
+  destroy_ray_tracing_pipeline(&g_Renderer.standard_brdf_pso);
+  destroy_shader_table(&g_Renderer.standard_brdf_st);
+  destroy_graphics_pipeline(&g_Renderer.back_buffer_blit_pso);
+  destroy_ray_tracing_pipeline(&g_Renderer.ddgi_probe_trace_pso);
+  destroy_shader_table(&g_Renderer.ddgi_probe_trace_st);
+  destroy_compute_pipeline(&g_Renderer.ddgi_probe_blend_pso);
+}
+
 void
 init_renderer(
   const GpuDevice* device,
   const SwapChain* swap_chain,
-  const ShaderManager& shader_manager,
   HWND window
 ) {
   zero_memory(&g_Renderer, sizeof(g_Renderer));
@@ -96,49 +169,17 @@ init_renderer(
   g_Renderer.graph_allocator = init_linear_allocator(HEAP_ALLOC_ALIGNED(g_InitHeap, kGraphMemory, alignof(uint64_t)), kGraphMemory);
 
   init_renderer_dependency_graph(device, swap_chain, kRgDestroyAll);
-
-  GraphicsPipelineDesc visibility_pipeline_desc =
-  {
-    .vertex_shader   = shader_manager.shaders[kVS_Basic],
-    .pixel_shader    = shader_manager.shaders[kPS_VisibilityBuffer],
-    .rtv_formats     = Span{DXGI_FORMAT_R32_UINT},
-    .dsv_format      = DXGI_FORMAT_D32_FLOAT,
-    .comparison_func = kDepthComparison,
-    .stencil_enable  = false,
-  };
-  g_Renderer.vbuffer_pso       = init_graphics_pipeline(device, visibility_pipeline_desc, "Visibility Buffer");
-  g_Renderer.debug_vbuffer_pso = init_compute_pipeline(device, shader_manager.shaders[kCS_VisibilityBufferVisualize], "Visibility Buffer Visualize");
-
-
-  g_Renderer.taa_pso = init_compute_pipeline(device, shader_manager.shaders[kCS_TAA], "TAA");
-
-  GraphicsPipelineDesc post_pipeline_desc = 
-  {
-    .vertex_shader = shader_manager.shaders[kVS_Fullscreen],
-    .pixel_shader  = shader_manager.shaders[kPS_ToneMapping],
-    .rtv_formats   = Span{swap_chain->format},
-  };
-  g_Renderer.post_processing_pipeline = init_graphics_pipeline(device, post_pipeline_desc, "Post Processing");
-
-  GraphicsPipelineDesc fullscreen_pipeline_desc =
-  {
-    .vertex_shader = shader_manager.shaders[kVS_Fullscreen],
-    .pixel_shader  = shader_manager.shaders[kPS_Fullscreen],
-    .rtv_formats   = Span{swap_chain->format},
-  };
-
-  g_Renderer.back_buffer_blit_pso = init_graphics_pipeline(device, fullscreen_pipeline_desc, "Blit");
-
-  g_Renderer.standard_brdf_pso = init_ray_tracing_pipeline(device, shader_manager.shaders[kRT_StandardBrdf], "Standard BRDF RT");
-  g_Renderer.standard_brdf_st  = init_shader_table(device, g_Renderer.standard_brdf_pso, "Standard BRDF Shader Table");
-
-  g_Renderer.ddgi_probe_trace_pso = init_ray_tracing_pipeline(device, shader_manager.shaders[kRT_ProbeTrace], "Probe Trace RT");
-  g_Renderer.ddgi_probe_trace_st  = init_shader_table(device, g_Renderer.ddgi_probe_trace_pso, "Probe Trace Shader Table");
-
-  g_Renderer.ddgi_probe_blend_pso = init_compute_pipeline(device, shader_manager.shaders[kCS_ProbeBlending], "Probe Blending");
+  init_renderer_psos(device, swap_chain);
 
   g_Renderer.imgui_descriptor_heap = init_descriptor_linear_allocator(device, 1, kDescriptorHeapTypeCbvSrvUav);
   init_imgui_ctx(device, swap_chain, window, &g_Renderer.imgui_descriptor_heap);
+}
+
+void
+renderer_hot_reload(const GpuDevice* device, const SwapChain* swap_chain)
+{
+  destroy_renderer_psos();
+  init_renderer_psos(device, swap_chain);
 }
 
 void
@@ -153,17 +194,7 @@ renderer_on_resize(
 void
 destroy_renderer()
 {
-  destroy_graphics_pipeline(&g_Renderer.vbuffer_pso);
-  destroy_compute_pipeline(&g_Renderer.debug_vbuffer_pso);
-  destroy_compute_pipeline(&g_Renderer.taa_pso);
-  destroy_graphics_pipeline(&g_Renderer.post_processing_pipeline);
-  destroy_ray_tracing_pipeline(&g_Renderer.standard_brdf_pso);
-  destroy_shader_table(&g_Renderer.standard_brdf_st);
-  destroy_graphics_pipeline(&g_Renderer.back_buffer_blit_pso);
-  destroy_ray_tracing_pipeline(&g_Renderer.ddgi_probe_trace_pso);
-  destroy_shader_table(&g_Renderer.ddgi_probe_trace_st);
-  destroy_compute_pipeline(&g_Renderer.ddgi_probe_blend_pso);
-
+  destroy_renderer_psos();
   destroy_render_graph(&g_Renderer.graph, kRgDestroyAll);
   destroy_imgui_ctx();
   zero_memory(&g_Renderer, sizeof(g_Renderer));
@@ -325,7 +356,7 @@ alloc_into_index_uber(u32 index_count)
 }
 
 static RenderModel
-init_render_model(AllocHeap heap, const ModelData& model, const ShaderManager& shader_manager)
+init_render_model(AllocHeap heap, const ModelData& model)
 {
   RenderModel ret = {0};
   ret.mesh_insts = init_array<RenderMeshInst>(heap, model.mesh_insts.size);
@@ -345,8 +376,8 @@ init_render_model(AllocHeap heap, const ModelData& model, const ShaderManager& s
 
     GraphicsPipelineDesc graphics_pipeline_desc =
     {
-      .vertex_shader   = shader_manager.shaders[dst->vertex_shader],
-      .pixel_shader    = shader_manager.shaders[dst->material_shader],
+      .vertex_shader   = get_engine_shader(dst->vertex_shader),
+      .pixel_shader    = get_engine_shader(dst->material_shader),
       .rtv_formats     = kGBufferRenderTargetFormats,
       .dsv_format      = DXGI_FORMAT_D32_FLOAT,
       .comparison_func = kDepthComparison,
@@ -383,7 +414,6 @@ init_render_model(AllocHeap heap, const ModelData& model, const ShaderManager& s
 SceneObject*
 add_scene_object(
   Scene* scene,
-  const ShaderManager& shader_manager,
   const ModelData& model,
   EngineShaderIndex vertex_shader,
   EngineShaderIndex material_shader
@@ -392,7 +422,7 @@ add_scene_object(
   UNREFERENCED_PARAMETER(material_shader);
   SceneObject* ret = array_add(&scene->scene_objects);
   ret->flags = kSceneObjectMesh;
-  ret->model = init_render_model(scene->scene_object_allocator, model, shader_manager);
+  ret->model = init_render_model(scene->scene_object_allocator, model);
 
   return ret;
 }

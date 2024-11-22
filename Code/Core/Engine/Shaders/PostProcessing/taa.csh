@@ -102,7 +102,6 @@ void CS_TAA( uint3 thread_id : SV_DispatchThreadID )
   float  acceleration          = length(prev_velocity - curr_velocity);
   float  velocity_disocclusion = saturate((acceleration - 0.001f) * 10.0f);
 
-
   float3 prev_color            = clamp(prev_buffer.Sample(g_ClampSampler, reproj_uv).rgb, min_color, max_color);
   float3 curr_color            = curr_buffer[thread_id.xy].rgb;
   float3 accumulation          = float3(0.9f * prev_color + 0.1f * curr_color);
