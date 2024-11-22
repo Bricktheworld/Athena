@@ -231,7 +231,7 @@ hash_table_insert(HashTable<K, V>* table, const K& key)
         {
           if ((mask & (1 << i)) == 0)
             continue;
-          if (group->keys[i] != key)
+          if (group->keys[i] != key) [[unlikely]]
             continue;
 
           return &table->values[group_index * 16 + i];
@@ -285,7 +285,7 @@ hash_table_find(const HashTable<K, V>* table, const K& key)
     {
       if ((mask & (1 << i)) == 0)
         continue;
-      if (group->keys[i] != key)
+      if (group->keys[i] != key) [[unlikely]]
         continue;
       return &table->values[group_index * 16 + i];
     }
@@ -323,7 +323,7 @@ hash_table_erase(HashTable<K, V>* table, const K& key)
     {
       if ((mask & (1 << i)) == 0)
         continue;
-      if (group->keys[i] != key)
+      if (group->keys[i] != key) [[unlikely]]
         continue;
 
       table->used--;
