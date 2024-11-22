@@ -204,8 +204,6 @@ init_hash_table(AllocHeap heap, u64 capacity)
   return ret;
 }
 
-// TODO(Brandon): Add branch prediction hints
-
 template <typename K, typename V>
 inline V*
 hash_table_insert(HashTable<K, V>* table, const K& key)
