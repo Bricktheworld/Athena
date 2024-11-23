@@ -23,21 +23,35 @@ render_handler_taa(RenderContext* ctx, const void* data)
 {
   TAAParams* params = (TAAParams*)data;
 
-  ctx->compute_bind_shader_resources<TAAResources>(
-    {
-      .prev_hdr      = params->prev_hdr,
-      .curr_hdr      = params->curr_hdr,
-      .prev_velocity = params->prev_velocity,
-      .curr_velocity = params->curr_velocity,
+  if (!g_Renderer.disable_taa)
+  {
+    ctx->compute_bind_shader_resources<TAAResources>(
+      {
+        .prev_hdr      = params->prev_hdr,
+        .curr_hdr      = params->curr_hdr,
+        .prev_velocity = params->prev_velocity,
+        .curr_velocity = params->curr_velocity,
 
-      .gbuffer_depth = params->gbuffer_depth,
+        .gbuffer_depth = params->gbuffer_depth,
 
-      .taa           = params->taa,
-    }
-  );
+        .taa           = params->taa,
+      }
+    );
 
-  ctx->set_compute_pso(&g_Renderer.taa_pso);
-  ctx->dispatch(ctx->m_Width / 8, ctx->m_Height / 8, 1);
+    ctx->set_compute_pso(&g_Renderer.taa_pso);
+    ctx->dispatch(ctx->m_Width / 8, ctx->m_Height / 8, 1);
+  }
+  else
+  {
+    ctx->compute_bind_shader_resources<TextureCopyResources>(
+      {
+        .src = params->curr_hdr,
+        .dst = params->taa,
+      }
+    );
+    ctx->set_compute_pso(&g_Renderer.texture_copy_pso);
+    ctx->dispatch(ctx->m_Width / 8, ctx->m_Height / 8, 1);
+  }
 }
 
 RgHandle<GpuTexture>

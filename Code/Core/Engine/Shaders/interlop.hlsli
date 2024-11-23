@@ -60,7 +60,6 @@ struct Viewport
   Vec4 camera_world_pos;
   Vec2 taa_jitter;
   DirectionalLight directional_light;
-  u32  disable_taa;
 };
 
 struct Transform
@@ -78,6 +77,12 @@ struct MaterialRenderResources
 struct FullscreenRenderResources
 {
   SRV(GpuTexture) texture;
+};
+
+struct TextureCopyResources
+{
+  SRV(GpuTexture) src;
+  UAV(GpuTexture) dst;
 };
 
 struct PostProcessingRenderResources

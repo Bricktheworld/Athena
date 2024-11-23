@@ -106,6 +106,7 @@ struct Renderer
   ShaderTable   standard_brdf_st;
 
   GraphicsPSO   back_buffer_blit_pso;
+  ComputePSO    texture_copy_pso;
 
   RayTracingPSO ddgi_probe_trace_pso;
   ShaderTable   ddgi_probe_trace_st;

@@ -131,6 +131,7 @@ init_renderer_psos(
   };
 
   g_Renderer.back_buffer_blit_pso = init_graphics_pipeline(device, fullscreen_pipeline_desc, "Blit");
+  g_Renderer.texture_copy_pso = init_compute_pipeline(device, get_engine_shader(kCS_TextureCopy), "Texture Copy");
 
   g_Renderer.standard_brdf_pso = init_ray_tracing_pipeline(device, get_engine_shader(kRT_StandardBrdf), "Standard BRDF RT");
   g_Renderer.standard_brdf_st  = init_shader_table(device, g_Renderer.standard_brdf_pso, "Standard BRDF Shader Table");
@@ -151,6 +152,7 @@ destroy_renderer_psos()
   destroy_graphics_pipeline(&g_Renderer.post_processing_pipeline);
   destroy_ray_tracing_pipeline(&g_Renderer.standard_brdf_pso);
   destroy_shader_table(&g_Renderer.standard_brdf_st);
+  destroy_compute_pipeline(&g_Renderer.texture_copy_pso);
   destroy_graphics_pipeline(&g_Renderer.back_buffer_blit_pso);
   destroy_ray_tracing_pipeline(&g_Renderer.ddgi_probe_trace_pso);
   destroy_shader_table(&g_Renderer.ddgi_probe_trace_st);

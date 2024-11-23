@@ -56,13 +56,6 @@ void CS_TAA( uint3 thread_id : SV_DispatchThreadID )
 
   RWTexture2D<float4> taa_buffer  = ResourceDescriptorHeap[g_Resources.taa];
 
-
-  if (g_ViewportBuffer.disable_taa)
-  {
-    taa_buffer[thread_id.xy] = curr_buffer[thread_id.xy];
-    return;
-  }
-
   Texture2D<float2> curr_velocity_buffer = ResourceDescriptorHeap[g_Resources.curr_velocity];
   Texture2D<float2> prev_velocity_buffer = ResourceDescriptorHeap[g_Resources.prev_velocity];
 

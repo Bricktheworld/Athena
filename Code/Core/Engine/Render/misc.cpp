@@ -55,7 +55,6 @@ render_handler_frame_init(RenderContext* ctx, const void* data)
   scene.camera_world_pos  = g_Renderer.camera.world_pos;
   scene.directional_light = g_Renderer.directional_light;
   scene.taa_jitter        = !g_Renderer.disable_taa ? g_Renderer.taa_jitter : Vec2(0.0f, 0.0f);
-  scene.disable_taa       = g_Renderer.disable_taa;
 
   ctx->write_cpu_upload_buffer(params->scene_buffer, &scene, sizeof(scene));
 
