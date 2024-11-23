@@ -163,7 +163,7 @@ namespace Athena
       {
         KeyInput = shader_srcs.ElementAt(0),
         Output = GetSourcePath(ShaderTableHeader),
-        Description = "\nBuilding Shader Table",
+        Description = "",
         Executable = python_path,
         ExecutableArguments = string.Format(@"{0} --output_header {1} --output_source {2} --inputs {3}", generate_shader_table_py_path, GetSourcePath(ShaderTableHeader), GetSourcePath(ShaderTableSource), BuiltShaderHeaders.JoinStrings(" ")),
         AdditionalInputs = shader_srcs,
