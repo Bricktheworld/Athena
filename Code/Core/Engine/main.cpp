@@ -234,7 +234,7 @@ application_entry(HINSTANCE instance, int show_code)
     ScratchAllocator scratch_arena = alloc_scratch_arena();
     defer { free_scratch_arena(&scratch_arena); };
 
-    fs::FileStream sponza_built_file = open_built_asset_file(path_to_asset_id("Assets/Source/sponza/Sponza.gltf"));
+    fs::FileStream sponza_built_file = open_built_asset_file(ASSET_ID("Assets/Source/sponza/Sponza.gltf"));
     defer { fs::close_file(&sponza_built_file); };
 
     u64 buf_size = fs::get_file_size(sponza_built_file);

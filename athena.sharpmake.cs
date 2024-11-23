@@ -197,6 +197,8 @@ namespace Athena
       conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\D3D12Core.pdb");
       conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\D3D12SDKLayers.dll");
       conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\D3D12SDKLayers.pdb");
+      conf.VcxprojUserFile = new Configuration.VcxprojUserFileSettings();
+      conf.VcxprojUserFile.LocalDebuggerWorkingDirectory = @"[project.SharpmakeCsPath]";
       conf.Options.Add(Options.Vc.Linker.SubSystem.Windows);
     }
   }
@@ -216,6 +218,8 @@ namespace Athena
       conf.Output = Configuration.OutputType.Exe;
       conf.AddPublicDependency<FoundationProject>(target);
       conf.IncludePaths.Add(@"[project.SourceRootPath]\Vendor");
+      conf.VcxprojUserFile = new Configuration.VcxprojUserFileSettings();
+      conf.VcxprojUserFile.LocalDebuggerWorkingDirectory = @"[project.SharpmakeCsPath]";
       if (target.Optimization == Optimization.Debug)
       {
         conf.LibraryFiles.Add(@"[project.SourceRootPath]\Lib\Debug\DirectXMesh.lib");

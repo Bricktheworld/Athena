@@ -62,14 +62,20 @@ asset_builder::import_model(
     aiString material_name = assimp_material->GetName();
     printf("\tMaterial[%u] %s\n", imaterial, material_name.C_Str());
 
-//    u32 num_textures = assimp_material->GetTextureCount();
-//    printf("\t\tTextures: %lu\n", assimp_material->GetTextureCount());
+    u32 num_diffuse_textures = assimp_material->GetTextureCount(aiTextureType_DIFFUSE);
+    printf("\t\tDiffuse Textures: %lu\n", num_diffuse_textures);
+    for (u32 itexture = 0; itexture < num_diffuse_textures; itexture++)
+    {
+      aiString texture_path;
+      assimp_material->GetTexture(aiTextureType_DIFFUSE, itexture, &texture_path);
+      printf("\t\t\t%s\n", texture_path.C_Str());
+    }
   }
 
   ImportedModel imported_model = {0};
-  imported_model.num_mesh_insts = assimp_model->mNumMeshes;
+  imported_model.num_model_subsets = assimp_model->mNumMeshes;
 
-  imported_model.mesh_insts = HEAP_ALLOC(ImportedMeshInst, heap, imported_model.num_mesh_insts);
+  imported_model.model_subsets = HEAP_ALLOC(ImportedModelSubset, heap, imported_model.num_model_subsets);
 
   for (u32 imesh = 0; imesh < assimp_model->mNumMeshes; imesh++)
   {
@@ -77,10 +83,10 @@ asset_builder::import_model(
     u32 num_vertices = assimp_mesh->mNumVertices;
     u32 num_indices = assimp_mesh->mNumFaces * 3;
 
-    ImportedMeshInst* mesh_inst = imported_model.mesh_insts + imesh;
+    ImportedModelSubset* model_subset = imported_model.model_subsets + imesh;
 
-    Vertex* vertices = HEAP_ALLOC(Vertex, heap, num_vertices);
-    u32*    indices  = HEAP_ALLOC(u32,    heap, num_indices );
+    VertexAsset* vertices = HEAP_ALLOC(VertexAsset, heap, num_vertices);
+    u32*         indices  = HEAP_ALLOC(u32,         heap, num_indices );
 
 
     const aiVector3D kAssimpZero3D(0.0f, 0.0f, 0.0f);
@@ -114,18 +120,18 @@ asset_builder::import_model(
     }
     num_indices = iindex;
 
-    mesh_inst->num_vertices = num_vertices;
-    mesh_inst->num_indices  = num_indices;
-    mesh_inst->vertices     = vertices;
-    mesh_inst->indices      = indices;
+    model_subset->num_vertices = num_vertices;
+    model_subset->num_indices  = num_indices;
+    model_subset->vertices     = vertices;
+    model_subset->indices      = indices;
 
     // TODO(Brandon): We'll need to figure out how to link these correctly...
-    mesh_inst->material.num_textures  = 0;
-    mesh_inst->material.texture_paths = nullptr;
+    model_subset->material.num_textures  = 0;
+    model_subset->material.texture_paths = nullptr;
 
     const aiAABB* aabb  = &assimp_mesh->mAABB;
-    mesh_inst->aabb.min = Vec3(aabb->mMin.x, aabb->mMin.y, aabb->mMin.z);
-    mesh_inst->aabb.max = Vec3(aabb->mMax.x, aabb->mMax.y, aabb->mMax.z);
+    model_subset->aabb.min = Vec3(aabb->mMin.x, aabb->mMin.y, aabb->mMin.z);
+    model_subset->aabb.max = Vec3(aabb->mMax.x, aabb->mMax.y, aabb->mMax.z);
   }
 
   *out_asset_id       = asset_id;
@@ -137,20 +143,20 @@ asset_builder::import_model(
 void
 asset_builder::dump_imported_model(ImportedModel model)
 {
-  dbgln("Model: %lu mesh insts", model.num_mesh_insts);
-  for (u32 imesh_inst = 0; imesh_inst < model.num_mesh_insts; imesh_inst++)
+  dbgln("Model: %lu subsets", model.num_model_subsets);
+  for (u32 imodel_subset = 0; imodel_subset < model.num_model_subsets; imodel_subset++)
   {
-    const ImportedMeshInst* mesh_inst = model.mesh_insts + imesh_inst;
+    const ImportedModelSubset* model_subset = model.model_subsets + imodel_subset;
     dbgln(
-      "\tMeshInst[%lu]: %lu vertices, %lu indices ",
-      imesh_inst,
-      mesh_inst->num_vertices,
-      mesh_inst->num_indices
+      "\tModelSubset[%lu]: %lu vertices, %lu indices ",
+      imodel_subset,
+      model_subset->num_vertices,
+      model_subset->num_indices
     );
 
-    for (u32 ivertex = 0; ivertex < mesh_inst->num_vertices; ivertex++)
+    for (u32 ivertex = 0; ivertex < model_subset->num_vertices; ivertex++)
     {
-      const Vertex* vertex = mesh_inst->vertices + ivertex;
+      const VertexAsset* vertex = model_subset->vertices + ivertex;
       dbgln(
         "\t\t[%u]{position: (%f,%f,%f), normal: (%f,%f,%f), uv: (%f,%f)}",
         ivertex,
@@ -165,9 +171,9 @@ asset_builder::dump_imported_model(ImportedModel model)
       );
     }
 
-    for (u32 iindex = 0; iindex < mesh_inst->num_indices; iindex++)
+    for (u32 iindex = 0; iindex < model_subset->num_indices; iindex++)
     {
-      dbg("%u, ", mesh_inst->indices[iindex]);
+      dbg("%u, ", model_subset->indices[iindex]);
     }
     dbg("\n");
   }
@@ -180,53 +186,53 @@ asset_builder::write_model_to_asset(AssetId asset_id, const char* project_root, 
   defer { free_scratch_arena(&scratch_arena); };
   u64 total_vertex_count = 0;
   u64 total_index_count  = 0;
-  for (u32 imesh_inst = 0; imesh_inst < model.num_mesh_insts; imesh_inst++)
+  for (u32 imodel_subset = 0; imodel_subset < model.num_model_subsets; imodel_subset++)
   {
-    total_vertex_count += model.mesh_insts[imesh_inst].num_vertices;
-    total_index_count  += model.mesh_insts[imesh_inst].num_indices;
+    total_vertex_count += model.model_subsets[imodel_subset].num_vertices;
+    total_index_count  += model.model_subsets[imodel_subset].num_indices;
   }
 
-  size_t mesh_inst_size = sizeof(ModelAsset::MeshInst) * model.num_mesh_insts;
+  size_t model_subsets_size = sizeof(ModelAsset::ModelSubset) * model.num_model_subsets;
 
-  size_t output_size    = sizeof(ModelAsset)                      +
-                          mesh_inst_size                          +
-                          sizeof(Vertex)     * total_vertex_count +
-                          sizeof(u32)        * total_index_count;
+  size_t output_size        = sizeof(ModelAsset)                       +
+                              model_subsets_size                       +
+                              sizeof(VertexAsset) * total_vertex_count +
+                              sizeof(u32)         * total_index_count;
 
   u8* buffer = HEAP_ALLOC(u8, scratch_arena, output_size);
   u32 offset = 0;
 
 
   ModelAsset model_asset = {0};
-  model_asset.metadata.magic_number = kAssetMagicNumber;
-  model_asset.metadata.version      = kModelAssetVersion;
-  model_asset.metadata.asset_type   = AssetType::kModel,
-  model_asset.metadata.asset_hash   = asset_id;
-  model_asset.num_mesh_insts        = model.num_mesh_insts;
-  model_asset.mesh_insts            = sizeof(ModelAsset);
+  model_asset.metadata.magic_number    = kAssetMagicNumber;
+  model_asset.metadata.version         = kModelAssetVersion;
+  model_asset.metadata.asset_type      = AssetType::kModel,
+  model_asset.metadata.asset_hash      = asset_id;
+  model_asset.num_model_subsets        = model.num_model_subsets;
+  model_asset.model_subsets            = sizeof(ModelAsset);
 
   memcpy(buffer + offset, &model_asset, sizeof(ModelAsset)); offset += sizeof(ModelAsset);
 
-  u64 vertex_index_dst = sizeof(ModelAsset) + mesh_inst_size;
+  u64 vertex_index_dst = sizeof(ModelAsset) + model_subsets_size;
 
-  for (u32 imesh_inst = 0; imesh_inst < model.num_mesh_insts; imesh_inst++)
+  for (u32 imodel_subset = 0; imodel_subset < model.num_model_subsets; imodel_subset++)
   {
-    ImportedMeshInst* imported_mesh_inst = model.mesh_insts + imesh_inst;
-    ModelAsset::MeshInst mesh_inst       = {0};
+    ImportedModelSubset* imported_model_subset = model.model_subsets + imodel_subset;
+    ModelAsset::ModelSubset model_subset       = {0};
 
-    mesh_inst.num_vertices = imported_mesh_inst->num_vertices;
-    mesh_inst.num_indices  = imported_mesh_inst->num_indices;
-    mesh_inst.material     = 0;
+    model_subset.num_vertices = imported_model_subset->num_vertices;
+    model_subset.num_indices  = imported_model_subset->num_indices;
+    model_subset.material     = 0;
 
-    size_t vertex_size     = sizeof(Vertex) * mesh_inst.num_vertices;
-    size_t index_size      = sizeof(u32)    * mesh_inst.num_indices;
+    size_t vertex_size        = sizeof(VertexAsset) * model_subset.num_vertices;
+    size_t index_size         = sizeof(u32)         * model_subset.num_indices;
 
-    mesh_inst.vertices     = vertex_index_dst; vertex_index_dst += vertex_size;
-    mesh_inst.indices      = vertex_index_dst; vertex_index_dst += index_size;
+    model_subset.vertices     = vertex_index_dst; vertex_index_dst += vertex_size;
+    model_subset.indices      = vertex_index_dst; vertex_index_dst += index_size;
 
-    memcpy(buffer + offset, &mesh_inst, sizeof(mesh_inst)); offset += sizeof(mesh_inst);
-    memcpy(buffer + mesh_inst.vertices, imported_mesh_inst->vertices, vertex_size);
-    memcpy(buffer + mesh_inst.indices,  imported_mesh_inst->indices,  index_size);
+    memcpy(buffer + offset, &model_subset, sizeof(model_subset)); offset += sizeof(model_subset);
+    memcpy(buffer + model_subset.vertices, imported_model_subset->vertices, vertex_size);
+    memcpy(buffer + model_subset.indices,  imported_model_subset->indices,  index_size);
   }
 
   char built_path[512]{0};

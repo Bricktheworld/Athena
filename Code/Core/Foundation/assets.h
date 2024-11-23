@@ -6,12 +6,14 @@
 
 #include "Core/Foundation/Containers/array.h"
 
-// TODO(Brandon): Definitely don't do this, this is a terrible idea...
-// We should only include from foundation... in foundation...
-#include "Core/Engine/Render/render_graph.h"
-#include "Core/Engine/Shaders/interlop.hlsli"
-
-static_assert(sizeof(Vertex) == sizeof(f32) * 8);
+// NOTE(bshihabi): Keep in sync with interlop.hlsli!
+struct VertexAsset
+{
+  Vec3 position; // Position MUST be at the START of the struct in order for BVHs to be built
+  Vec3 normal;
+  Vec2 uv;
+};
+static_assert(sizeof(VertexAsset) == sizeof(f32) * 8);
 
 // Asset ID is a CRC32 hash of asset path...
 typedef u32 AssetId;
@@ -19,19 +21,59 @@ typedef u32 AssetId;
 template <typename T>
 using AssetRef = AssetId;
 
-static const u32 kAssetMagicNumber = crc32("ATHENA_ASSET", 12);
+static constexpr const u32 kAssetMagicNumber = CRC32_STR("ATHENA_ASSET");
 
 // The path is relative to the project root directory, so should be something like
 // Assets/Source/model.fbx
 // The asset ID is case insensitive
-FOUNDATION_API AssetId path_to_asset_id(const char* path);
+inline constexpr bool
+is_slash(char c)
+{
+  return c == '/' || c == '\\';
+}
+
+inline constexpr char
+char_to_lower(const char c)
+{
+  return c >= 'A' && c <= 'Z' ? c + ('a' - 'A') : c;
+}
+
+inline constexpr AssetId
+path_to_asset_id(const char* path)
+{
+  char buf[512];
+  u32 len = 0;
+  while (*path)
+  {
+    const char* cur = path;
+          char  c   = *cur;
+    path++;
+
+    if (is_slash(c))
+    {
+      if (len == 0 || is_slash(*(cur - 1)))
+      {
+        continue;
+      }
+
+      c = '/';
+    }
+
+    buf[len++] = char_to_lower(c);
+  }
+  buf[len] = 0;
+
+  return crc32(buf, len, 0);
+}
+
+#define ASSET_ID(A) std::integral_constant<AssetId, path_to_asset_id(A)>::value
 FOUNDATION_API fs::FileStream open_built_asset_file(AssetId asset);
 
-enum struct TextureFormat 
+enum struct TextureFormat : u32
 {
 };
 
-enum struct ShaderType : u8
+enum struct ShaderType : u32
 {
   kVertex,
   kPixel,
@@ -41,7 +83,7 @@ enum struct ShaderType : u8
 enum struct AssetType : u32
 {
   kModel,
-  kTypeTexture,
+  kTexture,
   kShader,
   KMaterial,
 
@@ -53,8 +95,8 @@ enum struct AssetType : u32
 
 struct MeshInstData
 {
-  Array<Vertex> vertices;
-  Array<u32>    indices;
+  Array<VertexAsset> vertices;
+  Array<u32>         indices;
 };
 
 struct ModelData
@@ -80,7 +122,6 @@ FOUNDATION_API check_return AssetLoadResult load_model(
 
 FOUNDATION_API void dump_model_info(const ModelData& model);
 
-PACK_STRUCT_BEGIN()
 struct AssetMetadata
 {
   u32       magic_number;
@@ -88,22 +129,27 @@ struct AssetMetadata
   AssetType asset_type;
   u32       asset_hash;
 };
+ASSERT_SERIALIZABLE(AssetMetadata);
 
 struct TextureAsset
 {
   AssetMetadata metadata;
   TextureFormat format;
+  u32           __pad0__;
   u64           size;
   OffsetPtr<u8> data;
 };
+ASSERT_SERIALIZABLE(TextureAsset);
 
 struct ShaderAsset
 {
   AssetMetadata metadata;
   ShaderType    type;
+  u32           __pad0__;
   u64           size;
   OffsetPtr<u8> data;
 };
+ASSERT_SERIALIZABLE(ShaderAsset);
 
 // TODO(Brandon): Materials are always hard because how generic do we want to make it?
 // For now I'm not gonna deal with complex overrides and will simply stick to that
@@ -117,6 +163,7 @@ struct MaterialAsset
   u32                               num_textures;
   OffsetPtr<AssetRef<TextureAsset>> textures;
 };
+ASSERT_SERIALIZABLE(MaterialAsset);
 
 
 // Every model consists of multiple mesh instances (MeshInst) that each hold their own
@@ -124,12 +171,12 @@ struct MaterialAsset
 // that the engine will then de-construct into mesh instances that can be rendered separately.
 struct ModelAsset
 {
-  struct MeshInst
+  struct ModelSubset
   {
     u64                     num_vertices;
     u64                     num_indices;
     AssetRef<MaterialAsset> material;
-    OffsetPtr<Vertex>       vertices;
+    OffsetPtr<VertexAsset>  vertices;
     OffsetPtr<u32>          indices;
   };
 
@@ -139,10 +186,10 @@ struct ModelAsset
     u8 num_tris;
   };
 
-  AssetMetadata       metadata;
-  u64                 num_mesh_insts;
-  OffsetPtr<MeshInst> mesh_insts;
+  AssetMetadata          metadata;
+  u64                    num_model_subsets;
+  OffsetPtr<ModelSubset> model_subsets;
 //  u64                 name_len;
 //  OffsetPtr<char>     name;
 };
-PACK_STRUCT_END()
+ASSERT_SERIALIZABLE(ModelAsset);

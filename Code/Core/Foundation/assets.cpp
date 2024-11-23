@@ -1,39 +1,5 @@
 #include "Core/Foundation/assets.h"
 
-static bool
-is_slash(char c)
-{
-  return c == '/' || c == '\\';
-}
-
-AssetId
-path_to_asset_id(const char* path)
-{
-  char buf[512];
-  u32 len = 0;
-  while (*path)
-  {
-    const char* cur = path;
-          char  c   = *cur;
-    path++;
-
-    if (is_slash(c))
-    {
-      if (len == 0 || is_slash(*(cur - 1)))
-      {
-        continue;
-      }
-
-      c = '/';
-    }
-
-    buf[len++] = (char)tolower(c);
-  }
-  buf[len] = 0;
-
-  return crc32(buf, len, 0);
-}
-
 fs::FileStream 
 open_built_asset_file(AssetId asset)
 {
@@ -85,25 +51,25 @@ load_model(AllocHeap heap, const void* buffer, size_t size, ModelData* out_model
     return AssetLoadResult::kErrCorrupted;
   }
 
-  ModelAsset::MeshInst* mesh_insts  = (ModelAsset::MeshInst*)(buf + model_asset->mesh_insts);
+  ModelAsset::ModelSubset* mesh_insts  = (ModelAsset::ModelSubset*)(buf + model_asset->model_subsets);
 
-  expected_size += sizeof(ModelAsset::MeshInst) * model_asset->num_mesh_insts;
+  expected_size += sizeof(ModelAsset::ModelSubset) * model_asset->num_model_subsets;
   VALIDATE_ASSET_SIZE(size, expected_size);
 
-  out_model->mesh_insts = init_array<MeshInstData>(heap, model_asset->num_mesh_insts);
+  out_model->mesh_insts = init_array<MeshInstData>(heap, model_asset->num_model_subsets);
 
-  for (u32 imesh_inst = 0; imesh_inst < model_asset->num_mesh_insts; imesh_inst++)
+  for (u32 imesh_inst = 0; imesh_inst < model_asset->num_model_subsets; imesh_inst++)
   {
-    ModelAsset::MeshInst* src = mesh_insts + imesh_inst;
+    ModelAsset::ModelSubset* src = mesh_insts + imesh_inst;
     MeshInstData* dst = array_add(&out_model->mesh_insts);
 
-    u64 vertex_buffer_size = src->num_vertices * sizeof(Vertex);
+    u64 vertex_buffer_size = src->num_vertices * sizeof(VertexAsset);
     u64 index_buffer_size  = src->num_indices  * sizeof(u32);
     VALIDATE_ASSET_SIZE(size, src->vertices + vertex_buffer_size);
     VALIDATE_ASSET_SIZE(size, src->indices  + index_buffer_size);
 
-    dst->vertices = init_array_uninitialized<Vertex>(heap, src->num_vertices);
-    dst->indices  = init_array_uninitialized<u32>   (heap, src->num_indices);
+    dst->vertices = init_array_uninitialized<VertexAsset>(heap, src->num_vertices);
+    dst->indices  = init_array_uninitialized<u32>        (heap, src->num_indices);
 
     const u8* vertex_buffer = buf + src->vertices;
     const u8* index_buffer  = buf + src->indices;
@@ -130,7 +96,7 @@ dump_model_info(const ModelData& model)
 
     for (u32 ivertex = 0; ivertex < mesh_inst->vertices.size; ivertex++)
     {
-      const Vertex* vertex = &mesh_inst->vertices[ivertex];
+      const VertexAsset* vertex = &mesh_inst->vertices[ivertex];
       dbgln(
         "\t\t[%u]{position: (%f,%f,%f), normal: (%f,%f,%f), uv: (%f,%f)}",
         ivertex,

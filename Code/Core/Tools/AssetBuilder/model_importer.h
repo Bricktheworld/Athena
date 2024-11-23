@@ -16,12 +16,12 @@ namespace asset_builder
     char** texture_paths;
   };
   
-  struct ImportedMeshInst
+  struct ImportedModelSubset
   {
     u32              num_vertices;
     u32              num_indices;
 
-    Vertex*          vertices;
+    VertexAsset*     vertices;
     u32*             indices;
 
     ImportedMaterial material;
@@ -30,8 +30,8 @@ namespace asset_builder
   
   struct ImportedModel
   {
-    ImportedMeshInst* mesh_insts;
-    u32               num_mesh_insts;
+    ImportedModelSubset* model_subsets;
+    u32                  num_model_subsets;
   };
   
   check_return bool import_model(

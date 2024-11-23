@@ -153,6 +153,8 @@ swap(T* a, T* b)
 
 #define constant static constexpr
 
+#define ASSERT_SERIALIZABLE(T) static_assert(__has_unique_object_representations(T))
+
 #define PACK_STRUCT_BEGIN() __pragma(pack(push, 1))
 #define PACK_STRUCT_END()   __pragma(pack(pop))
 
