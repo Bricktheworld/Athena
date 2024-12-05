@@ -148,7 +148,7 @@ draw_debug(DirectionalLight* out_directional_light, Camera* out_camera)
   ImGui::DragFloat("Focal Range", &out_render_options->focal_range, 0.0f, 100.0f);
 #endif
 
-  ImGui::DragFloat3("Direction", (f32*)&out_directional_light->direction, 0.1f, -1.0f, 1.0f);
+  ImGui::DragFloat3("Direction", (f32*)&out_directional_light->direction, 0.02f, -1.0f, 1.0f);
   ImGui::DragFloat3("Diffuse", (f32*)&out_directional_light->diffuse, 0.1f, 0.0f, 1.0f);
   ImGui::DragFloat ("Intensity", &out_directional_light->intensity, 0.1f, 0.0f, 100.0f);
 
@@ -280,6 +280,8 @@ application_entry(HINSTANCE instance, int show_code)
         wait_for_gpu_device_idle(g_GpuDevice);
 
         lpp_agent.CompileAndReloadChanges(lpp::LPP_RELOAD_BEHAVIOUR_WAIT_UNTIL_CHANGES_ARE_APPLIED);
+
+        renderer_on_resize(g_GpuDevice, &g_MainWindow->swap_chain);
 
         dbgln("Live++ Hot Reloaded Successfully!");
 

@@ -5,3 +5,6 @@ Assets/Built/*
 Code/Core/Engine/Generated/*
 Code/Core/Engine/Generated/Shaders/*
 vs/*
+*.rdi
+*.ini
+

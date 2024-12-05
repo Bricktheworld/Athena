@@ -71,8 +71,6 @@ init_renderer_dependency_graph(
 
   init_frame_init_pass(scratch_arena, &builder);
 
-//  VBuffer vbuffer = init_vbuffer(scratch_arena, &builder);
-
   init_gbuffer_static(scratch_arena, &builder, &gbuffer);
 
   Ddgi ddgi = init_ddgi(scratch_arena, &builder);
@@ -80,17 +78,14 @@ init_renderer_dependency_graph(
   RgHandle<GpuTexture> hdr_buffer  = init_hdr_buffer(&builder);
   init_lighting(scratch_arena, &builder, gbuffer, ddgi, &hdr_buffer);
 
+  RgHandle<GpuTexture> post_buffer = init_post_processing(scratch_arena, &builder, hdr_buffer);
+
   RgHandle<GpuTexture> taa_buffer  = init_taa_buffer(&builder);
-  init_taa(scratch_arena, &builder, hdr_buffer, gbuffer, &taa_buffer);
+  init_taa(scratch_arena, &builder, post_buffer, gbuffer, &taa_buffer);
 
-  RgHandle<GpuTexture> post_buffer = init_post_processing(scratch_arena, &builder, taa_buffer);
+  init_imgui_pass(scratch_arena, &builder, &taa_buffer);
 
-  init_imgui_pass(scratch_arena, &builder, &post_buffer);
-
-//  RgHandle<GpuTexture> debug_vbuffer = rg_create_texture(&builder, "Debug VBuffer", FULL_RES(&builder), DXGI_FORMAT_R32G32B32A32_FLOAT);
-//  init_debug_vbuffer(scratch_arena, &builder, vbuffer, &debug_vbuffer);
-
-  init_back_buffer_blit(scratch_arena, &builder, post_buffer);
+  init_back_buffer_blit(scratch_arena, &builder, taa_buffer);
 
   compile_render_graph(g_InitHeap, builder, device, &g_Renderer.graph, flags);
 }

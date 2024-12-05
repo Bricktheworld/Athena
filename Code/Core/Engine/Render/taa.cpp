@@ -57,7 +57,7 @@ render_handler_taa(RenderContext* ctx, const void* data)
 RgHandle<GpuTexture>
 init_taa_buffer(RgBuilder* builder)
 {
-  RgHandle<GpuTexture> ret = rg_create_texture_ex(builder, "TAA Buffer", FULL_RES(builder), DXGI_FORMAT_R11G11B10_FLOAT, 1);
+  RgHandle<GpuTexture> ret = rg_create_texture_ex(builder, "TAA Buffer", FULL_RES(builder), DXGI_FORMAT_R16G16B16A16_FLOAT, 1);
   return ret;
 }
 
