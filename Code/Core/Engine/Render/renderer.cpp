@@ -114,7 +114,7 @@ init_renderer_psos(
   {
     .vertex_shader = get_engine_shader(kVS_Fullscreen),
     .pixel_shader  = get_engine_shader(kPS_ToneMapping),
-    .rtv_formats   = Span{swap_chain->format},
+    .rtv_formats   = Span{DXGI_FORMAT_R16G16B16A16_FLOAT},
   };
   g_Renderer.post_processing_pipeline = init_graphics_pipeline(device, post_pipeline_desc, "Post Processing");
 
@@ -169,7 +169,7 @@ init_renderer(
   init_renderer_psos(device, swap_chain);
 
   g_Renderer.imgui_descriptor_heap = init_descriptor_linear_allocator(device, 1, kDescriptorHeapTypeCbvSrvUav);
-  init_imgui_ctx(device, swap_chain, window, &g_Renderer.imgui_descriptor_heap);
+  init_imgui_ctx(device, DXGI_FORMAT_R16G16B16A16_FLOAT, window, &g_Renderer.imgui_descriptor_heap);
 }
 
 void

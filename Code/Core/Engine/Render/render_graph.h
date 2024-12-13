@@ -460,7 +460,7 @@ struct RenderGraph
   Array<RgDependencyLevel>               dependency_levels;
 
   GpuLinearAllocator                     local_heap;
-  GpuLinearAllocator                     upload_heaps[kFramesInFlight];
+  GpuLinearAllocator                     upload_heaps[kBackBufferCount];
   Array<GpuLinearAllocator>              temporal_heaps;
 
   RgDescriptorHeap                       descriptor_heap;

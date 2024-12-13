@@ -32,7 +32,7 @@ render_handler_lighting(RenderContext* ctx, const void* data)
 
     .ddgi_vol_desc                  = params->ddgi.desc,
     .ddgi_probe_irradiance          = params->ddgi.irradiance,
-    .ddgi_probe_distance            = params->ddgi.distance,
+    .ddgi_probe_distance            = params->ddgi.irradiance,
 
     .render_target                  = params->hdr_buffer,
   });

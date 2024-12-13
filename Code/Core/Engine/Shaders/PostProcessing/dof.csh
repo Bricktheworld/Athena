@@ -100,7 +100,7 @@ void CS_DoFBlurHorizontal( uint3 thread_id : SV_DispatchThreadID )
   float2 uv      = float2(thread_id.xy) / out_res;
 
   bool is_near = thread_id.z == 0;
-  half filter_radius = is_near ? coc_buffer.Sample(g_ClampSampler, uv).x : coc_buffer.Sample(g_ClampSampler, uv).y;
+  half filter_radius = is_near ? coc_buffer.Sample(g_BilinearSampler, uv).x : coc_buffer.Sample(g_BilinearSampler, uv).y;
 
   half4 red_component   = half4(0.0h, 0.0h, 0.0h, 0.0h);
   half4 green_component = half4(0.0h, 0.0h, 0.0h, 0.0h);
@@ -108,9 +108,9 @@ void CS_DoFBlurHorizontal( uint3 thread_id : SV_DispatchThreadID )
   for (int i = -kKernelRadius; i <= kKernelRadius; i++)
   {
     float2 sample_uv    = uv + uv_step / 4.0f * float2((float)i, 0.0f) * filter_radius;
-    float3 sample_color = color_buffer.Sample(g_ClampSampler, sample_uv).rgb;
+    float3 sample_color = color_buffer.Sample(g_BilinearSampler, sample_uv).rgb;
 
-    half2  sample_coc_pair = coc_buffer.Sample(g_ClampSampler, sample_uv);
+    half2  sample_coc_pair = coc_buffer.Sample(g_BilinearSampler, sample_uv);
     half   sample_coc   = is_near ? sample_coc_pair.x : sample_coc_pair.y;
 
     // TODO(Brandon): There's an annoying pop-in halo effect that occurs very abruptly when objects move from
@@ -177,7 +177,7 @@ void CS_DoFBlurVertical( uint3 thread_id : SV_DispatchThreadID )
   float2 uv      = float2(thread_id.xy) / out_res;
  
   bool is_near = thread_id.z == 0;
-  half filter_radius = is_near ? coc_buffer.Sample(g_ClampSampler, uv).x : coc_buffer.Sample(g_ClampSampler, uv).y;
+  half filter_radius = is_near ? coc_buffer.Sample(g_BilinearSampler, uv).x : coc_buffer.Sample(g_BilinearSampler, uv).y;
 
   half4 red_component   = half4(0.0h, 0.0h, 0.0h, 0.0h);
   half4 green_component = half4(0.0h, 0.0h, 0.0h, 0.0h);
@@ -189,15 +189,15 @@ void CS_DoFBlurVertical( uint3 thread_id : SV_DispatchThreadID )
     half4 sample_red, sample_green, sample_blue;
     if (is_near)
     {
-      sample_red   = red_near_buffer.Sample(g_ClampSampler, sample_uv);
-      sample_green = green_near_buffer.Sample(g_ClampSampler, sample_uv);
-      sample_blue  = blue_near_buffer.Sample(g_ClampSampler, sample_uv);
+      sample_red   = red_near_buffer.Sample(g_BilinearSampler, sample_uv);
+      sample_green = green_near_buffer.Sample(g_BilinearSampler, sample_uv);
+      sample_blue  = blue_near_buffer.Sample(g_BilinearSampler, sample_uv);
     }
     else
     {
-      sample_red   = red_far_buffer.Sample(g_ClampSampler, sample_uv);
-      sample_green = green_far_buffer.Sample(g_ClampSampler, sample_uv);
-      sample_blue  = blue_far_buffer.Sample(g_ClampSampler, sample_uv);
+      sample_red   = red_far_buffer.Sample(g_BilinearSampler, sample_uv);
+      sample_green = green_far_buffer.Sample(g_BilinearSampler, sample_uv);
+      sample_blue  = blue_far_buffer.Sample(g_BilinearSampler, sample_uv);
     }
 
     float2 c0 = kKernel0_RealX_ImY_RealZ_ImW[i + kKernelRadius].xy;
@@ -277,12 +277,12 @@ void CS_DoFCoCDilate( uint3 thread_id : SV_DispatchThreadID )
     for (int y = -kDilateSize; y <= kDilateSize; y++)
     {
       float2 sample_uv  = uv + uv_step * float2((float)x, (float)y);
-      half sample_coc = coc_buffer.Sample(g_ClampSampler, sample_uv).x;
+      half sample_coc = coc_buffer.Sample(g_BilinearSampler, sample_uv).x;
       max_near_coc = max(max_near_coc, sample_coc);
     }
   }
 
-  render_target[thread_id.xy] = half2(max_near_coc, coc_buffer.Sample(g_ClampSampler, uv).y);
+  render_target[thread_id.xy] = half2(max_near_coc, coc_buffer.Sample(g_BilinearSampler, uv).y);
 }
 
 ConstantBuffer<DofCompositeComputeResources> g_dof_composite : register(b0);
@@ -307,8 +307,8 @@ void CS_DoFComposite( uint3 thread_id : SV_DispatchThreadID )
   half3 color = color_buffer[thread_id.xy].rgb;
 
   half2 coc   = coc_buffer[thread_id.xy];
-  half3 near  = near_buffer.Sample(g_ClampSampler, uv).rgb;
-  half3 far   = far_buffer.Sample(g_ClampSampler, uv).rgb;
+  half3 near  = near_buffer.Sample(g_BilinearSampler, uv).rgb;
+  half3 far   = far_buffer.Sample(g_BilinearSampler, uv).rgb;
 
   half3 far_blend = lerp(color, far, clamp(coc.y, 0.0h, 1.0h));
   render_target[thread_id.xy] = half3(lerp(far_blend, near, clamp(coc.x, 0.0h, 1.0h)));

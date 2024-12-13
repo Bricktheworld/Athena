@@ -199,8 +199,8 @@ struct DebugVisualizerResources
   UAV(GpuTexture) output;
 };
 
-#define kProbeNumIrradianceInteriorTexels 6
-#define kProbeNumIrradianceTexels 8
+#define kProbeNumIrradianceInteriorTexels 14
+#define kProbeNumIrradianceTexels 16
 #define kProbeNumDistanceInteriorTexels 14
 #define kProbeNumDistanceTexels 16
 
@@ -298,10 +298,8 @@ struct TAAResources
   };
 #endif
 
-#ifdef __cplusplus
 #undef SRV
 #undef CBV
 #undef UAV
-#endif
 
 #endif

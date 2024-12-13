@@ -5,15 +5,13 @@
 
 struct Ddgi
 {
-  RgHandle<GpuBuffer> desc;
-  RgHandle<GpuTexture>  distance;
-  RgHandle<GpuTexture>  irradiance;
+  RgHandle<GpuBuffer>  desc;
+  RgHandle<GpuTexture> irradiance;
 };
 
 struct ReadDdgi
 {
   RgReadHandle<GpuBuffer> desc;
-  RgReadHandle<GpuTexture>  distance;
   RgReadHandle<GpuTexture>  irradiance;
 };
 

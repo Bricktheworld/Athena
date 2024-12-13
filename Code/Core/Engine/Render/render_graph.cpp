@@ -974,7 +974,7 @@ compile_render_graph(AllocHeap heap, const RgBuilder& builder, const GpuDevice* 
   if (flags & kRgDestroyResourceHeaps)
   {
     out->local_heap        = init_gpu_linear_allocator(device, MiB(700), kGpuHeapTypeLocal);
-    for (u32 i = 0; i < kFramesInFlight; i++)
+    for (u32 i = 0; i < kBackBufferCount; i++)
     {
       out->upload_heaps[i] = init_gpu_linear_allocator(device, MiB(4), kGpuHeapTypeUpload);
     }
@@ -1400,7 +1400,7 @@ rg_create_upload_buffer(
   resource_handle.id                  = handle_index(builder);
   resource_handle.version             = 0;
   resource_handle.type                = kResourceTypeBuffer;
-  resource_handle.temporal_lifetime   = kFramesInFlight - 1;
+  resource_handle.temporal_lifetime   = kBackBufferCount - 1;
   *array_add(&builder->resource_list) = resource_handle;
 
   TransientResourceDesc* desc         = hash_table_insert(&builder->resource_descs, resource_handle.id);

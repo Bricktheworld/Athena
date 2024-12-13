@@ -17,9 +17,10 @@ extern GpuDevice* g_GpuDevice;
 
 enum : u8
 {
-  kFramesInFlight        = 2,
+  kBackBufferCount       = 2,
+  kFramesInFlight        = 1,
   kMaxCommandListThreads = 8,
-  kCommandAllocators     = kFramesInFlight * kMaxCommandListThreads,
+  kCommandAllocators     = kBackBufferCount * kMaxCommandListThreads,
 };
 
 typedef u64 FenceValue;
@@ -108,7 +109,7 @@ struct GpuDevice
   CmdListAllocator copy_cmd_allocator;
 };
 
-void init_graphics_device();
+void init_graphics_device(HWND window);
 void destroy_graphics_device();
 
 void wait_for_gpu_device_idle(GpuDevice* device);
@@ -445,15 +446,17 @@ void destroy_shader_table(ShaderTable* shader_table);
 
 struct SwapChain
 {
-  u32 width = 0;
-  u32 height = 0;
+  u32 width          = 0;
+  u32 height         = 0;
   DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
+  u32 flags          = 0;
 
-  IDXGISwapChain4* d3d12_swap_chain = nullptr;
+  IDXGISwapChain4* d3d12_swap_chain       = nullptr;
+  HANDLE           d3d12_latency_waitable = nullptr;
   GpuFence fence;
-  FenceValue frame_fence_values[kFramesInFlight] = {0};
+  FenceValue frame_fence_values[kBackBufferCount] = {0};
 
-  GpuTexture* back_buffers[kFramesInFlight] = {0};
+  GpuTexture* back_buffers[kBackBufferCount] = {0};
   u32 back_buffer_index = 0;
 
   bool vsync = false;
@@ -465,6 +468,7 @@ SwapChain init_swap_chain(HWND window, const GpuDevice* device);
 void destroy_swap_chain(SwapChain* swap_chain);
 
 const GpuTexture* swap_chain_acquire(SwapChain* swap_chain);
+void swap_chain_wait_latency(const SwapChain* swap_chain);
 void swap_chain_submit(SwapChain* swap_chain, const GpuDevice* device, const GpuTexture* rtv);
 void swap_chain_resize(SwapChain* swap_chain, HWND window, GpuDevice* device);
 
@@ -475,7 +479,7 @@ void set_compute_root_signature(CmdList* cmd);
 
 void init_imgui_ctx(
   const GpuDevice* device,
-  const SwapChain* swap_chain,
+  DXGI_FORMAT rtv_format,
   HWND window,
   DescriptorLinearAllocator* cbv_srv_uav_heap
 );

@@ -3,6 +3,7 @@
 #include "Core/Engine/memory.h"
 #include "Core/Engine/job_system.h"
 #include "Core/Engine/Render/graphics.h"
+#include "Core/Engine/Render/colors.h"
 
 #include "Core/Engine/Vendor/imgui/imgui.h"
 #include "Core/Engine/Vendor/imgui/imgui_impl_win32.h"
@@ -38,12 +39,67 @@ init_factory()
   return factory;
 }
 
+static s32
+compute_desktop_intersect_aabb(RECT a, RECT b)
+{
+  return MAX(0, MIN(a.right, b.right) - MAX(a.left, b.left)) * MAX(0, MIN(a.bottom, b.bottom) - MAX(a.top, b.top));
+}
+
+static bool
+check_hdr_support(IDXGIAdapter1* adapter, HWND window)
+{
+  IDXGIOutput* current_output = nullptr;
+  IDXGIOutput* best_output    = nullptr;
+
+  s32 best_area = -1;
+
+  for (u32 i = 0; adapter->EnumOutputs(i, &current_output) != DXGI_ERROR_NOT_FOUND; i++)
+  {
+    RECT client_rect;
+    GetClientRect(window, &client_rect);
+
+    DXGI_OUTPUT_DESC desc;
+    HASSERT(current_output->GetDesc(&desc));
+
+    s32 current_area = compute_desktop_intersect_aabb(desc.DesktopCoordinates, client_rect);
+
+    if (current_area > best_area)
+    {
+      COM_RELEASE(best_output);
+      best_output = current_output;
+      best_area   = current_area;
+    }
+    else
+    {
+      COM_RELEASE(current_output);
+    }
+
+    current_output = nullptr;
+  }
+
+  if (best_output == nullptr)
+  {
+    return false;
+  }
+
+  IDXGIOutput6* best_output6 = nullptr;
+  best_output->QueryInterface(IID_PPV_ARGS(&best_output6));
+
+  DXGI_OUTPUT_DESC1 desc;
+  HASSERT(best_output6->GetDesc1(&desc));
+
+  COM_RELEASE(best_output6);
+
+  return desc.ColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020;
+}
+
 static void
-init_d3d12_device(IDXGIFactory7* factory, IDXGIAdapter1** out_adapter, ID3D12Device6** out_device)
+init_d3d12_device(HWND window, IDXGIFactory7* factory, IDXGIAdapter1** out_adapter, ID3D12Device6** out_device)
 {
   *out_adapter = nullptr;
-  *out_device = nullptr;
+  *out_device  = nullptr;
   size_t max_dedicated_vram = 0;
+  bool   hdr_support        = false;
   IDXGIAdapter1* current_adapter = nullptr;
   for (u32 i = 0; factory->EnumAdapters1(i, &current_adapter) != DXGI_ERROR_NOT_FOUND; i++)
   {
@@ -61,6 +117,7 @@ init_d3d12_device(IDXGIFactory7* factory, IDXGIAdapter1** out_adapter, ID3D12Dev
     }
     
     max_dedicated_vram = dxgi_adapter_desc.DedicatedVideoMemory;
+    hdr_support       |= check_hdr_support(current_adapter, window);
     COM_RELEASE((*out_adapter));
     COM_RELEASE((*out_device));
     *out_adapter = current_adapter;
@@ -70,6 +127,11 @@ init_d3d12_device(IDXGIFactory7* factory, IDXGIAdapter1** out_adapter, ID3D12Dev
   }
 
   ASSERT(*out_adapter != nullptr && *out_device != nullptr);
+
+  if (hdr_support)
+  {
+    dbgln("Supports HDR!");
+  }
 }
 
 static bool
@@ -396,7 +458,7 @@ destroy_gpu_linear_allocator(GpuLinearAllocator* allocator)
 }
 
 void
-init_graphics_device()
+init_graphics_device(HWND window)
 {
   if (g_GpuDevice == nullptr)
   {
@@ -414,7 +476,7 @@ init_graphics_device()
   defer { COM_RELEASE(factory); };
 
   IDXGIAdapter1* adapter; 
-  init_d3d12_device(factory, &adapter, &g_GpuDevice->d3d12);
+  init_d3d12_device(window, factory, &adapter, &g_GpuDevice->d3d12);
   defer { COM_RELEASE(adapter); };
 
   g_GpuDevice->graphics_queue = init_cmd_queue(g_GpuDevice, kCmdQueueTypeGraphics);
@@ -423,21 +485,21 @@ init_graphics_device()
     g_InitHeap,
     g_GpuDevice,
     &g_GpuDevice->graphics_queue,
-    kFramesInFlight * 16
+    kBackBufferCount * 16
   );
   g_GpuDevice->compute_queue = init_cmd_queue(g_GpuDevice, kCmdQueueTypeCompute);
   g_GpuDevice->compute_cmd_allocator = init_cmd_list_allocator(
     g_InitHeap,
     g_GpuDevice,
     &g_GpuDevice->compute_queue,
-    kFramesInFlight * 8
+    kBackBufferCount * 8
   );
   g_GpuDevice->copy_queue = init_cmd_queue(g_GpuDevice, kCmdQueueTypeCopy);
   g_GpuDevice->copy_cmd_allocator = init_cmd_list_allocator(
     g_InitHeap,
     g_GpuDevice,
     &g_GpuDevice->copy_queue,
-    kFramesInFlight * 8
+    kBackBufferCount * 8
   );
 
 #ifdef DEBUG_LAYER
@@ -1283,8 +1345,8 @@ init_acceleration_structure(
   instance_desc.Transform[0][0] = 1;
   instance_desc.Transform[1][1] = 1;
   instance_desc.Transform[2][2] = 1;
-  instance_desc.InstanceID = 0;
-  instance_desc.InstanceMask = 0xFF;
+  instance_desc.InstanceID      = 0;
+  instance_desc.InstanceMask    = 0xFF;
   instance_desc.InstanceContributionToHitGroupIndex = 0;
   instance_desc.Flags = D3D12_RAYTRACING_INSTANCE_FLAG_TRIANGLE_CULL_DISABLE;
   instance_desc.AccelerationStructure = ret.bottom_bvh.gpu_addr;
@@ -1476,6 +1538,24 @@ alloc_back_buffers_from_swap_chain(
   }
 }
 
+static void
+set_hdr_metadata(IDXGISwapChain4* swap_chain1, f32 min_output_nits, f32 max_output_nits, ColorSpaceName color_space)
+{
+  DXGI_HDR_METADATA_HDR10 metadata;
+  metadata.RedPrimary  [0]           = (u16)kColorSpaces[color_space].red_x;
+  metadata.RedPrimary  [1]           = (u16)kColorSpaces[color_space].red_y;
+  metadata.GreenPrimary[0]           = (u16)kColorSpaces[color_space].green_x;
+  metadata.GreenPrimary[1]           = (u16)kColorSpaces[color_space].green_y;
+  metadata.BluePrimary [0]           = (u16)kColorSpaces[color_space].blue_x;
+  metadata.BluePrimary [1]           = (u16)kColorSpaces[color_space].blue_y;
+  metadata.WhitePoint  [0]           = (u16)kColorSpaces[color_space].white_x;
+  metadata.WhitePoint  [1]           = (u16)kColorSpaces[color_space].white_y;
+  metadata.MinMasteringLuminance     = (u32)(min_output_nits * 10000.0f);
+  metadata.MaxMasteringLuminance     = (u32)(max_output_nits * 10000.0f);
+  metadata.MaxContentLightLevel      = (u16)(2000.0f);
+  metadata.MaxFrameAverageLightLevel = (u16)(500.0f);
+  HASSERT(swap_chain1->SetHDRMetaData(DXGI_HDR_METADATA_TYPE_HDR10, sizeof(metadata), &metadata));
+}
 
 SwapChain
 init_swap_chain(HWND window, const GpuDevice* device)
@@ -1492,20 +1572,21 @@ init_swap_chain(HWND window, const GpuDevice* device)
   ret.format            = DXGI_FORMAT_R10G10B10A2_UNORM;
   ret.tearing_supported = check_tearing_support(factory);
   ret.vsync             = true;
+  ret.flags             = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
 
 
   DXGI_SWAP_CHAIN_DESC1 swap_chain_desc = { 0 };
-  swap_chain_desc.Width = ret.width;
-  swap_chain_desc.Height = ret.height;
-  swap_chain_desc.Format = ret.format;
-  swap_chain_desc.Stereo = FALSE;
-  swap_chain_desc.SampleDesc = { 1, 0 };
+  swap_chain_desc.Width       = ret.width;
+  swap_chain_desc.Height      = ret.height;
+  swap_chain_desc.Format      = ret.format;
+  swap_chain_desc.Stereo      = FALSE;
+  swap_chain_desc.SampleDesc  = { 1, 0 };
   swap_chain_desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
   swap_chain_desc.BufferCount = ARRAY_LENGTH(ret.back_buffers);
-  swap_chain_desc.Scaling = DXGI_SCALING_STRETCH;
-  swap_chain_desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
-  swap_chain_desc.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
-  swap_chain_desc.Flags = 0;
+  swap_chain_desc.Scaling     = DXGI_SCALING_NONE;
+  swap_chain_desc.SwapEffect  = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+  swap_chain_desc.AlphaMode   = DXGI_ALPHA_MODE_UNSPECIFIED;
+  swap_chain_desc.Flags       = ret.flags;
 
   IDXGISwapChain1* swap_chain1 = nullptr;
   HASSERT(
@@ -1523,7 +1604,10 @@ init_swap_chain(HWND window, const GpuDevice* device)
   HASSERT(swap_chain1->QueryInterface(IID_PPV_ARGS(&ret.d3d12_swap_chain)));
   COM_RELEASE(swap_chain1);
 
-  // ret.d3d12_swap_chain->SetColorSpace1(DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709);
+  set_hdr_metadata(ret.d3d12_swap_chain, 0.001f, 1000.0f, kRec2020);
+  ret.d3d12_swap_chain->SetColorSpace1(DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020);
+  ret.d3d12_swap_chain->SetMaximumFrameLatency(kFramesInFlight);
+  ret.d3d12_latency_waitable = ret.d3d12_swap_chain->GetFrameLatencyWaitableObject();
 
   ret.fence = init_fence(device);
   zero_memory(ret.frame_fence_values, sizeof(ret.frame_fence_values));
@@ -1566,6 +1650,12 @@ swap_chain_acquire(SwapChain* swap_chain)
 }
 
 void
+swap_chain_wait_latency(const SwapChain* swap_chain)
+{
+  WaitForSingleObjectEx(swap_chain->d3d12_latency_waitable, 1000, true);
+}
+
+void
 swap_chain_submit(SwapChain* swap_chain, const GpuDevice* device, const GpuTexture* rtv)
 {
   u32 index = swap_chain->back_buffer_index;
@@ -1605,7 +1695,7 @@ swap_chain_resize(SwapChain* swap_chain, HWND window, GpuDevice* device)
       swap_chain->width,
       swap_chain->height,
       swap_chain->format,
-      0
+      swap_chain->flags
     )
   );
 
@@ -1662,7 +1752,7 @@ set_compute_root_signature(CmdList* cmd)
 void
 init_imgui_ctx(
   const GpuDevice* device,
-  const SwapChain* swap_chain,
+  DXGI_FORMAT rtv_format,
   HWND window,
   DescriptorLinearAllocator* cbv_srv_uav_heap
 ) {
@@ -1678,12 +1768,14 @@ init_imgui_ctx(
   Descriptor descriptor = alloc_descriptor(cbv_srv_uav_heap);
 
   ImGui_ImplWin32_Init(window);
-  ImGui_ImplDX12_Init(device->d3d12,
-                      kFramesInFlight,
-                      swap_chain->format,
-                      cbv_srv_uav_heap->d3d12_heap,
-                      descriptor.cpu_handle,
-                      unwrap(descriptor.gpu_handle));
+  ImGui_ImplDX12_Init(
+    device->d3d12,
+    kBackBufferCount,
+    rtv_format,
+    cbv_srv_uav_heap->d3d12_heap,
+    descriptor.cpu_handle,
+    unwrap(descriptor.gpu_handle)
+  );
 }
 
 void

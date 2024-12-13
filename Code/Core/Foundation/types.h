@@ -175,11 +175,11 @@ template <class F> __Deferrer__<F> operator*(__DeferDummy__, F f) { return {f}; 
 #define COM_RELEASE(com) \
   do \
   { \
-    if (com == nullptr) {} \
+    if ((com) == nullptr) {} \
     else \
     { \
-      com->Release(); \
-      com = nullptr; \
+      (com)->Release(); \
+      (com) = nullptr; \
     } \
   } while (0)
 

@@ -13,5 +13,5 @@ ConstantBuffer<FullscreenRenderResources> render_resources : register(b0);
 float4 PS_Fullscreen(PSInput IN) : SV_TARGET
 {
   Texture2D<float4> input = ResourceDescriptorHeap[render_resources.texture];
-  return input.Sample(g_ClampSampler, IN.uv);
+  return input.Sample(g_BilinearSampler, IN.uv);
 }

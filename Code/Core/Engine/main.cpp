@@ -147,6 +147,7 @@ draw_debug(DirectionalLight* out_directional_light, Camera* out_camera)
   ImGui::DragFloat("Focal Distance", &out_render_options->focal_dist, 0.0f, 1000.0f);
   ImGui::DragFloat("Focal Range", &out_render_options->focal_range, 0.0f, 100.0f);
 #endif
+  ImGui::ShowDemoWindow();
 
   ImGui::DragFloat3("Direction", (f32*)&out_directional_light->direction, 0.02f, -1.0f, 1.0f);
   ImGui::DragFloat3("Diffuse", (f32*)&out_directional_light->diffuse, 0.1f, 0.0f, 1.0f);
@@ -206,7 +207,7 @@ application_entry(HINSTANCE instance, int show_code)
   ShowWindow(window, show_code);
   UpdateWindow(window);
 
-  init_graphics_device();
+  init_graphics_device(window);
   defer { destroy_graphics_device(); };
 
   g_MainWindow = HEAP_ALLOC(Window, g_InitHeap, 1);
@@ -296,6 +297,10 @@ application_entry(HINSTANCE instance, int show_code)
 
     reset_frame_heap();
 
+    swap_chain_wait_latency(&g_MainWindow->swap_chain);
+
+    const GpuTexture* back_buffer = swap_chain_acquire(&g_MainWindow->swap_chain);
+
     MSG message;
     while (PeekMessageW(&message, 0, 0, 0, PM_REMOVE))
     {
@@ -365,7 +370,6 @@ application_entry(HINSTANCE instance, int show_code)
     begin_renderer_recording();
     submit_scene(scene);
 
-    const GpuTexture* back_buffer = swap_chain_acquire(&g_MainWindow->swap_chain);
     execute_render_graph(&g_Renderer.graph, g_GpuDevice, back_buffer);
     swap_chain_submit(&g_MainWindow->swap_chain, g_GpuDevice, back_buffer);
   }

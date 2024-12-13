@@ -81,6 +81,10 @@ struct Camera
   f32  yaw       = 0;
 };
 
+struct RenderSettings
+{
+};
+
 struct Renderer
 {
   RenderGraph graph;
@@ -92,7 +96,8 @@ struct Renderer
   Camera prev_camera;
   Camera camera;
   Vec2   taa_jitter;
-  bool   disable_taa = false;
+  bool   disable_taa     = false;
+  bool   debug_gi_probes = false;
 
   DirectionalLight directional_light;
 

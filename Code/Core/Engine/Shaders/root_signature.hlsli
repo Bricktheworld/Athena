@@ -25,10 +25,9 @@
   "SRV(t1),"\
   "SRV(t2),"\
   "CBV(b1),"\
-  "UAV(u126),"\
-  "UAV(u127)"
+  "DescriptorTable(CBV(b120, numDescriptors=8), SRV(t128, numDescriptors=128), UAV(u128, numDescriptors=128))"
 
-SamplerState                    g_ClampSampler          : register(s0);
+SamplerState                    g_BilinearSampler       : register(s0);
 RaytracingAccelerationStructure g_AccelerationStructure : register(t0);
 ByteAddressBuffer               g_IndexBuffer           : register(t1);
 StructuredBuffer<Vertex>        g_VertexBuffer          : register(t2);
