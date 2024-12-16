@@ -197,7 +197,7 @@ namespace Athena
     {
       base.ConfigureAll(conf, target);
       conf.Defines.Add("FOUNDATION_EXPORT");
-      conf.IncludePaths.Add(@"[project.SourceRootPath\..\..\..\");
+      conf.IncludePaths.Add(@"[project.SourceRootPath]\..\..\");
       conf.Output = Configuration.OutputType.Dll;
     }
   }
@@ -279,7 +279,7 @@ namespace Athena
   }
 
   [Sharpmake.Generate]
-  class AssetBuilderProject : AthenaProject
+  class AssetBuilderProject : AthenaToolProject
   {
     public AssetBuilderProject()
     {
@@ -287,12 +287,12 @@ namespace Athena
       SourceRootPath = @"[project.SharpmakeCsPath]\Code\Core\Tools\AssetBuilder";
     }
 
-    [Configure]
     public override void ConfigureAll(Configuration conf, Target target)
     {
       base.ConfigureAll(conf, target);
       conf.Output = Configuration.OutputType.Exe;
       conf.AddPublicDependency<FoundationProject>(target);
+      conf.IncludePaths.Add(@"[project.SourceRootPath]\Vendor");
       if (target.Optimization == Optimization.Debug)
       {
         conf.LibraryFiles.Add(@"[project.SourceRootPath]\Lib\Debug\DirectXMesh.lib");
