@@ -2,7 +2,7 @@
 #include "../interlop.hlsli"
 #include "../include/ddgi_common.hlsli"
 
-ConstantBuffer<ProbeBlendingCSResources> g_ProbeBlendingResources : register(b0);
+ConstantBuffer<ProbeBlendingSrt> g_Srt : register(b0);
 
 float2 get_normalized_octahedral_coords(int2 tex_coords, int num_texels)
 {
@@ -29,9 +29,9 @@ void CS_ProbeBlending(
   bool is_border_texel = (group_thread_id.x == 0 || group_thread_id.x == (kProbeNumIrradianceInteriorTexels + 1));
   is_border_texel     |= (group_thread_id.y == 0 || group_thread_id.y == (kProbeNumIrradianceInteriorTexels + 1));
 
-  ConstantBuffer<DDGIVolDesc> vol_desc   = ResourceDescriptorHeap[g_ProbeBlendingResources.vol_desc];
-  Texture2DArray<float4>      ray_data   = ResourceDescriptorHeap[g_ProbeBlendingResources.ray_data];
-  RWTexture2DArray<float4>    irradiance = ResourceDescriptorHeap[g_ProbeBlendingResources.irradiance];
+  ConstantBuffer<DDGIVolDesc> vol_desc   = DEREF(g_Srt.vol_desc);
+  Texture2DArray<float4>      ray_data   = DEREF(g_Srt.ray_data);
+  RWTexture2DArray<float4>    irradiance = DEREF(g_Srt.irradiance);
 
   int  probe_index = get_probe_index(dispatch_thread_id, kProbeNumIrradianceTexels, vol_desc);
   uint num_probes  = vol_desc.probe_count_x * vol_desc.probe_count_y * vol_desc.probe_count_z;

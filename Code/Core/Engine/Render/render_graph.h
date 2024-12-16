@@ -6,7 +6,18 @@
 #include "Core/Foundation/Containers/array.h"
 
 #include "Core/Engine/Render/graphics.h"
+#include "Core/Engine/Render/frame_time.h"
 
+struct RenderGraph;
+struct RenderContext;
+struct RgBuilder;
+
+typedef u32 RenderPassId;
+
+extern RenderGraph* g_RenderGraph;
+extern RenderPassId g_HandlerId;
+
+constant u32 kRgBackBufferId = 0;
 
 enum ResourceType : u8
 {
@@ -24,8 +35,9 @@ struct TransientResourceDesc
     {
       u32         width;
       u32         height;
-      u32         array_size;
-      DXGI_FORMAT format;
+      u16         array_size;
+      GpuFormat   format;
+      u8          __pad__;
 
       union
       {
@@ -62,8 +74,6 @@ struct ResourceHandle
   auto operator<=>(const ResourceHandle& rhs) const = default;
 };
 
-struct Sampler;
-
 template <typename T>
 inline constexpr ResourceType kResourceType;
 
@@ -86,267 +96,40 @@ struct RgHandle
   operator ResourceHandle() const { return { id, version, kResourceType<T>, temporal_lifetime, 0 }; }
 };
 
-template <typename T>
-struct RgReadHandle
-{
-  u32 id                = 0;
-  u8  temporal_lifetime = 0;
-  s8  temporal_frame    = 0;
-  u16 __pad__           = 0;
-};
-
-template <typename T>
-struct RgWriteHandle
-{
-  u32 id                = 0;
-  u8  temporal_lifetime = 0;
-  s8  temporal_frame    = 0;
-  u16 __pad__           = 0;
-
-  operator RgReadHandle<T>() const { return { id, temporal_lifetime, temporal_frame }; };
-};
-
-typedef u32 RenderPassId;
-
-struct ShaderResource
-{
-  u32            id                = 0;
-  ResourceType   type              = kResourceTypeTexture;
-  DescriptorType descriptor_type   = kDescriptorTypeUav;
-  u8             temporal_lifetime = 0;
-  s8             temporal_frame    = 0;
-};
-
-namespace priv
-{
-  template <typename T>
-  struct View
-  {
-    typedef GpuBuffer kType;
-  };
-  
-  template <>
-  struct View<GpuTexture>
-  {
-    typedef GpuTexture kType;
-  };
-}
-
-template <typename T>
-struct Uav
-{
-  using U = priv::View<T>::kType;
-
-  u32                  id                = 0;
-  const ResourceType   type              = kResourceType<U>;
-  const DescriptorType descriptor_type   = kDescriptorTypeUav;
-  u8                   temporal_lifetime = 0;
-  s8                   temporal_frame    = 0;
-
-  Uav(RgWriteHandle<U> h) : id(h.id), temporal_lifetime(h.temporal_lifetime), temporal_frame(h.temporal_frame) {}
-
-  Uav& operator=(RgWriteHandle<U> h)
-  {
-    id                = h.id;
-    temporal_lifetime = h.temporal_lifetime;
-    temporal_frame    = h.temporal_frame;
-    return *this;
-  }
-};
-static_assert(sizeof(Uav<u32>) == sizeof(ShaderResource));
-
-template <typename T>
-struct Srv
-{
-  using U = priv::View<T>::kType;
-
-  u32                  id                = 0;
-  const ResourceType   type              = kResourceType<U>;
-  const DescriptorType descriptor_type   = kDescriptorTypeSrv;
-  u8                   temporal_lifetime = 0;
-  s8                   temporal_frame    = 0;
-
-  Srv(RgReadHandle<U> h) : id(h.id), temporal_lifetime(h.temporal_lifetime), temporal_frame(h.temporal_frame) {}
-
-  Srv& operator=(RgReadHandle<U> h)
-  {
-    id                = h.id;
-    temporal_lifetime = h.temporal_lifetime;
-    temporal_frame    = h.temporal_frame;
-    return *this;
-  }
-};
-static_assert(sizeof(Srv<u32>) == sizeof(ShaderResource));
-
-template <typename T>
-struct Cbv
-{
-  u32                  id                = 0;
-  const ResourceType   type              = kResourceTypeBuffer;
-  const DescriptorType descriptor_type   = kDescriptorTypeCbv;
-  u8                   temporal_lifetime = 0;
-  s8                   temporal_frame    = 0;
-
-  Cbv(RgReadHandle<GpuBuffer> h) : id(h.id), temporal_lifetime(h.temporal_lifetime), temporal_frame(h.temporal_frame) {}
-
-  Cbv& operator=(RgReadHandle<GpuBuffer> h) 
-  {
-    id                = h.id;
-    temporal_lifetime = h.temporal_lifetime;
-    temporal_frame    = h.temporal_frame;
-    return *this;
-  }
-};
-static_assert(sizeof(Cbv<u32>) == sizeof(ShaderResource));
-
-enum DepthStencilClearFlags
-{
-  kClearDepth        = 0x1 << 0,
-  kClearStencil      = 0x1 << 1,
-  kClearDepthStencil = kClearDepth | kClearStencil,
-};
-
-struct RenderGraph;
-struct RenderContext
-{
-  const RenderGraph*    m_Graph      = nullptr;
-  const GpuDevice* m_Device     = nullptr;
-  CmdList               m_CmdBuffer;
-
-  u32                   m_Width      = 0;
-  u32                   m_Height     = 0;
-
-  void clear_depth_stencil_view(
-    RgWriteHandle<GpuTexture> depth_stencil,
-    DepthStencilClearFlags flags,
-    f32 depth,
-    u8 stencil
-  );
-
-  void clear_render_target_view(RgWriteHandle<GpuTexture> render_target_view, const Vec4& rgba);
-
-  void set_graphics_pso(const GraphicsPSO* pso);
-  void set_compute_pso(const ComputePSO* pso);
-  void set_ray_tracing_pso(const RayTracingPSO* pso);
-
-  void draw_indexed_instanced(
-    u32 index_count_per_instance,
-    u32 instance_count,
-    u32 start_index_location,
-    s32 base_vertex_location,
-    u32 start_instance_location
-  );
-
-  void draw_instanced(
-    u32 vertex_count_per_instance,
-    u32 instance_count,
-    u32 start_vertex_location,
-    u32 start_instance_location
-  );
-
-  void dispatch(u32 x, u32 y, u32 z);
-  void dispatch_rays(const ShaderTable* shader_table, u32 x, u32 y, u32 z);
-
-  void ia_set_index_buffer(const GpuBuffer*        buffer, u32 stride, u32 size = 0);
-  void ia_set_index_buffer(RgReadHandle<GpuBuffer> buffer, u32 stride, u32 size = 0);
-
-  void ia_set_primitive_topology(D3D12_PRIMITIVE_TOPOLOGY primitive_topology);
-  
-  void ia_set_vertex_buffer(
-    u32 start_slot,
-    const GpuBuffer* buffer,
-    u32 size,
-    u32 stride
-  );
-
-  void ia_set_vertex_buffer(
-    u32 start_slot,
-    RgReadHandle<GpuBuffer> buffer,
-    u32 size,
-    u32 stride
-  );
-
-  void clear_state();
-
-  void om_set_render_targets(Span<RgWriteHandle<GpuTexture>> rtvs, Option<RgWriteHandle<GpuTexture>> dsv);
-  void rs_set_scissor_rect(s32 left, s32 top, s32 right, s32 bottom);
-  void rs_set_viewport(f32 left, f32 top, f32 width, f32 height);
-
-  void set_compute_root_shader_resource_view(u32 root_parameter_index, const GpuBuffer*        buffer);
-  void set_compute_root_shader_resource_view(u32 root_parameter_index, RgReadHandle<GpuBuffer> buffer);
-
-  void set_graphics_root_shader_resource_view(u32 root_parameter_index, const GpuBuffer*        buffer);
-  void set_graphics_root_shader_resource_view(u32 root_parameter_index, RgReadHandle<GpuBuffer> buffer);
-
-  void set_compute_root_constant_buffer_view(u32 root_parameter_index, const GpuBuffer*        buffer);
-  void set_compute_root_constant_buffer_view(u32 root_parameter_index, RgReadHandle<GpuBuffer> buffer);
-
-  void set_graphics_root_constant_buffer_view(u32 root_parameter_index, const GpuBuffer*        buffer);
-  void set_graphics_root_constant_buffer_view(u32 root_parameter_index, RgReadHandle<GpuBuffer> buffer);
-
-  void set_graphics_root_32bit_constants(u32 root_parameter_index, Span<u32> src, u32 dst_offset);
-  void set_compute_root_32bit_constants(u32 root_parameter_index, Span<u32> src, u32 dst_offset);
-
-  void set_descriptor_heaps(Span<const DescriptorLinearAllocator*> heaps);
-
-  void graphics_bind_shader_resources   (Span<ShaderResource> resources);
-  void compute_bind_shader_resources    (Span<ShaderResource> resources);
-  void ray_tracing_bind_shader_resources(Span<ShaderResource> resources);
-
-  template <typename T>
-  void graphics_bind_shader_resources(const T& resource)
-  {
-    static_assert(sizeof(T) % sizeof(ShaderResource) == 0, "Invalid resource struct!");
-
-    const ShaderResource* shader_resources = (const ShaderResource*)&resource;
-    u32                   num_resources    = sizeof(T) / sizeof(ShaderResource);
-    graphics_bind_shader_resources(Span(shader_resources, num_resources));
-  }
-
-  template <typename T>
-  void compute_bind_shader_resources(const T& resource)
-  {
-    static_assert(sizeof(T) % sizeof(ShaderResource) == 0, "Invalid resource struct!");
-
-    const ShaderResource* shader_resources = (const ShaderResource*)&resource;
-    u32                   num_resources    = sizeof(T) / sizeof(ShaderResource);
-    compute_bind_shader_resources(Span(shader_resources, num_resources));
-  }
-
-  template <typename T>
-  void ray_tracing_bind_shader_resources(const T& resource)
-  {
-    static_assert(sizeof(T) % sizeof(ShaderResource) == 0, "Invalid resource struct!");
-
-    const ShaderResource* shader_resources = (const ShaderResource*)&resource;
-    u32                   num_resources    = sizeof(T) / sizeof(ShaderResource);
-    ray_tracing_bind_shader_resources(Span(shader_resources, num_resources));
-  }
-
-  // NOTE(Brandon): It is NOT a mistake that I am not using RgWriteHandle. As long as the
-  // buffer was created in an upload heap then you can write to it, since this is CPU writing
-  // and the graph doesn't care when you write to the buffer (since it doesn't affect how 
-  // the GPU runs its passes).
-  void write_cpu_upload_buffer(RgReadHandle<GpuBuffer> dst, const void* src, u64 size);
-  void write_cpu_upload_buffer(const GpuBuffer*        dst, const void* src, u64 size);
-};
-
 typedef void (RenderHandler)(RenderContext* render_context, const void* data);
 
 struct RgPassBuilder
 {
-  RenderPassId     pass_id  = 0;
-  CmdQueueType     queue    = kCmdQueueTypeGraphics;
-  const char*      name     = "Unnamed";
-  RenderHandler*   handler  = 0;
-  void*            data     = nullptr;
+  RenderPassId     pass_id         = 0;
+  CmdQueueType     queue           = kCmdQueueTypeGraphics;
+  const char*      name            = "Unnamed";
+  RenderHandler*   handler         = 0;
+  void*            data            = nullptr;
+  u32              descriptor_idx  = 0;
+
+  // NOTE(bshihabi): I hate when I have two structs that reference each other
+  // but this one seems pretty reasonable so I'm keeping it
+  RgBuilder*       graph           = nullptr;
 
   struct ResourceAccessData
   {
-    ResourceHandle handle         = {0};
-    u32            access         = 0;
-    s8             temporal_frame = 0;
-    bool           is_write       = false;
+    ResourceHandle handle          = {0};
+    u32            access          = 0;
+    s8             temporal_frame  = 0;
+    DescriptorType descriptor_type = kDescriptorTypeCbv;
+    bool           is_write        = false;
+    u8             __pad__         = 0;
+    u32            descriptor_idx  = 0;
+
+    union
+    {
+      GpuBufferCbvDesc  buffer_cbv;
+      GpuBufferSrvDesc  buffer_srv;
+      GpuBufferUavDesc  buffer_uav;
+
+      GpuTextureSrvDesc texture_srv;
+      GpuTextureUavDesc texture_uav;
+    };
   };
 
   Array<ResourceAccessData> read_resources;
@@ -384,6 +167,7 @@ struct RenderPass
   RenderHandler* handler = nullptr;
   void*          data    = nullptr;
   const char*    name    = "Unknown";
+  Array<GpuDescriptor> descriptors;
 };
 
 enum ResourceBarrierType
@@ -436,16 +220,6 @@ struct RgDescriptorHeap
   DescriptorLinearAllocator dsv;
 };
 
-struct RgDescriptorKey
-{
-  u32            id             = 0;
-  DescriptorType type           = kDescriptorTypeCbv;
-  u8             temporal_frame = 0;
-  u16            __padding1__   = 0;
-
-  auto operator<=>(const RgDescriptorKey& rhs) const = default;
-};
-
 struct RgResourceKey
 {
   u32 id             = 0;
@@ -465,11 +239,13 @@ struct RenderGraph
 
   RgDescriptorHeap                       descriptor_heap;
 
-  HashTable<RgDescriptorKey, Descriptor> descriptor_map;
-  HashTable<RgResourceKey,   GpuBuffer > buffer_map;
-  HashTable<RgResourceKey,   GpuTexture> texture_map;
+  // HashTable<RgDescriptorKey, Descriptor> descriptor_map;
+  HashTable<RgResourceKey, GpuBuffer > buffer_map;
+  HashTable<RgResourceKey, GpuTexture> texture_map;
 
   RgHandle<GpuTexture>                   back_buffer;
+  GpuDescriptor                          back_buffer_rtv;
+  GpuDescriptor                          back_buffer_dsv;
 
   Array<RgResourceBarrier>               exit_barriers;
 
@@ -478,6 +254,7 @@ struct RenderGraph
   u32                                    frame_id = 0;
   u32                                    width    = 0;
   u32                                    height   = 0;
+
 };
 
 
@@ -495,9 +272,32 @@ enum RenderGraphDestroyFlags : u32
 };
 
 RgBuilder init_rg_builder(AllocHeap heap, u32 width, u32 height);
-void      compile_render_graph(AllocHeap heap, const RgBuilder& builder, const GpuDevice* device, RenderGraph* out, RenderGraphDestroyFlags flags = kRgDestroyAll);
-void      destroy_render_graph(RenderGraph* graph, RenderGraphDestroyFlags flags = kRgDestroyAll);
-void      execute_render_graph(RenderGraph* graph, const GpuDevice* device, const GpuTexture* back_buffer);
+void      compile_render_graph(AllocHeap heap, const RgBuilder& builder, RenderGraphDestroyFlags flags = kRgDestroyAll);
+void      destroy_render_graph(RenderGraphDestroyFlags flags = kRgDestroyAll);
+void      execute_render_graph(const GpuTexture* back_buffer);
+
+u8 rg_get_temporal_frame(u32 frame_id, u32 temporal_lifetime, s8 offset);
+template <typename T>
+const GpuTexture*
+rg_deref_texture(T rg_descriptor)
+{
+  RgResourceKey key  = {0};
+  key.id             = rg_descriptor.m_ResourceId;
+  key.temporal_frame = rg_get_temporal_frame(g_FrameId, rg_descriptor.m_TemporalLifetime, rg_descriptor.m_TemporalFrame);
+
+  return unwrap(hash_table_find(&g_RenderGraph->texture_map, key));
+}
+
+template <typename T>
+const GpuBuffer*
+rg_deref_buffer(T rg_descriptor)
+{
+  RgResourceKey key  = {0};
+  key.id             = rg_descriptor.m_ResourceId;
+  key.temporal_frame = rg_get_temporal_frame(g_FrameId, rg_descriptor.m_TemporalLifetime, rg_descriptor.m_TemporalFrame);
+
+  return unwrap(hash_table_find(&g_RenderGraph->buffer_map, key));
+}
 
 RgPassBuilder* add_render_pass(
   AllocHeap heap,
@@ -506,8 +306,6 @@ RgPassBuilder* add_render_pass(
   const char* name,
   void* data,
   RenderHandler* handler,
-  u32 num_read_resources,
-  u32 num_write_resources,
   bool is_frame_init = false
 );
 
@@ -546,9 +344,6 @@ enum WriteTextureAccess : u32
   kWriteTextureCopyDst,
 };
 
-RgReadHandle<GpuTexture>  rg_read_texture (RgPassBuilder* builder, RgHandle<GpuTexture>  texture, ReadTextureAccessMask access, s8 temporal_frame = 0);
-RgWriteHandle<GpuTexture> rg_write_texture(RgPassBuilder* builder, RgHandle<GpuTexture>* texture, WriteTextureAccess    access);
-
 enum ReadBufferAccessMask : u32
 {
   // Specific to buffers
@@ -579,17 +374,14 @@ enum WriteBufferAccess : u32
   kWriteBufferUav,
 };
 
-RgReadHandle<GpuBuffer>  rg_read_buffer (RgPassBuilder* builder, RgHandle<GpuBuffer>  buffer, ReadBufferAccessMask access);
-RgWriteHandle<GpuBuffer> rg_write_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer>* buffer, WriteBufferAccess    access);
-
-constant u8  kInfiniteLifetime = 0xFF;
+constant u8 kInfiniteLifetime = 0xFF;
 
 RgHandle<GpuTexture> rg_create_texture(
   RgBuilder* builder,
   const char* name,
   u32 width,
   u32 height,
-  DXGI_FORMAT format
+  GpuFormat format
 );
 
 RgHandle<GpuTexture> rg_create_texture_ex(
@@ -597,7 +389,7 @@ RgHandle<GpuTexture> rg_create_texture_ex(
   const char* name,
   u32 width,
   u32 height,
-  DXGI_FORMAT format,
+  GpuFormat format,
   u8 temporal_lifetime
 );
 
@@ -606,8 +398,8 @@ RgHandle<GpuTexture> rg_create_texture_array(
   const char* name,
   u32 width,
   u32 height,
-  u32 array_size,
-  DXGI_FORMAT format
+  u16 array_size,
+  GpuFormat format
 );
 
 RgHandle<GpuTexture> rg_create_texture_array_ex(
@@ -615,8 +407,8 @@ RgHandle<GpuTexture> rg_create_texture_array_ex(
   const char* name,
   u32 width,
   u32 height,
-  u32 array_size,
-  DXGI_FORMAT format,
+  u16 array_size,
+  GpuFormat format,
   u8 temporal_lifetime
 );
 
@@ -641,3 +433,946 @@ RgHandle<GpuBuffer> rg_create_buffer_ex(
   u32 stride,
   u8 temporal_lifetime
 );
+
+struct RgOpaqueDescriptor
+{
+  u32 pass_id           = 0;
+  u32 descriptor_idx    = 0;
+  u32 resource_id       = 0;
+
+  u8  temporal_lifetime = 0;
+  s8  temporal_frame    = 0;
+  u16 __pad__           = 0;
+};
+
+RgOpaqueDescriptor rg_read_texture (RgPassBuilder* builder, RgHandle<GpuTexture>  texture, const GpuTextureSrvDesc& desc, s8 temporal_frame = 0);
+RgOpaqueDescriptor rg_write_texture(RgPassBuilder* builder, RgHandle<GpuTexture>* texture, const GpuTextureUavDesc& desc);
+RgOpaqueDescriptor rg_write_rtv    (RgPassBuilder* builder, RgHandle<GpuTexture>* texture);
+RgOpaqueDescriptor rg_write_dsv    (RgPassBuilder* builder, RgHandle<GpuTexture>* texture);
+
+RgOpaqueDescriptor rg_read_buffer  (RgPassBuilder* builder, RgHandle<GpuBuffer>   buffer,  const GpuBufferCbvDesc&  desc, s8 temporal_frame = 0);
+RgOpaqueDescriptor rg_read_buffer  (RgPassBuilder* builder, RgHandle<GpuBuffer>   buffer,  const GpuBufferSrvDesc&  desc, s8 temporal_frame = 0);
+RgOpaqueDescriptor rg_write_buffer (RgPassBuilder* builder, RgHandle<GpuBuffer>*  buffer,  const GpuBufferUavDesc&  desc);
+
+RgOpaqueDescriptor rg_read_index_buffer (RgPassBuilder* builder, RgHandle<GpuBuffer> buffer);
+RgOpaqueDescriptor rg_read_vertex_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer> buffer);
+
+struct RgRtv
+{
+  u32 m_PassId           = 0;
+  u32 m_DescriptorIdx    = 0;
+  u32 m_ResourceId       = 0;
+
+  u8  m_TemporalLifetime = 0;
+  s8  m_TemporalFrame    = 0;
+  u16 m_Pad              = 0;
+
+  RgRtv() = default;
+  RgRtv(RgPassBuilder* builder, RgHandle<GpuTexture>* texture)
+  {
+    RgOpaqueDescriptor opaque = rg_write_rtv(builder, texture);
+
+    m_PassId           = opaque.pass_id;
+    m_DescriptorIdx    = opaque.descriptor_idx;
+    m_ResourceId       = opaque.resource_id;
+    m_TemporalLifetime = opaque.temporal_lifetime;
+    m_TemporalFrame    = opaque.temporal_frame;
+    m_Pad              = 0;
+  }
+
+  const GpuDescriptor* deref() const
+  {
+    if (m_ResourceId == kRgBackBufferId)
+    {
+      return &g_RenderGraph->back_buffer_rtv;
+    }
+
+    const RenderPass*    pass = &g_RenderGraph->render_passes[m_PassId];
+    const GpuDescriptor* base = &pass->descriptors[m_DescriptorIdx];
+    const GpuDescriptor* ptr  = base + rg_get_temporal_frame(g_FrameId, m_TemporalLifetime, m_TemporalFrame);
+
+    return ptr;
+  }
+};
+
+struct RgDsv
+{
+  u32 m_PassId           = 0;
+  u32 m_DescriptorIdx    = 0;
+  u32 m_ResourceId       = 0;
+
+  u8  m_TemporalLifetime = 0;
+  s8  m_TemporalFrame    = 0;
+  u16 m_Pad              = 0;
+
+  RgDsv() = default;
+  RgDsv(RgPassBuilder* builder, RgHandle<GpuTexture>* texture)
+  {
+    RgOpaqueDescriptor opaque = rg_write_dsv(builder, texture);
+
+    m_PassId           = opaque.pass_id;
+    m_DescriptorIdx    = opaque.descriptor_idx;
+    m_ResourceId       = opaque.resource_id;
+    m_TemporalLifetime = opaque.temporal_lifetime;
+    m_TemporalFrame    = opaque.temporal_frame;
+  }
+
+  const GpuDescriptor* deref() const
+  {
+    if (m_ResourceId == kRgBackBufferId)
+    {
+      return &g_RenderGraph->back_buffer_dsv;
+    }
+
+    const RenderPass*    pass = &g_RenderGraph->render_passes[m_PassId];
+    const GpuDescriptor* base = &pass->descriptors[m_DescriptorIdx];
+    const GpuDescriptor* ptr  = base + rg_get_temporal_frame(g_FrameId, m_TemporalLifetime, m_TemporalFrame);
+
+    return ptr;
+  }
+};
+
+struct RgIndexBuffer
+{
+  u32 m_PassId           = 0;
+  u32 m_Pad0             = 0;
+  u32 m_ResourceId       = 0;
+
+  u32 m_Pad1             = 0;
+
+  RgIndexBuffer() = default;
+  RgIndexBuffer(RgPassBuilder* builder, RgHandle<GpuBuffer> buffer)
+  {
+    RgOpaqueDescriptor opaque = rg_read_index_buffer(builder, buffer);
+
+    m_PassId     = opaque.pass_id;
+    m_ResourceId = opaque.resource_id;
+  }
+};
+
+struct RgVertexBuffer
+{
+  u32 m_PassId           = 0;
+  u32 m_Pad0             = 0;
+  u32 m_ResourceId       = 0;
+
+  u32 m_Pad1             = 0;
+
+  RgVertexBuffer() = default;
+  RgVertexBuffer(RgPassBuilder* builder, RgHandle<GpuBuffer> buffer)
+  {
+    RgOpaqueDescriptor opaque = rg_read_vertex_buffer(builder, buffer);
+
+    m_PassId     = opaque.pass_id;
+    m_ResourceId = opaque.resource_id;
+  }
+};
+
+template <typename T>
+struct RgBuffer
+{
+  u32 m_PassId           = 0;
+  u32 m_DescriptorIdx    = 0;
+  u32 m_ResourceId       = 0;
+
+  u8  m_TemporalLifetime = 0;
+  s8  m_TemporalFrame    = 0;
+  u16 m_Pad              = 0;
+
+  RgBuffer() = default;
+  RgBuffer(RgPassBuilder* builder, RgHandle<GpuBuffer> buffer, s8 temporal_frame = 0, Option<GpuBufferSrvDesc> desc = None)
+  {
+    RgOpaqueDescriptor opaque;
+    if (desc)
+    {
+      ASSERT(!unwrap(desc).is_raw);
+      opaque = rg_read_buffer(builder, buffer, unwrap(desc));
+    }
+    else
+    {
+      TransientResourceDesc* resource_desc = unwrap(hash_table_find(&builder->graph->resource_descs, buffer.id));
+      ASSERT(resource_desc->type == kResourceTypeBuffer);
+      GpuBufferSrvDesc desc = {0};
+      desc.first_element    = 0;
+      desc.num_elements     = resource_desc->buffer_desc.size / sizeof(T);
+      desc.stride           = 0;
+      desc.format           = gpu_format_from_type<T>();
+      desc.is_raw           = false;
+
+      opaque = rg_read_buffer(builder, buffer, desc);
+    }
+
+    m_PassId           = opaque.pass_id;
+    m_DescriptorIdx    = opaque.descriptor_idx;
+    m_ResourceId       = opaque.resource_id;
+    m_TemporalLifetime = opaque.temporal_lifetime;
+    m_TemporalFrame    = opaque.temporal_frame;
+  }
+
+  operator BufferPtr<T>() const
+  {
+    return { deref()->index };
+  };
+
+  const GpuDescriptor* deref() const
+  {
+    const RenderPass*    pass = &g_RenderGraph->render_passes[m_PassId];
+    const GpuDescriptor* base = &pass->descriptors[m_DescriptorIdx];
+    const GpuDescriptor* ptr  = base + rg_get_temporal_frame(g_FrameId, m_TemporalLifetime, m_TemporalFrame);
+
+    return ptr;
+  }
+};
+
+struct RgByteAddressBuffer
+{
+  u32 m_PassId           = 0;
+  u32 m_DescriptorIdx    = 0;
+  u32 m_ResourceId       = 0;
+
+  u8  m_TemporalLifetime = 0;
+  s8  m_TemporalFrame    = 0;
+  u16 m_Pad              = 0;
+
+  RgByteAddressBuffer() = default;
+  RgByteAddressBuffer(RgPassBuilder* builder, RgHandle<GpuBuffer> buffer, s8 temporal_frame = 0, Option<GpuBufferSrvDesc> desc = None)
+  {
+    RgOpaqueDescriptor opaque;
+    if (desc)
+    {
+      ASSERT(unwrap(desc).is_raw);
+      opaque = rg_read_buffer(builder, buffer, unwrap(desc), temporal_frame);
+    }
+    else
+    {
+      TransientResourceDesc* resource_desc = unwrap(hash_table_find(&builder->graph->resource_descs, buffer.id));
+      ASSERT(resource_desc->type == kResourceTypeBuffer);
+      GpuBufferSrvDesc srv = {0};
+      srv.first_element    = 0;
+      srv.num_elements     = (u32)(resource_desc->buffer_desc.size / 4);
+      srv.stride           = 0;
+      srv.format           = kGpuFormatR32Typeless;
+      srv.is_raw           = true;
+
+      opaque = rg_read_buffer(builder, buffer, srv, temporal_frame);
+    }
+
+    m_PassId           = opaque.pass_id;
+    m_DescriptorIdx    = opaque.descriptor_idx;
+    m_ResourceId       = opaque.resource_id;
+    m_TemporalLifetime = opaque.temporal_lifetime;
+    m_TemporalFrame    = opaque.temporal_frame;
+  }
+
+  operator ByteAddressBufferPtr() const 
+  {
+    return { deref()->index };
+  };
+
+  const GpuDescriptor* deref() const
+  {
+    const RenderPass*    pass = &g_RenderGraph->render_passes[m_PassId];
+    const GpuDescriptor* base = &pass->descriptors[m_DescriptorIdx];
+    const GpuDescriptor* ptr  = base + rg_get_temporal_frame(g_FrameId, m_TemporalLifetime, m_TemporalFrame);
+
+    return ptr;
+  }
+};
+
+template <typename T>
+struct RgConstantBuffer
+{
+  u32 m_PassId           = 0;
+  u32 m_DescriptorIdx    = 0;
+  u32 m_ResourceId       = 0;
+
+  u8  m_TemporalLifetime = 0;
+  s8  m_TemporalFrame    = 0;
+  u16 m_Pad              = 0;
+
+  RgConstantBuffer() = default;
+  RgConstantBuffer(RgPassBuilder* builder, RgHandle<GpuBuffer> buffer, s8 temporal_frame = 0, Option<GpuBufferCbvDesc> desc = None)
+  {
+    RgOpaqueDescriptor opaque;
+    if (desc)
+    {
+      opaque = rg_read_buffer(builder, buffer, unwrap(desc), temporal_frame);
+    }
+    else
+    {
+      TransientResourceDesc* resource_desc = unwrap(hash_table_find(&builder->graph->resource_descs, buffer.id));
+      ASSERT(resource_desc->type == kResourceTypeBuffer);
+      GpuBufferCbvDesc cbv = {0};
+      cbv.buffer_offset    = 0;
+      cbv.size             = resource_desc->buffer_desc.size;
+
+      opaque = rg_read_buffer(builder, buffer, cbv, temporal_frame);
+    }
+
+    m_PassId           = opaque.pass_id;
+    m_DescriptorIdx    = opaque.descriptor_idx;
+    m_ResourceId       = opaque.resource_id;
+    m_TemporalLifetime = opaque.temporal_lifetime;
+    m_TemporalFrame    = opaque.temporal_frame;
+  }
+
+
+  operator ConstantBufferPtr<T>() const
+  {
+    return { deref()->index };
+  }
+
+  const GpuDescriptor* deref() const
+  {
+    const RenderPass*    pass = &g_RenderGraph->render_passes[m_PassId];
+    const GpuDescriptor* base = &pass->descriptors[m_DescriptorIdx];
+    const GpuDescriptor* ptr  = base + rg_get_temporal_frame(g_FrameId, m_TemporalLifetime, m_TemporalFrame);
+
+    return ptr;
+  }
+};
+
+template <typename T>
+struct RgRWBuffer
+{
+  u32 m_PassId           = 0;
+  u32 m_DescriptorIdx    = 0;
+  u32 m_ResourceId       = 0;
+
+  u8  m_TemporalLifetime = 0;
+  s8  m_TemporalFrame    = 0;
+  u16 m_Pad              = 0;
+
+  RgRWBuffer() = default;
+  RgRWBuffer(RgPassBuilder* builder, RgHandle<GpuBuffer>* buffer, Option<GpuBufferUavDesc> desc = None)
+  {
+    RgOpaqueDescriptor opaque;
+    if (desc)
+    {
+      ASSERT(!unwrap(desc).is_raw);
+      opaque = rg_write_buffer(builder, buffer, unwrap(desc));
+    }
+    else
+    {
+      TransientResourceDesc* resource_desc = unwrap(hash_table_find(&builder->graph->resource_descs, buffer->id));
+      ASSERT(resource_desc->type == kResourceTypeBuffer);
+      GpuBufferUavDesc uav = {0};
+      uav.first_element    = 0;
+      uav.num_elements     = resource_desc->buffer_desc.size / sizeof(T);
+      uav.stride           = 0;
+      uav.format           = gpu_format_from_type<T>();
+      uav.is_raw           = false;
+
+      opaque = rg_write_buffer(builder, buffer, uav);
+    }
+
+    m_PassId           = opaque.pass_id;
+    m_DescriptorIdx    = opaque.descriptor_idx;
+    m_ResourceId       = opaque.resource_id;
+    m_TemporalLifetime = opaque.temporal_lifetime;
+    m_TemporalFrame    = opaque.temporal_frame;
+  }
+
+
+  operator RWBufferPtr<T>() const
+  {
+    return { deref()->index };
+  }
+
+  const GpuDescriptor* deref() const
+  {
+    const RenderPass*    pass = &g_RenderGraph->render_passes[m_PassId];
+    const GpuDescriptor* base = &pass->descriptors[m_DescriptorIdx];
+    const GpuDescriptor* ptr  = base + rg_get_temporal_frame(g_FrameId, m_TemporalLifetime, m_TemporalFrame);
+
+    return ptr;
+  }
+};
+
+struct RgRWByteAddressBuffer
+{
+  u32 m_PassId           = 0;
+  u32 m_DescriptorIdx    = 0;
+  u32 m_ResourceId       = 0;
+
+  u8  m_TemporalLifetime = 0;
+  s8  m_TemporalFrame    = 0;
+  u16 m_Pad              = 0;
+
+  RgRWByteAddressBuffer() = default;
+  RgRWByteAddressBuffer(RgPassBuilder* builder, RgHandle<GpuBuffer>* buffer, Option<GpuBufferUavDesc> desc = None)
+  {
+    RgOpaqueDescriptor opaque;
+    if (desc)
+    {
+      ASSERT(unwrap(desc).is_raw);
+      opaque = rg_write_buffer(builder, buffer, unwrap(desc));
+    }
+    else
+    {
+      TransientResourceDesc* resource_desc = unwrap(hash_table_find(&builder->graph->resource_descs, buffer->id));
+      ASSERT(resource_desc->type == kResourceTypeBuffer);
+      GpuBufferUavDesc uav = {0};
+      uav.first_element    = 0;
+      uav.num_elements     = (u32)(resource_desc->buffer_desc.size / 4);
+      uav.stride           = 0;
+      uav.format           = kGpuFormatR32Typeless;
+      uav.is_raw           = true;
+
+      opaque = rg_write_buffer(builder, buffer, uav);
+    }
+
+    m_PassId           = opaque.pass_id;
+    m_DescriptorIdx    = opaque.descriptor_idx;
+    m_ResourceId       = opaque.resource_id;
+    m_TemporalLifetime = opaque.temporal_lifetime;
+    m_TemporalFrame    = opaque.temporal_frame;
+  }
+
+  operator RWByteAddressBufferPtr() const
+  {
+    return { deref()->index };
+  }
+
+  const GpuDescriptor* deref() const
+  {
+    const RenderPass*    pass = &g_RenderGraph->render_passes[m_PassId];
+    const GpuDescriptor* base = &pass->descriptors[m_DescriptorIdx];
+    const GpuDescriptor* ptr  = base + rg_get_temporal_frame(g_FrameId, m_TemporalLifetime, m_TemporalFrame);
+
+    return ptr;
+  }
+};
+
+template <typename T>
+struct RgRWStructuredBuffer
+{
+  u32 m_PassId           = 0;
+  u32 m_DescriptorIdx    = 0;
+  u32 m_ResourceId       = 0;
+
+  u8  m_TemporalLifetime = 0;
+  s8  m_TemporalFrame    = 0;
+  u16 m_Pad              = 0;
+
+  RgRWStructuredBuffer() = default;
+  RgRWStructuredBuffer(RgPassBuilder* builder, RgHandle<GpuBuffer>* buffer, Option<GpuBufferUavDesc> desc = None)
+  {
+    RgOpaqueDescriptor opaque;
+    if (desc)
+    {
+      ASSERT(!unwrap(desc).is_raw);
+      opaque = rg_write_buffer(builder, buffer, unwrap(desc));
+    }
+    else
+    {
+      TransientResourceDesc* resource_desc = unwrap(hash_table_find(&builder->graph->resource_descs, buffer->id));
+      ASSERT(resource_desc->type == kResourceTypeBuffer);
+      GpuBufferUavDesc uav = {0};
+      uav.first_element    = 0;
+      uav.num_elements     = resource_desc->buffer_desc.size / sizeof(T);
+      uav.stride           = sizeof(T);
+      uav.format           = kGpuFormatUnknown;
+      uav.is_raw           = false;
+
+      opaque = rg_write_buffer(builder, buffer, uav);
+    }
+
+    m_PassId           = opaque.pass_id;
+    m_DescriptorIdx    = opaque.descriptor_idx;
+    m_ResourceId       = opaque.resource_id;
+    m_TemporalLifetime = opaque.temporal_lifetime;
+    m_TemporalFrame    = opaque.temporal_frame;
+  }
+
+  operator RWStructuredBufferPtr<T>() const
+  {
+    return { deref()->index };
+  }
+
+  const GpuDescriptor* deref() const
+  {
+    const RenderPass*    pass = &g_RenderGraph->render_passes[m_PassId];
+    const GpuDescriptor* base = &pass->descriptors[m_DescriptorIdx];
+    const GpuDescriptor* ptr  = base + rg_get_temporal_frame(g_FrameId, m_TemporalLifetime, m_TemporalFrame);
+
+    return ptr;
+  }
+};
+
+template <typename T>
+struct RgRWTexture2D
+{
+  u32 m_PassId           = 0;
+  u32 m_DescriptorIdx    = 0;
+  u32 m_ResourceId       = 0;
+
+  u8  m_TemporalLifetime = 0;
+  s8  m_TemporalFrame    = 0;
+  u16 m_Pad              = 0;
+
+  RgRWTexture2D() = default;
+  RgRWTexture2D(RgPassBuilder* builder, RgHandle<GpuTexture>* texture, Option<GpuTextureUavDesc> desc = None)
+  {
+    RgOpaqueDescriptor opaque;
+    if (desc)
+    {
+      opaque = rg_write_texture(builder, texture, unwrap(desc));
+    }
+    else
+    {
+      TransientResourceDesc* resource_desc = unwrap(hash_table_find(&builder->graph->resource_descs, texture->id));
+      ASSERT(resource_desc->type == kResourceTypeTexture);
+      GpuTextureUavDesc uav = {0};
+      uav.array_size        = 1;
+      uav.format            = resource_desc->texture_desc.format;
+
+      opaque = rg_write_texture(builder, texture, uav);
+    }
+
+    m_PassId           = opaque.pass_id;
+    m_DescriptorIdx    = opaque.descriptor_idx;
+    m_ResourceId       = opaque.resource_id;
+    m_TemporalLifetime = opaque.temporal_lifetime;
+    m_TemporalFrame    = opaque.temporal_frame;
+  }
+
+  operator RWTexture2DPtr<T>() const
+  {
+    return { deref()->index };
+  }
+
+  const GpuDescriptor* deref() const
+  {
+    const RenderPass*    pass = &g_RenderGraph->render_passes[m_PassId];
+    const GpuDescriptor* base = &pass->descriptors[m_DescriptorIdx];
+    const GpuDescriptor* ptr  = base + rg_get_temporal_frame(g_FrameId, m_TemporalLifetime, m_TemporalFrame);
+
+    return ptr;
+  }
+};
+
+template <typename T>
+struct RgRWTexture2DArray
+{
+  u32 m_PassId           = 0;
+  u32 m_DescriptorIdx    = 0;
+  u32 m_ResourceId       = 0;
+
+  u8  m_TemporalLifetime = 0;
+  s8  m_TemporalFrame    = 0;
+  u16 m_Pad              = 0;
+
+  RgRWTexture2DArray() = default;
+  RgRWTexture2DArray(RgPassBuilder* builder, RgHandle<GpuTexture>* texture, Option<GpuTextureUavDesc> desc = None)
+  {
+    RgOpaqueDescriptor opaque;
+    if (desc)
+    {
+      opaque = rg_write_texture(builder, texture, unwrap(desc));
+    }
+    else
+    {
+      TransientResourceDesc* resource_desc = unwrap(hash_table_find(&builder->graph->resource_descs, texture->id));
+      ASSERT(resource_desc->type == kResourceTypeTexture);
+      GpuTextureUavDesc uav = {0};
+      uav.array_size        = resource_desc->texture_desc.array_size;
+      uav.format            = resource_desc->texture_desc.format;
+
+      opaque = rg_write_texture(builder, texture, uav);
+    }
+
+    m_PassId           = opaque.pass_id;
+    m_DescriptorIdx    = opaque.descriptor_idx;
+    m_ResourceId       = opaque.resource_id;
+    m_TemporalLifetime = opaque.temporal_lifetime;
+    m_TemporalFrame    = opaque.temporal_frame;
+  }
+
+  operator RWTexture2DArrayPtr<T>() const
+  {
+    return { deref()->index };
+  }
+
+  const GpuDescriptor* deref() const
+  {
+    const RenderPass*    pass = &g_RenderGraph->render_passes[m_PassId];
+    const GpuDescriptor* base = &pass->descriptors[m_DescriptorIdx];
+    const GpuDescriptor* ptr  = base + rg_get_temporal_frame(g_FrameId, m_TemporalLifetime, m_TemporalFrame);
+
+    return ptr;
+  }
+};
+
+template <typename T>
+struct RgStructuredBuffer
+{
+  u32 m_PassId           = 0;
+  u32 m_DescriptorIdx    = 0;
+  u32 m_ResourceId       = 0;
+
+  u8  m_TemporalLifetime = 0;
+  s8  m_TemporalFrame    = 0;
+  u16 m_Pad              = 0;
+
+  RgStructuredBuffer() = default;
+  RgStructuredBuffer(RgPassBuilder* builder, RgHandle<GpuBuffer> buffer, s8 temporal_frame = 0, Option<GpuBufferSrvDesc> desc = None)
+  {
+    RgOpaqueDescriptor opaque;
+    if (desc)
+    {
+      ASSERT(!unwrap(desc).is_raw);
+      opaque = rg_read_buffer(builder, buffer, unwrap(desc), temporal_frame);
+    }
+    else
+    {
+      TransientResourceDesc* resource_desc = unwrap(hash_table_find(&builder->graph->resource_descs, buffer.id));
+      ASSERT(resource_desc->type == kResourceTypeBuffer);
+      GpuBufferSrvDesc srv = {0};
+      srv.first_element    = 0;
+      srv.num_elements     = resource_desc->buffer_desc.size / sizeof(T);
+      srv.stride           = sizeof(T);
+      srv.format           = kGpuFormatUnknown;
+      srv.is_raw           = false;
+
+      opaque = rg_read_buffer(builder, buffer, srv, temporal_frame);
+    }
+
+    m_PassId           = opaque.pass_id;
+    m_DescriptorIdx    = opaque.descriptor_idx;
+    m_ResourceId       = opaque.resource_id;
+    m_TemporalLifetime = opaque.temporal_lifetime;
+    m_TemporalFrame    = opaque.temporal_frame;
+  }
+
+  operator StructuredBufferPtr<T>() const
+  {
+    return { deref()->index };
+  }
+
+  const GpuDescriptor* deref() const
+  {
+    const RenderPass*    pass = &g_RenderGraph->render_passes[m_PassId];
+    const GpuDescriptor* base = &pass->descriptors[m_DescriptorIdx];
+    const GpuDescriptor* ptr  = base + rg_get_temporal_frame(g_FrameId, m_TemporalLifetime, m_TemporalFrame);
+
+    return ptr;
+  }
+};
+
+template <typename T>
+struct RgTexture2D
+{
+  u32 m_PassId           = 0;
+  u32 m_DescriptorIdx    = 0;
+  u32 m_ResourceId       = 0;
+
+  u8  m_TemporalLifetime = 0;
+  s8  m_TemporalFrame    = 0;
+  u16 m_Pad              = 0;
+
+  RgTexture2D() = default;
+  RgTexture2D(RgPassBuilder* builder, RgHandle<GpuTexture> texture, s8 temporal_frame = 0, Option<GpuTextureSrvDesc> desc = None)
+  {
+    RgOpaqueDescriptor opaque;
+    if (desc)
+    {
+      opaque = rg_read_texture(builder, texture, unwrap(desc), temporal_frame);
+    }
+    else
+    {
+      TransientResourceDesc* resource_desc = unwrap(hash_table_find(&builder->graph->resource_descs, texture.id));
+      ASSERT(resource_desc->type == kResourceTypeTexture);
+      GpuTextureSrvDesc srv = {0};
+      srv.mip_levels        = 1;
+      srv.most_detailed_mip = 1;
+      srv.array_size        = 1;
+      // TODO(bshihabi): We should support casting within the family with gpu_format_from_type<T>();
+      srv.format            = resource_desc->texture_desc.format; 
+
+      opaque = rg_read_texture(builder, texture, srv, temporal_frame);
+    }
+
+    m_PassId           = opaque.pass_id;
+    m_DescriptorIdx    = opaque.descriptor_idx;
+    m_ResourceId       = opaque.resource_id;
+    m_TemporalLifetime = opaque.temporal_lifetime;
+    m_TemporalFrame    = opaque.temporal_frame;
+  }
+
+  operator Texture2DPtr<T>() const
+  {
+    return { deref()->index };
+  }
+
+  const GpuDescriptor* deref() const
+  {
+    const RenderPass*    pass = &g_RenderGraph->render_passes[m_PassId];
+    const GpuDescriptor* base = &pass->descriptors[m_DescriptorIdx];
+    const GpuDescriptor* ptr  = base + rg_get_temporal_frame(g_FrameId, m_TemporalLifetime, m_TemporalFrame);
+
+    return ptr;
+  }
+};
+
+template <typename T>
+struct RgTexture2DArray
+{
+  u32 m_PassId           = 0;
+  u32 m_DescriptorIdx    = 0;
+  u32 m_ResourceId       = 0;
+
+  u8  m_TemporalLifetime = 0;
+  s8  m_TemporalFrame    = 0;
+  u16 m_Pad              = 0;
+
+  RgTexture2DArray() = default;
+  RgTexture2DArray(RgPassBuilder* builder, RgHandle<GpuTexture> texture, s8 temporal_frame = 0, Option<GpuTextureSrvDesc> desc = None)
+  {
+    RgOpaqueDescriptor opaque;
+    if (desc)
+    {
+      opaque = rg_read_texture(builder, texture, unwrap(desc), temporal_frame);
+    }
+    else
+    {
+      TransientResourceDesc* resource_desc = unwrap(hash_table_find(&builder->graph->resource_descs, texture.id));
+      ASSERT(resource_desc->type == kResourceTypeTexture);
+      GpuTextureSrvDesc srv = {0};
+      srv.mip_levels        = 1;
+      srv.most_detailed_mip = 1;
+      srv.array_size        = resource_desc->texture_desc.array_size;
+      srv.format            = resource_desc->texture_desc.format;
+
+      opaque = rg_read_texture(builder, texture, srv, temporal_frame);
+    }
+
+    m_PassId           = opaque.pass_id;
+    m_DescriptorIdx    = opaque.descriptor_idx;
+    m_ResourceId       = opaque.resource_id;
+    m_TemporalLifetime = opaque.temporal_lifetime;
+    m_TemporalFrame    = opaque.temporal_frame;
+  }
+
+  operator Texture2DArrayPtr<T>() const
+  {
+    return { deref()->index };
+  }
+
+  const GpuDescriptor* deref() const
+  {
+    const RenderPass*    pass = &g_RenderGraph->render_passes[m_PassId];
+    const GpuDescriptor* base = &pass->descriptors[m_DescriptorIdx];
+    const GpuDescriptor* ptr  = base + rg_get_temporal_frame(g_FrameId, m_TemporalLifetime, m_TemporalFrame);
+
+    return ptr;
+  }
+};
+
+struct RgCpuUploadBuffer
+{
+  u32 m_ResourceId       = 0;
+  u8  m_TemporalLifetime = 0;
+  u8  m_Pad0             = 0;
+  u16 m_Pad1             = 0;
+
+  RgCpuUploadBuffer() = default;
+  RgCpuUploadBuffer(RgHandle<GpuBuffer> buffer)
+  {
+    m_ResourceId       = buffer.id;
+    m_TemporalLifetime = buffer.temporal_lifetime;
+  }
+
+  template <typename T>
+  RgCpuUploadBuffer(RgStructuredBuffer<T> buffer)
+  {
+    m_ResourceId       = buffer.m_ResourceId;
+    m_TemporalLifetime = buffer.m_TemporalLifetime;
+  }
+
+  template <typename T>
+  RgCpuUploadBuffer(RgRWStructuredBuffer<T> buffer)
+  {
+    m_ResourceId       = buffer.m_ResourceId;
+    m_TemporalLifetime = buffer.m_TemporalLifetime;
+  }
+
+  template <typename T>
+  RgCpuUploadBuffer(RgBuffer<T> buffer)
+  {
+    m_ResourceId       = buffer.m_ResourceId;
+    m_TemporalLifetime = buffer.m_TemporalLifetime;
+  }
+
+  template <typename T>
+  RgCpuUploadBuffer(RgRWBuffer<T> buffer)
+  {
+    m_ResourceId       = buffer.m_ResourceId;
+    m_TemporalLifetime = buffer.m_TemporalLifetime;
+  }
+
+  template <typename T>
+  RgCpuUploadBuffer(RgConstantBuffer<T> buffer)
+  {
+    m_ResourceId       = buffer.m_ResourceId;
+    m_TemporalLifetime = buffer.m_TemporalLifetime;
+  }
+
+  RgCpuUploadBuffer(RgByteAddressBuffer buffer)
+  {
+    m_ResourceId       = buffer.m_ResourceId;
+    m_TemporalLifetime = buffer.m_TemporalLifetime;
+  }
+
+  RgCpuUploadBuffer(RgRWByteAddressBuffer buffer)
+  {
+    m_ResourceId       = buffer.m_ResourceId;
+    m_TemporalLifetime = buffer.m_TemporalLifetime;
+  }
+};
+
+enum DepthStencilClearFlags
+{
+  kClearDepth        = 0x1 << 0,
+  kClearStencil      = 0x1 << 1,
+  kClearDepthStencil = kClearDepth | kClearStencil,
+};
+
+struct RenderGraph;
+struct RenderContext
+{
+  CmdList m_CmdBuffer;
+
+  u32     m_Width      = 0;
+  u32     m_Height     = 0;
+
+  void clear_depth_stencil_view(
+    RgDsv depth_stencil,
+    DepthStencilClearFlags flags,
+    f32 depth,
+    u8 stencil
+  );
+
+  void clear_render_target_view(RgRtv render_target_view, const Vec4& rgba);
+
+  void set_graphics_pso(const GraphicsPSO* pso);
+  void set_compute_pso(const ComputePSO* pso);
+  void set_ray_tracing_pso(const RayTracingPSO* pso);
+
+  void draw_indexed_instanced(
+    u32 index_count_per_instance,
+    u32 instance_count,
+    u32 start_index_location,
+    s32 base_vertex_location,
+    u32 start_instance_location
+  );
+
+  void draw_instanced(
+    u32 vertex_count_per_instance,
+    u32 instance_count,
+    u32 start_vertex_location,
+    u32 start_instance_location
+  );
+
+  void dispatch(u32 x, u32 y, u32 z);
+  void dispatch_rays(const ShaderTable* shader_table, u32 x, u32 y, u32 z);
+
+  void ia_set_index_buffer(const GpuBuffer* buffer, u32 stride, u32 size = 0);
+  void ia_set_index_buffer(RgIndexBuffer    buffer, u32 stride, u32 size = 0);
+
+  void ia_set_primitive_topology(D3D12_PRIMITIVE_TOPOLOGY primitive_topology);
+  
+  void ia_set_vertex_buffer(
+    u32 start_slot,
+    const GpuBuffer* buffer,
+    u32 size,
+    u32 stride
+  );
+
+  void ia_set_vertex_buffer(
+    u32 start_slot,
+    RgVertexBuffer buffer,
+    u32 size,
+    u32 stride
+  );
+
+  void clear_state();
+
+  void om_set_render_targets(Span<RgRtv> rtvs, Option<RgDsv> dsv);
+  void rs_set_scissor_rect(s32 left, s32 top, s32 right, s32 bottom);
+  void rs_set_viewport(f32 left, f32 top, f32 width, f32 height);
+
+  template <typename T>
+  void set_compute_root_shader_resource_view(u32 root_parameter_index, RgStructuredBuffer<T> buffer)
+  {
+    set_compute_root_shader_resource_view(root_parameter_index, rg_deref_buffer(buffer));
+  }
+  template <typename T>
+  void set_compute_root_shader_resource_view(u32 root_parameter_index, RgBuffer<T> buffer)
+  {
+    set_compute_root_shader_resource_view(root_parameter_index, rg_deref_buffer(buffer));
+  }
+  void set_compute_root_shader_resource_view(u32 root_parameter_index, RgByteAddressBuffer buffer)
+  {
+    set_compute_root_shader_resource_view(root_parameter_index, rg_deref_buffer(buffer));
+  }
+  void set_compute_root_shader_resource_view(u32 root_parameter_index,  const GpuBuffer* buffer);
+
+  template <typename T>
+  void set_graphics_root_shader_resource_view(u32 root_parameter_index, RgStructuredBuffer<T> buffer)
+  {
+    set_graphics_root_shader_resource_view(root_parameter_index, rg_deref_buffer(buffer));
+  }
+  template <typename T>
+  void set_graphics_root_shader_resource_view(u32 root_parameter_index, RgBuffer<T> buffer)
+  {
+    set_graphics_root_shader_resource_view(root_parameter_index, rg_deref_buffer(buffer));
+  }
+  void set_graphics_root_shader_resource_view(u32 root_parameter_index, RgByteAddressBuffer buffer)
+  {
+    set_graphics_root_shader_resource_view(root_parameter_index, rg_deref_buffer(buffer));
+  }
+  void set_graphics_root_shader_resource_view(u32 root_parameter_index, const GpuBuffer* buffer);
+
+  template <typename T>
+  void set_compute_root_constant_buffer_view(u32 root_parameter_index, RgConstantBuffer<T> buffer)
+  {
+    set_compute_root_constant_buffer_view(root_parameter_index, rg_deref_buffer(buffer));
+  }
+  void set_compute_root_constant_buffer_view(u32 root_parameter_index,  const GpuBuffer* buffer);
+  template <typename T>
+  void set_graphics_root_constant_buffer_view(u32 root_parameter_index, RgConstantBuffer<T> buffer)
+  {
+    set_graphics_root_constant_buffer_view(root_parameter_index, rg_deref_buffer(buffer));
+  }
+  void set_graphics_root_constant_buffer_view(u32 root_parameter_index, const GpuBuffer* buffer);
+
+  void set_graphics_root_32bit_constants(u32 root_parameter_index, const u32* src, u32 count, u32 dst_offset);
+  void set_compute_root_32bit_constants (u32 root_parameter_index, const u32* src, u32 count, u32 dst_offset);
+
+  void set_descriptor_heaps(Span<const DescriptorLinearAllocator*> heaps);
+
+  template <typename T>
+  void graphics_bind_srt(const T& resource)
+  {
+    static_assert(sizeof(T) % sizeof(u32) == 0, "Invalid resource struct!");
+    set_graphics_root_32bit_constants(0, (u32*)&resource, sizeof(T) / sizeof(u32), 0);
+  }
+
+  template <typename T>
+  void compute_bind_srt(const T& resource)
+  {
+    static_assert(sizeof(T) % sizeof(u32) == 0, "Invalid resource struct!");
+    set_compute_root_32bit_constants(0, (u32*)&resource, sizeof(T) / sizeof(u32), 0);
+  }
+
+  template <typename T>
+  void ray_tracing_bind_srt(const T& resource)
+  {
+    static_assert(sizeof(T) % sizeof(u32) == 0, "Invalid resource struct!");
+    set_compute_root_32bit_constants(0, (u32*)&resource, sizeof(T) / sizeof(u32), 0);
+  }
+
+  void write_cpu_upload_buffer(RgCpuUploadBuffer dst, const void* src, u64 size);
+  void write_cpu_upload_buffer(const GpuBuffer* dst,  const void* src, u64 size);
+};

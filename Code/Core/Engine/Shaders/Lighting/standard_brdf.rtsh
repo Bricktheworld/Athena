@@ -27,7 +27,7 @@ RaytracingPipelineConfig kPipelineConfig =
   1, // Max trace recursion depth
 };
 
-ConstantBuffer<StandardBrdfRTResources> rt_resources : register(b0);
+ConstantBuffer<StandardBrdfSrt> g_Srt : register(b0);
 
 
 [shader("raygeneration")]
@@ -38,15 +38,14 @@ void ray_gen()
 
   Payload payload;
 
-  Texture2D<uint>             gbuffer_material_ids     = ResourceDescriptorHeap[rt_resources.gbuffer_material_ids];
-  Texture2D<unorm float4>     gbuffer_diffuse_metallic = ResourceDescriptorHeap[rt_resources.gbuffer_diffuse_rgb_metallic_a];
-  Texture2D<float4>           gbuffer_normal_roughness = ResourceDescriptorHeap[rt_resources.gbuffer_normal_rgb_roughness_a];
-  Texture2D<float>            gbuffer_depth            = ResourceDescriptorHeap[rt_resources.gbuffer_depth];
-
-  ConstantBuffer<DDGIVolDesc> vol_desc                 = ResourceDescriptorHeap[rt_resources.ddgi_vol_desc];
-  Texture2DArray<float4>      probe_irradiance         = ResourceDescriptorHeap[rt_resources.ddgi_probe_irradiance];
-  Texture2DArray<float2>      probe_distance           = ResourceDescriptorHeap[rt_resources.ddgi_probe_distance];
-  RWTexture2D<float3>         render_target            = ResourceDescriptorHeap[rt_resources.render_target];
+  Texture2D<uint>             gbuffer_material_ids     = DEREF(g_Srt.gbuffer_material_ids);
+  Texture2D<unorm float4>     gbuffer_diffuse_metallic = DEREF(g_Srt.gbuffer_diffuse_rgb_metallic_a);
+  Texture2D<float4>           gbuffer_normal_roughness = DEREF(g_Srt.gbuffer_normal_rgb_roughness_a);
+  Texture2D<float>            gbuffer_depth            = DEREF(g_Srt.gbuffer_depth);
+                                                         
+  ConstantBuffer<DDGIVolDesc> vol_desc                 = DEREF(g_Srt.ddgi_vol_desc);
+  Texture2DArray<float4>      probe_irradiance         = DEREF(g_Srt.ddgi_probe_irradiance);
+  RWTexture2D<float4>         render_target            = DEREF(g_Srt.render_target);
 
   DirectionalLight            directional_light        = g_ViewportBuffer.directional_light;
 
@@ -63,7 +62,7 @@ void ray_gen()
 
   if (material_id == 0)
   {
-    render_target[launch_index] = float3(0.0f, 0.0f, 0.0f);
+    render_target[launch_index] = float4(0.0f, 0.0f, 0.0f, 1.0f);
     return;
   }
 
@@ -92,13 +91,13 @@ void ray_gen()
 
 
   float3 surface_bias    = get_surface_bias(normal, cam_dir, vol_desc);
-  float3 indirect        = get_vol_irradiance(ws_pos, surface_bias, normal, vol_desc, probe_irradiance, probe_distance);
+  float3 indirect        = get_vol_irradiance(ws_pos, surface_bias, normal, vol_desc, probe_irradiance);
 
   float3 irradiance      = direct_lighting + saturate(indirect);
 
   float3 color           = payload.t < 0.0f ? float3(0.0f, 0.0f, 0.0f) : irradiance;
 
-  render_target[launch_index] = color;
+  render_target[launch_index] = float4(color, 1.0f);
 }
 
 [shader("miss")]

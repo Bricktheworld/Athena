@@ -7,8 +7,8 @@
 
 struct BlitParams
 {
-  RgReadHandle<GpuTexture>  src;
-  RgWriteHandle<GpuTexture> dst;
+  RgTexture2D<float4> src;
+  RgRtv               dst;
 };
 
 static void
@@ -21,7 +21,7 @@ render_handler_back_buffer_blit(RenderContext* ctx, const void* data)
   ctx->clear_render_target_view(params->dst, Vec4(0.0f, 0.0f, 0.0f, 0.0f));
   ctx->om_set_render_targets({params->dst}, None);
 
-  ctx->graphics_bind_shader_resources<FullscreenRenderResources>({.texture = params->src});
+  ctx->graphics_bind_srt<FullscreenSrt>({.texture = params->src});
   ctx->draw_instanced(3, 1, 0, 0);
 }
 
@@ -31,9 +31,9 @@ init_back_buffer_blit(AllocHeap heap, RgBuilder* builder, RgHandle<GpuTexture> s
   BlitParams* params  = HEAP_ALLOC(BlitParams, g_InitHeap, 1);
   zero_memory(params, sizeof(BlitParams));
 
-  RgPassBuilder* pass = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "Back Buffer Blit", params, &render_handler_back_buffer_blit, 1, 1);
+  RgPassBuilder* pass = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "Back Buffer Blit", params, &render_handler_back_buffer_blit);
 
-  params->src         = rg_read_texture (pass, src, kReadTextureSrvPixelShader);
-  params->dst         = rg_write_texture(pass, &builder->back_buffer, kWriteTextureColorTarget);
+  params->src         = RgTexture2D<float4>(pass, src);
+  params->dst         = RgRtv(pass, &builder->back_buffer);
 }
 

@@ -9,7 +9,7 @@ struct DeferredPSOut
         float2 velocity          : SV_Target3;
 };
 
-ConstantBuffer<MaterialRenderResources> g_Resources : register(b0);
+ConstantBuffer<MaterialSrt> g_Resources : register(b0);
 
 float2 calculate_velocity(float4 old_pos, float4 new_pos)
 {
@@ -28,8 +28,6 @@ float2 calculate_velocity(float4 old_pos, float4 new_pos)
 DeferredPSOut PS_BasicNormalGloss(BasicVSOut ps_in)
 {
   DeferredPSOut ret;
-
-  ConstantBuffer<Transform> transform = ResourceDescriptorHeap[g_Resources.transform];
 
   ret.material_id       = 1;
   ret.diffuse_metallic  = float4(1.0f, 1.0f, 1.0f, 0.5f);

@@ -7,6 +7,8 @@
 
 #include "Core/Foundation/math.h"
 
+#include "Core/Engine/Shaders/interlop.hlsli"
+
 #include <d3d12.h>
 #include <dxgidebug.h>
 #include <dxgi1_6.h>
@@ -27,6 +29,159 @@ typedef u64 FenceValue;
 
 typedef Vec4 Rgba;
 typedef Vec3 Rgb;
+
+enum GpuFormat : u8
+{
+  kGpuFormatUnknown                  = 0,
+  kGpuFormatRGBA32Typeless           = 1,
+  kGpuFormatRGBA32Float              = 2,
+  kGpuFormatRGBA32Uint               = 3,
+  kGpuFormatRGBA32Sint               = 4,
+  kGpuFormatRGB32Typeless            = 5,
+  kGpuFormatRGB32Float               = 6,
+  kGpuFormatRGB32Uint                = 7,
+  kGpuFormatRGB32Sint                = 8,
+  kGpuFormatRGBA16Typeless           = 9,
+  kGpuFormatRGBA16Float              = 10,
+  kGpuFormatRGBA16Unorm              = 11,
+  kGpuFormatRGBA16Uint               = 12,
+  kGpuFormatRGBA16Snorm              = 13,
+  kGpuFormatRGBA16Sint               = 14,
+  kGpuFormatRG32Typeless             = 15,
+  kGpuFormatRG32Float                = 16,
+  kGpuFormatRG32Uint                 = 17,
+  kGpuFormatRG32Sint                 = 18,
+  kGpuFormatR32G8x24Typeless         = 19,
+  kGpuFormatD32FloatS8x24Uint        = 20,
+  kGpuFormatR32FloatX8x24Typeless    = 21,
+  kGpuFormatX32TypelessG8x24Uint     = 22,
+  kGpuFormatRGB10A2Typeless          = 23,
+  kGpuFormatRGB10A2Unorm             = 24,
+  kGpuFormatRGB10A2Uint              = 25,
+  kGpuFormatR11G11B10Float           = 26,
+  kGpuFormatRGBA8Typeless            = 27,
+  kGpuFormatRGBA8Unorm               = 28,
+  kGpuFormatRGBA8UnormSrgb           = 29,
+  kGpuFormatRGBA8Uint                = 30,
+  kGpuFormatRGBA8Snorm               = 31,
+  kGpuFormatRGBA8Sint                = 32,
+  kGpuFormatRG16Typeless             = 33,
+  kGpuFormatRG16Float                = 34,
+  kGpuFormatRG16Unorm                = 35,
+  kGpuFormatRG16Uint                 = 36,
+  kGpuFormatRG16Snorm                = 37,
+  kGpuFormatRG16Sint                 = 38,
+  kGpuFormatR32Typeless              = 39,
+  kGpuFormatD32Float                 = 40,
+  kGpuFormatR32Float                 = 41,
+  kGpuFormatR32Uint                  = 42,
+  kGpuFormatR32Sint                  = 43,
+  kGpuFormatR24G8Typeless            = 44,
+  kGpuFormatD24UnormS8Uint           = 45,
+  kGpuFormatR24UnormX8Typeless       = 46,
+  kGpuFormatX24TypelessG8Uint        = 47,
+  kGpuFormatRG8Typeless              = 48,
+  kGpuFormatRG8Unorm                 = 49,
+  kGpuFormatRG8Uint                  = 50,
+  kGpuFormatRG8Snorm                 = 51,
+  kGpuFormatRG8Sint                  = 52,
+  kGpuFormatR16Typeless              = 53,
+  kGpuFormatR16Float                 = 54,
+  kGpuFormatD16Unorm                 = 55,
+  kGpuFormatR16Unorm                 = 56,
+  kGpuFormatR16Uint                  = 57,
+  kGpuFormatR16Snorm                 = 58,
+  kGpuFormatR16Sint                  = 59,
+  kGpuFormatR8Typeless               = 60,
+  kGpuFormatR8Unorm                  = 61,
+  kGpuFormatR8Uint                   = 62,
+  kGpuFormatR8Snorm                  = 63,
+  kGpuFormatR8Sint                   = 64,
+  kGpuFormatA8Unorm                  = 65,
+  kGpuFormatR1Unorm                  = 66,
+  kGpuFormatRGB9E5SharedExp          = 67,
+  kGpuFormatRG8B8G8Unorm             = 68,
+  kGpuFormatG8R8G8B8Unorm            = 69,
+  kGpuFormatBC1Typeless              = 70,
+  kGpuFormatBC1Unorm                 = 71,
+  kGpuFormatBC1UnormSrgb             = 72,
+  kGpuFormatBC2Typeless              = 73,
+  kGpuFormatBC2Unorm                 = 74,
+  kGpuFormatBC2UnormSrgb             = 75,
+  kGpuFormatBC3Typeless              = 76,
+  kGpuFormatBC3Unorm                 = 77,
+  kGpuFormatBC3UnormSrgb             = 78,
+  kGpuFormatBC4Typeless              = 79,
+  kGpuFormatBC4Unorm                 = 80,
+  kGpuFormatBC4Snorm                 = 81,
+  kGpuFormatBC5Typeless              = 82,
+  kGpuFormatBC5Unorm                 = 83,
+  kGpuFormatBC5Snorm                 = 84,
+  kGpuFormatB5G6R5Unorm              = 85,
+  kGpuFormatB5G5R5A1Unorm            = 86,
+  kGpuFormatBGRA8Unorm               = 87,
+  kGpuFormatBGRX8Unorm               = 88,
+  kGpuFormatRGB10XRBiasA2Unorm       = 89,
+  kGpuFormatBGRA8Typeless            = 90,
+  kGpuFormatBGRA8UnormSrgb           = 91,
+  kGpuFormatBGRX8Typeless            = 92,
+  kGpuFormatBGRX8UnormSrgb           = 93,
+  kGpuFormatBC6HTypeless             = 94,
+  kGpuFormatBC6HUF16                 = 95,
+  kGpuFormatBC6HSF16                 = 96,
+  kGpuFormatBC7Typeless              = 97,
+  kGpuFormatBC7Unorm                 = 98,
+  kGpuFormatBC7UnormSrgb             = 99,
+  kGpuFormatAYUV                     = 100,
+  kGpuFormatY410                     = 101,
+  kGpuFormatY416                     = 102,
+  kGpuFormatNV12                     = 103,
+  kGpuFormatP010                     = 104,
+  kGpuFormatP016                     = 105,
+  kGpuFormatOpaque420                = 106,
+  kGpuFormatYUY2                     = 107,
+  kGpuFormatY210                     = 108,
+  kGpuFormatY216                     = 109,
+  kGpuFormatNV11                     = 110,
+  kGpuFormatAI44                     = 111,
+  kGpuFormatIA44                     = 112,
+  kGpuFormatP8                       = 113,
+  kGpuFormatA8P8                     = 114,
+  kGpuFormatB4G4R4A4Unorm            = 115,
+  kGpuFormatP208                     = 130,
+  kGpuFormatV208                     = 131,
+  kGpuFormatV408                     = 132,
+  kGpuFormatSamplerFeedbackMinMip    = 189,
+  kGpuFormatSamplerFeedbackMipRegion = 190,
+};
+
+
+template <typename T>
+inline GpuFormat gpu_format_from_type();
+
+template <>
+inline GpuFormat gpu_format_from_type<float>()  { return kGpuFormatR32Float;    }
+
+template <>
+inline GpuFormat gpu_format_from_type<float2>() { return kGpuFormatRG32Float;   }
+
+template <>
+inline GpuFormat gpu_format_from_type<float3>() { return kGpuFormatRGB32Float;  }
+
+template <>
+inline GpuFormat gpu_format_from_type<float4>() { return kGpuFormatRGBA32Float; }
+
+template <>
+inline GpuFormat gpu_format_from_type<uint>()   { return kGpuFormatR32Uint;     }
+
+template <>
+inline GpuFormat gpu_format_from_type<uint2>()  { return kGpuFormatRG32Uint;    }
+
+template <>
+inline GpuFormat gpu_format_from_type<uint3>()  { return kGpuFormatRGB32Uint;   }
+
+template <>
+inline GpuFormat gpu_format_from_type<uint4>()  { return kGpuFormatRGBA32Uint;  }
 
 struct GpuFence
 {
@@ -165,7 +320,7 @@ struct GpuTextureDesc
   u16                   array_size    = 1;
 
   // TODO(Brandon): Eventually make these less verbose and platform agnostic.
-  DXGI_FORMAT           format        = DXGI_FORMAT_R8G8B8A8_UNORM;
+  GpuFormat             format        = kGpuFormatRGBA8Unorm;
   D3D12_RESOURCE_STATES initial_state = D3D12_RESOURCE_STATE_COMMON;
 
   D3D12_RESOURCE_FLAGS  flags         = D3D12_RESOURCE_FLAG_NONE;
@@ -206,7 +361,7 @@ void upload_gpu_texture(
   GpuTexture* dst
 );
 
-bool is_depth_format(DXGI_FORMAT format);
+bool is_depth_format(GpuFormat format);
 
 struct GpuBufferDesc
 {
@@ -259,6 +414,7 @@ void destroy_acceleration_structure(GpuBvh* bvh);
 
 enum DescriptorType : u8
 {
+  kDescriptorTypeNull    = 0x0,
   kDescriptorTypeCbv     = 0x1,
   kDescriptorTypeSrv     = 0x2,
   kDescriptorTypeUav     = 0x4,
@@ -320,54 +476,84 @@ DescriptorLinearAllocator init_descriptor_linear_allocator(
 void reset_descriptor_linear_allocator(DescriptorLinearAllocator* allocator);
 void destroy_descriptor_linear_allocator(DescriptorLinearAllocator* allocator);
 
-struct Descriptor
+struct GpuDescriptor
 {
-  D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle = {0};
+  D3D12_CPU_DESCRIPTOR_HANDLE         cpu_handle = {0};
   Option<D3D12_GPU_DESCRIPTOR_HANDLE> gpu_handle = None;
-  u32 index = 0;
-  DescriptorHeapType type = kDescriptorHeapTypeCbvSrvUav;
+  u32                index = 0;
+  DescriptorHeapType type  = kDescriptorHeapTypeCbvSrvUav;
 };
 
-Descriptor alloc_descriptor(DescriptorPool* pool);
-void       free_descriptor(DescriptorPool* heap, Descriptor* descriptor);
+GpuDescriptor alloc_descriptor(DescriptorPool* pool);
+void       free_descriptor(DescriptorPool* heap, GpuDescriptor* descriptor);
 
-Descriptor alloc_descriptor(DescriptorLinearAllocator* allocator);
+GpuDescriptor alloc_descriptor(DescriptorLinearAllocator* allocator);
 
+struct GpuBufferCbvDesc
+{
+  u64 buffer_offset = 0;
+  u64 size          = 0;
+};
 
 void init_buffer_cbv(
-  const GpuDevice* device,
-  Descriptor* descriptor,
+  GpuDescriptor* descriptor,
   const GpuBuffer* buffer,
-  u64 offset,
-  u64 size
+  const GpuBufferCbvDesc& desc
 );
+
+struct GpuBufferSrvDesc
+{
+  u64       first_element = 0;
+  u32       num_elements  = 0;
+  u32       stride        = 0;
+  GpuFormat format        = kGpuFormatUnknown;
+  bool      is_raw        = false;
+  u16       __pad__       = 0;
+};
 
 void init_buffer_srv(
-  const GpuDevice* device,
-  Descriptor* descriptor,
+  GpuDescriptor* descriptor,
   const GpuBuffer* buffer,
-  u32 first_element,
-  u32 num_elements,
-  u32 stride
+  const GpuBufferSrvDesc& desc
 );
+
+struct GpuBufferUavDesc
+{
+  u64       first_element = 0;
+  u32       num_elements  = 0;
+  u32       stride        = 0;
+  GpuFormat format        = kGpuFormatUnknown;
+  bool      is_raw        = false;
+  u16       __pad__       = 0;
+};
 
 void init_buffer_uav(
-  const GpuDevice* device,
-  Descriptor* descriptor,
+  GpuDescriptor* descriptor,
   const GpuBuffer* buffer,
-  u32 first_element,
-  u32 num_elements,
-  u32 stride
+  const GpuBufferUavDesc& desc
 );
 
-void init_rtv(const GpuDevice* device, Descriptor* descriptor, const GpuTexture* texture);
-void init_dsv(const GpuDevice* device, Descriptor* descriptor, const GpuTexture* texture);
-void init_texture_srv(const GpuDevice* device, Descriptor* descriptor, const GpuTexture* texture);
-void init_texture_uav(const GpuDevice* device, Descriptor* descriptor, const GpuTexture* texture);
+struct GpuTextureSrvDesc
+{
+  u32       mip_levels        = 0;
+  u32       most_detailed_mip = 0;
+  u32       array_size        = 0;
+  GpuFormat format            = kGpuFormatUnknown;
+};
 
-void init_sampler(const GpuDevice* device, Descriptor* descriptor);
+void init_texture_srv(GpuDescriptor* descriptor, const GpuTexture* texture, const GpuTextureSrvDesc& desc);
 
-void init_bvh_srv(const GpuDevice* device, Descriptor* descriptor, const GpuBvh* bvh);
+struct GpuTextureUavDesc
+{
+  u32       array_size        = 0;
+  GpuFormat format            = kGpuFormatUnknown;
+};
+void init_texture_uav(GpuDescriptor* descriptor, const GpuTexture* texture, const GpuTextureUavDesc& desc);
+
+void init_rtv(GpuDescriptor* descriptor, const GpuTexture* texture);
+void init_dsv(GpuDescriptor* descriptor, const GpuTexture* texture);
+
+void init_bvh_srv(GpuDescriptor* descriptor, const GpuBvh* bvh);
 
 struct GpuShader
 {
@@ -382,8 +568,8 @@ struct GraphicsPipelineDesc
 {
   const GpuShader* vertex_shader;
   const GpuShader* pixel_shader;
-  Array<DXGI_FORMAT, 8> rtv_formats;
-  DXGI_FORMAT dsv_format = DXGI_FORMAT_UNKNOWN;
+  Array<GpuFormat, 8> rtv_formats;
+  GpuFormat dsv_format = kGpuFormatUnknown;
   D3D12_COMPARISON_FUNC comparison_func = D3D12_COMPARISON_FUNC_GREATER;
   bool stencil_enable = false;
   u8 __padding__[3]{0};
@@ -446,22 +632,22 @@ void destroy_shader_table(ShaderTable* shader_table);
 
 struct SwapChain
 {
-  u32 width          = 0;
-  u32 height         = 0;
-  DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
-  u32 flags          = 0;
+  u32       width  = 0;
+  u32       height = 0;
+  GpuFormat format = kGpuFormatUnknown;
+  u32       flags  = 0;
 
   IDXGISwapChain4* d3d12_swap_chain       = nullptr;
   HANDLE           d3d12_latency_waitable = nullptr;
-  GpuFence fence;
-  FenceValue frame_fence_values[kBackBufferCount] = {0};
+  GpuFence         fence;
+  FenceValue       frame_fence_values[kBackBufferCount] = {0};
 
   GpuTexture* back_buffers[kBackBufferCount] = {0};
-  u32 back_buffer_index = 0;
+  u32         back_buffer_index              = 0;
 
-  bool vsync = false;
-  bool tearing_supported = false;
-  bool fullscreen = false;
+  bool vsync:             1 = false;
+  bool tearing_supported: 1 = false;
+  bool fullscreen:        1 = false;
 };
 
 SwapChain init_swap_chain(HWND window, const GpuDevice* device);
@@ -479,7 +665,7 @@ void set_compute_root_signature(CmdList* cmd);
 
 void init_imgui_ctx(
   const GpuDevice* device,
-  DXGI_FORMAT rtv_format,
+  GpuFormat rtv_format,
   HWND window,
   DescriptorLinearAllocator* cbv_srv_uav_heap
 );

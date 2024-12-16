@@ -133,13 +133,13 @@ float3 octahedral_decode_dir(float2 coords)
   // Source: https://twitter.com/Stubbesaurus/status/937994790553227264
   float3 n = float3(coords.x, coords.y, 1.0f - abs(coords.x) - abs(coords.y));
   float  t = saturate(-n.z);
-  n.xy    += n.xy >= 0.0f ? -t : t;
+  n.xy    += select(n.xy >= 0.0f, -t, t);
   return normalize(n);
 }
 
 float2 octahedral_wrap(float2 v)
 {
-  return (1.0 - abs(v.yx)) * (v.xy >= 0.0 ? 1.0 : -1.0);
+  return (1.0 - abs(v.yx)) * select(v.xy >= 0.0, 1.0, -1.0);
 }
 
 // Converts a normalized unit vector to an octahedral coordinate in [0, 1] UV space
@@ -170,8 +170,7 @@ float3 get_vol_irradiance(
   float3 surface_bias,
   float3 normal,
   DDGIVolDesc vol_desc,
-  Texture2DArray<float4> probe_irradiance_tex,
-  Texture2DArray<float2> probe_distance_tex
+  Texture2DArray<float4> probe_irradiance_tex
 ) {
   int3 probe_counts        = int3(vol_desc.probe_count_x, vol_desc.probe_count_y, vol_desc.probe_count_z);
 

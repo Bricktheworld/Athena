@@ -12,8 +12,7 @@
 
 struct FrameInitParams
 {
-  RgReadHandle<GpuBuffer> scene_buffer;
-  RgReadHandle<GpuBuffer> transform_buffer;
+  RgConstantBuffer<Viewport> scene_buffer;
 };
 
 static
@@ -77,13 +76,13 @@ init_frame_init_pass(AllocHeap heap, RgBuilder* builder)
 
   RgHandle<GpuBuffer> scene_buffer = rg_create_upload_buffer(builder, "Viewport Buffer", sizeof(Viewport));
 
-  RgPassBuilder*      pass         = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "Frame Init", params, &render_handler_frame_init, 1, 0, true);
-  params->scene_buffer             = rg_read_buffer(pass, scene_buffer,     kReadBufferCbv);
+  RgPassBuilder*      pass         = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "Frame Init", params, &render_handler_frame_init, true);
+  params->scene_buffer             = RgConstantBuffer<Viewport>(pass, scene_buffer);
 }
 
 struct ImGuiParams
 {
-  RgWriteHandle<GpuTexture> dst;
+  RgRtv dst;
 };
 
 void
@@ -109,6 +108,6 @@ init_imgui_pass(AllocHeap heap, RgBuilder* builder, RgHandle<GpuTexture>* dst)
 {
   ImGuiParams* params = HEAP_ALLOC(ImGuiParams, g_InitHeap, 1);
 
-  RgPassBuilder* pass = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "ImGui Pass" , params, &render_handler_imgui, 0, 1);
-  params->dst         = rg_write_texture(pass, dst, kWriteTextureColorTarget);
+  RgPassBuilder* pass = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "ImGui Pass" , params, &render_handler_imgui);
+  params->dst         = RgRtv(pass, dst);
 }

@@ -58,7 +58,6 @@ get_engine_shader(u32 index)
 
 static void
 init_renderer_dependency_graph(
-  const GpuDevice* device,
   const SwapChain* swap_chain,
   RenderGraphDestroyFlags flags
 ) {
@@ -87,7 +86,7 @@ init_renderer_dependency_graph(
 
   init_back_buffer_blit(scratch_arena, &builder, taa_buffer);
 
-  compile_render_graph(g_InitHeap, builder, device, &g_Renderer.graph, flags);
+  compile_render_graph(g_InitHeap, builder, flags);
 }
 
 static void
@@ -95,26 +94,13 @@ init_renderer_psos(
   const GpuDevice* device,
   const SwapChain* swap_chain
 ) {
-  GraphicsPipelineDesc visibility_pipeline_desc =
-  {
-    .vertex_shader   = get_engine_shader(kVS_Basic),
-    .pixel_shader    = get_engine_shader(kPS_VisibilityBuffer),
-    .rtv_formats     = Span{DXGI_FORMAT_R32_UINT},
-    .dsv_format      = DXGI_FORMAT_D32_FLOAT,
-    .comparison_func = kDepthComparison,
-    .stencil_enable  = false,
-  };
-  g_Renderer.vbuffer_pso       = init_graphics_pipeline(device, visibility_pipeline_desc, "Visibility Buffer");
-  g_Renderer.debug_vbuffer_pso = init_compute_pipeline(device, get_engine_shader(kCS_VisibilityBufferVisualize), "Visibility Buffer Visualize");
-
-
   g_Renderer.taa_pso = init_compute_pipeline(device, get_engine_shader(kCS_TAA), "TAA");
 
   GraphicsPipelineDesc post_pipeline_desc = 
   {
     .vertex_shader = get_engine_shader(kVS_Fullscreen),
     .pixel_shader  = get_engine_shader(kPS_ToneMapping),
-    .rtv_formats   = Span{DXGI_FORMAT_R16G16B16A16_FLOAT},
+    .rtv_formats   = Span{kGpuFormatRGBA16Float},
   };
   g_Renderer.post_processing_pipeline = init_graphics_pipeline(device, post_pipeline_desc, "Post Processing");
 
@@ -165,11 +151,11 @@ init_renderer(
   const uint32_t kGraphMemory = MiB(32);
   g_Renderer.graph_allocator = init_linear_allocator(HEAP_ALLOC_ALIGNED(g_InitHeap, kGraphMemory, alignof(uint64_t)), kGraphMemory);
 
-  init_renderer_dependency_graph(device, swap_chain, kRgDestroyAll);
+  init_renderer_dependency_graph(swap_chain, kRgDestroyAll);
   init_renderer_psos(device, swap_chain);
 
   g_Renderer.imgui_descriptor_heap = init_descriptor_linear_allocator(device, 1, kDescriptorHeapTypeCbvSrvUav);
-  init_imgui_ctx(device, DXGI_FORMAT_R16G16B16A16_FLOAT, window, &g_Renderer.imgui_descriptor_heap);
+  init_imgui_ctx(device, kGpuFormatRGBA16Float, window, &g_Renderer.imgui_descriptor_heap);
 }
 
 void
@@ -180,19 +166,17 @@ renderer_hot_reload(const GpuDevice* device, const SwapChain* swap_chain)
 }
 
 void
-renderer_on_resize(
-  const GpuDevice* device,
-  const SwapChain* swap_chain
-) {
-  destroy_render_graph(&g_Renderer.graph, kRgDestroyAll);
-  init_renderer_dependency_graph(device, swap_chain, kRgDestroyAll);
+renderer_on_resize(const SwapChain* swap_chain)
+{
+  destroy_render_graph(kRgDestroyAll);
+  init_renderer_dependency_graph(swap_chain, kRgDestroyAll);
 }
 
 void
 destroy_renderer()
 {
   destroy_renderer_psos();
-  destroy_render_graph(&g_Renderer.graph, kRgDestroyAll);
+  destroy_render_graph(kRgDestroyAll);
   destroy_imgui_ctx();
   zero_memory(&g_Renderer, sizeof(g_Renderer));
 }
@@ -376,7 +360,7 @@ init_render_model(AllocHeap heap, const ModelData& model)
       .vertex_shader   = get_engine_shader(dst->vertex_shader),
       .pixel_shader    = get_engine_shader(dst->material_shader),
       .rtv_formats     = kGBufferRenderTargetFormats,
-      .dsv_format      = DXGI_FORMAT_D32_FLOAT,
+      .dsv_format      = kGpuFormatD32Float,
       .comparison_func = kDepthComparison,
       .stencil_enable  = false,
     };
@@ -458,10 +442,10 @@ get_taa_jitter()
     Vec2(0.031250f, 0.592593f),
   };
 
-  u32  idx = g_Renderer.graph.frame_id % ARRAY_LENGTH(kHaltonSequence);
+  u32  idx = g_FrameId % ARRAY_LENGTH(kHaltonSequence);
   Vec2 ret = kHaltonSequence[idx] - Vec2(0.5f, 0.5f);
-  ret.x   /= (f32)g_Renderer.graph.width;
-  ret.y   /= (f32)g_Renderer.graph.height;
+  ret.x   /= (f32)g_RenderGraph->width;
+  ret.y   /= (f32)g_RenderGraph->height;
 
   ret     *= 2.0f;
   return ret;

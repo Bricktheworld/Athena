@@ -7,10 +7,10 @@
 
 struct ProbeTraceParams
 {
-  DDGIVolDesc               vol_desc = {0};
-  RgReadHandle<GpuBuffer>   vol_desc_buffer;
-  RgWriteHandle<GpuTexture> ray_data;
-  RgReadHandle<GpuTexture>  irradiance;
+  DDGIVolDesc                   vol_desc = {0};
+  RgConstantBuffer<DDGIVolDesc> vol_desc_buffer;
+  RgRWTexture2DArray<float4>    ray_data;
+  RgTexture2DArray<float4>      irradiance;
 };
 
 static void
@@ -21,14 +21,11 @@ render_handler_probe_trace(RenderContext* ctx, const void* data)
 
   ctx->write_cpu_upload_buffer(params->vol_desc_buffer, &params->vol_desc, sizeof(params->vol_desc));
 
-  ctx->ray_tracing_bind_shader_resources<ProbeTraceRTResources>(
-    {
-      .vol_desc = params->vol_desc_buffer,
-      .probe_irradiance = params->irradiance,
-      .probe_distance = params->irradiance,
-      .ray_data = params->ray_data
-    }
-  );
+  ProbeTraceSrt srt;
+  srt.vol_desc         = params->vol_desc_buffer;
+  srt.probe_irradiance = params->irradiance;
+  srt.ray_data         = params->ray_data;
+  ctx->ray_tracing_bind_srt(srt);
 
   ctx->set_ray_tracing_pso(&g_Renderer.ddgi_probe_trace_pso);
   ctx->dispatch_rays(
@@ -52,18 +49,19 @@ init_probe_trace(
   zero_memory(params, sizeof(ProbeTraceParams));
   params->vol_desc         = desc;
 
-  RgPassBuilder*    pass   = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "DDGI Probe Trace", params, &render_handler_probe_trace, 4, 1);
-  params->vol_desc_buffer  = rg_read_buffer  (pass, vol_desc_buffer, kReadBufferCbv);
-  params->ray_data         = rg_write_texture(pass, ray_data,        kWriteTextureUav);
-  params->irradiance       = rg_read_texture (pass, irradiance,      kReadTextureSrvNonPixelShader);
+  RgPassBuilder*    pass   = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "DDGI Probe Trace", params, &render_handler_probe_trace);
+  params->vol_desc_buffer  = RgConstantBuffer<DDGIVolDesc>(pass, vol_desc_buffer);
+  params->ray_data         = RgRWTexture2DArray<float4>   (pass, ray_data);
+  params->irradiance       = RgTexture2DArray<float4>     (pass, irradiance);
 }
 
 struct ProbeBlendParams
 {
-  DDGIVolDesc               vol_desc;
-  RgReadHandle<GpuBuffer>   vol_desc_buffer;
-  RgReadHandle<GpuTexture>  ray_data;
-  RgWriteHandle<GpuTexture> irradiance;
+  DDGIVolDesc                   vol_desc;
+
+  RgConstantBuffer<DDGIVolDesc> vol_desc_buffer;
+  RgTexture2DArray<float4>      ray_data;
+  RgRWTexture2DArray<float4>    irradiance;
 };
 
 static void
@@ -71,13 +69,11 @@ render_handler_probe_blend(RenderContext* ctx, const void* data)
 {
   ProbeBlendParams* params = (ProbeBlendParams*)data;
 
-  ctx->compute_bind_shader_resources<ProbeBlendingCSResources>(
-    {
-      .vol_desc   = params->vol_desc_buffer,
-      .ray_data   = params->ray_data,
-      .irradiance = params->irradiance,
-    }
-  );
+  ProbeBlendingSrt srt;
+  srt.vol_desc   = params->vol_desc_buffer;
+  srt.ray_data   = params->ray_data;
+  srt.irradiance = params->irradiance;
+  ctx->compute_bind_srt(srt);
 
   ctx->set_compute_pso(&g_Renderer.ddgi_probe_blend_pso);
   ctx->dispatch(
@@ -101,39 +97,10 @@ init_probe_blend(
   params->vol_desc         = desc;
 
 
-  RgPassBuilder*    pass   = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "DDGI Probe Blend", params, &render_handler_probe_blend, 2, 1);
-  params->vol_desc_buffer  = rg_read_buffer  (pass, vol_desc_buffer, kReadBufferCbv);
-  params->ray_data         = rg_read_texture (pass, ray_data,        kReadTextureSrv);
-  params->irradiance       = rg_write_texture(pass, irradiance,      kWriteTextureUav);
-}
-
-struct ProbeDebugParams
-{
-  ReadDdgi ddgi;
-  RgWriteHandle<GpuTexture> render_target;
-};
-
-static void
-render_handler_probe_debug(RenderContext* ctx, const void* data)
-{
-  ProbeDebugParams* params = (ProbeDebugParams*)data;
-  UNREFERENCED_PARAMETER(ctx);
-  UNREFERENCED_PARAMETER(params);
-}
-
-static void
-init_probe_debug(
-  AllocHeap heap,
-  RgBuilder* builder,
-  const Ddgi& ddgi,
-  RgHandle<GpuTexture>* dst
-) {
-  ProbeDebugParams* params = HEAP_ALLOC(ProbeDebugParams, g_InitHeap, 1);
-  zero_memory(params, sizeof(ProbeDebugParams));
-
-  RgPassBuilder*    pass   = add_render_pass (heap, builder, kCmdQueueTypeGraphics, "DDGI Probe Debug", params, &render_handler_probe_debug, 1, 1);
-  params->ddgi             = read_ddgi       (pass, ddgi, kReadTextureSrv);
-  params->render_target    = rg_write_texture(pass, dst,  kWriteTextureUav);
+  RgPassBuilder*    pass  = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "DDGI Probe Blend", params, &render_handler_probe_blend);
+  params->vol_desc_buffer = RgConstantBuffer<DDGIVolDesc>(pass, vol_desc_buffer);
+  params->ray_data        = RgTexture2DArray<float4>(pass, ray_data);
+  params->irradiance      = RgRWTexture2DArray<float4>(pass, irradiance);
 }
 
 Ddgi
@@ -151,14 +118,14 @@ init_ddgi(AllocHeap heap, RgBuilder* builder)
   desc.probe_max_ray_distance = 20.0f;
   desc.probe_max_ray_distance = 20.0f;
 
-  RgHandle<GpuBuffer> vol_desc_buffer = rg_create_upload_buffer(builder, "DDGI Vol Desc", sizeof(DDGIVolDesc));
-  RgHandle<GpuTexture>  probe_ray_data  = rg_create_texture_array(
+  RgHandle<GpuBuffer>  vol_desc_buffer = rg_create_upload_buffer(builder, "DDGI Vol Desc", sizeof(DDGIVolDesc));
+  RgHandle<GpuTexture> probe_ray_data  = rg_create_texture_array(
     builder,
     "Probe Ray Data",
     desc.probe_num_rays,
     desc.probe_count_x * desc.probe_count_z,
-    desc.probe_count_y,
-    DXGI_FORMAT_R16G16B16A16_FLOAT
+    (u16)desc.probe_count_y,
+    kGpuFormatRGBA16Float
   );
 
   RgHandle<GpuTexture> probe_irradiance = rg_create_texture_array_ex(
@@ -166,8 +133,8 @@ init_ddgi(AllocHeap heap, RgBuilder* builder)
     "Probe Irradiance",
     desc.probe_count_x * kProbeNumIrradianceTexels,
     desc.probe_count_z * kProbeNumIrradianceTexels,
-    desc.probe_count_y,
-    DXGI_FORMAT_R16G16B16A16_FLOAT,
+    (u16)desc.probe_count_y,
+    kGpuFormatRGBA16Float,
     kInfiniteLifetime // We want the irradiance data from the previous frame to blend with on the current frame
   );
 
@@ -197,12 +164,12 @@ init_ddgi(AllocHeap heap, RgBuilder* builder)
 }
 
 ReadDdgi
-read_ddgi(RgPassBuilder* pass_builder, const Ddgi& ddgi, ReadTextureAccessMask access)
+read_ddgi(RgPassBuilder* pass_builder, const Ddgi& ddgi)
 {
-  ReadDdgi ret = {0};
+  ReadDdgi ret;
 
-  ret.desc       = rg_read_buffer(pass_builder,  ddgi.desc,       kReadBufferCbv);;
-  ret.irradiance = rg_read_texture(pass_builder, ddgi.irradiance, access);
+  ret.desc       = RgConstantBuffer<DDGIVolDesc>(pass_builder, ddgi.desc);
+  ret.irradiance = RgTexture2DArray<float4>(pass_builder, ddgi.irradiance);
 
   return ret;
 }

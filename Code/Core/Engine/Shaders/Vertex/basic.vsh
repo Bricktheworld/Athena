@@ -1,14 +1,14 @@
 #include "../root_signature.hlsli"
 #include "../interlop.hlsli"
 
-ConstantBuffer<MaterialRenderResources> render_resources : register(b0);
+ConstantBuffer<MaterialSrt> g_Srt : register(b0);
 
 [RootSignature(BINDLESS_ROOT_SIGNATURE)]
 BasicVSOut VS_Basic(uint vert_id: SV_VertexID)
 {
   BasicVSOut ret;
 
-  ConstantBuffer<Transform> transform = ResourceDescriptorHeap[render_resources.transform];
+  ConstantBuffer<Transform> transform = DEREF(g_Srt.transform);
 
   Vertex vertex = g_VertexBuffer[vert_id];
 

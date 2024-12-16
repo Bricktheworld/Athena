@@ -59,12 +59,12 @@ enum ResolutionScale
   kEigthRes,
 };
 
-static const DXGI_FORMAT kGBufferRenderTargetFormats[] = 
+static const GpuFormat kGBufferRenderTargetFormats[] = 
 {
-  DXGI_FORMAT_R32_UINT,            // Material ID
-  DXGI_FORMAT_R8G8B8A8_UNORM,      // RGB -> Diffuse, A -> Metallic
-  DXGI_FORMAT_R16G16B16A16_FLOAT,  // RGB -> Normal,  A -> Roughness
-  DXGI_FORMAT_R32G32_FLOAT,        // RG -> Velocity
+  kGpuFormatR32Uint,     // Material ID
+  kGpuFormatRGBA8Unorm,  // RGB -> Diffuse, A -> Metallic
+  kGpuFormatRGBA16Float, // RGB -> Normal,  A -> Roughness
+  kGpuFormatRG32Float,   // RG -> Velocity
 };
 
 struct RenderOptions
@@ -87,7 +87,6 @@ struct RenderSettings
 
 struct Renderer
 {
-  RenderGraph graph;
   LinearAllocator graph_allocator;
 
   DescriptorLinearAllocator imgui_descriptor_heap;
@@ -126,7 +125,7 @@ void init_renderer(
   const SwapChain* swap_chain,
   HWND window
 );
-void renderer_on_resize(const GpuDevice* device, const SwapChain* swap_chain);
+void renderer_on_resize(const SwapChain* swap_chain);
 void renderer_hot_reload(const GpuDevice* device, const SwapChain* swap_chain);
 void destroy_renderer();
 

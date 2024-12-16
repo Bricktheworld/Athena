@@ -1,31 +1,154 @@
 #ifndef __INTERLOP_HLSLI__
 #define __INTERLOP_HLSLI__
 
-#ifdef __cplusplus
-#define CONSTANT_BUFFER alignas(256) 
-
-#define CBV(T) Cbv<T>
-#define SRV(T) Srv<T>
-#define UAV(T) Uav<T>
-using GpuTexture = GpuTexture;
-using GpuBvh   = GpuBvh;
-
+#if defined(__cplusplus)
+typedef Mat4  float4x4;
+typedef Vec2  float2;
+typedef Vec3  float3;
+typedef Vec4  float4;
+typedef UVec2 uint2;
+typedef UVec3 uint3;
+typedef UVec4 uint4;
+typedef SVec2 int2;
+typedef SVec3 int3;
+typedef SVec4 int4;
+typedef u32   uint;
 #else
-#define CONSTANT_BUFFER
 typedef float4x4 Mat4;
-typedef float2 Vec2;
-typedef float3 Vec3;
-typedef float4 Vec4;
-typedef float4 Quat;
-typedef uint u32;
-typedef float f32;
-struct GpuTexture;
-struct GpuBvh;
+typedef float2   Vec2;
+typedef float3   Vec3;
+typedef float4   Vec4;
+typedef float4   Quat;
+typedef uint2    UVec2;
+typedef uint3    UVec3;
+typedef uint4    UVec4;
+typedef int2     SVec2;
+typedef int3     SVec3;
+typedef int4     SVec4;
+typedef uint     u32;
+typedef float    f32;
+#endif
 
-#define SRV(T) u32
-#define CBV(T) u32
-#define UAV(T) u32
+#if defined(__cplusplus)
+template <typename T>
+struct BufferPtr
+{
+  u32 m_Index;
+};
+#else
+template <typename T>
+using BufferPtr = uint;
+#endif
 
+#if defined(__cplusplus)
+struct ByteAddressBufferPtr
+{
+  u32 m_Index;
+};
+#else
+typedef uint ByteAddressBufferPtr;
+#endif
+
+#if defined(__cplusplus)
+template <typename T>
+struct ConstantBufferPtr
+{
+  u32 m_Index;
+};
+#else
+template <typename T>
+using ConstantBufferPtr = uint;
+#endif
+
+#if defined(__cplusplus)
+template <typename T>
+struct RWBufferPtr
+{
+  u32 m_Index;
+};
+#else
+template <typename T>
+using RWBufferPtr = uint;
+#endif
+
+#if defined(__cplusplus)
+struct RWByteAddressBufferPtr
+{
+  u32 m_Index;
+};
+#else
+template <typename T>
+using RWByteAddressBufferPtr = uint;
+#endif
+
+#if defined(__cplusplus)
+template <typename T>
+struct RWStructuredBufferPtr
+{
+  u32 m_Index;
+};
+#else
+template <typename T>
+using RWStructuredBufferPtr = uint;
+#endif
+
+#if defined(__cplusplus)
+template <typename T>
+struct RWTexture2DPtr
+{
+  u32 m_Index;
+};
+#else
+template <typename T>
+using RWTexture2DPtr = uint;
+#endif
+
+#if defined(__cplusplus)
+template <typename T>
+struct RWTexture2DArrayPtr
+{
+  u32 m_Index;
+};
+#else
+template <typename T>
+using RWTexture2DArrayPtr = uint;
+#endif
+
+#if defined(__cplusplus)
+template <typename T>
+struct StructuredBufferPtr
+{
+  u32 m_Index;
+};
+#else
+template <typename T>
+using StructuredBufferPtr = uint;
+#endif
+
+#if defined(__cplusplus)
+template <typename T>
+struct Texture2DPtr
+{
+  u32 m_Index;
+};
+#else
+template <typename T>
+using Texture2DPtr = uint;
+#endif
+
+#if defined(__cplusplus)
+template <typename T>
+struct Texture2DArrayPtr
+{
+  u32 m_Index;
+};
+#else
+template <typename T>
+using Texture2DArrayPtr = uint;
+#endif
+
+#if !defined(__cplusplus)
+#define DEREF(ptr) ResourceDescriptorHeap[ptr]
 #endif
 
 
@@ -48,7 +171,8 @@ struct DirectionalLight
 {
   Vec4 direction;
   Vec4 diffuse;
-  f32 intensity;
+  f32  intensity;
+  Vec3 __pad__;
 };
 
 struct Viewport
@@ -59,6 +183,7 @@ struct Viewport
   Mat4 inverse_view_proj;
   Vec4 camera_world_pos;
   Vec2 taa_jitter;
+  Vec2 __pad__;
   DirectionalLight directional_light;
 };
 
@@ -69,25 +194,32 @@ struct Transform
 //    Mat4 prev_model;
 };
 
-struct MaterialRenderResources
+struct TransformBuffer
 {
-  CBV(Transform) transform;
+  // The array 2 is just so that the compiler thinks that it's an array
+  Transform transforms[2];
 };
 
-struct FullscreenRenderResources
+struct MaterialSrt
 {
-  SRV(GpuTexture) texture;
+  ConstantBufferPtr<Transform> transform;
+  u32 gpu_id;
 };
 
-struct TextureCopyResources
+struct FullscreenSrt
 {
-  SRV(GpuTexture) src;
-  UAV(GpuTexture) dst;
+  Texture2DPtr<float4> texture;
 };
 
-struct PostProcessingRenderResources
+struct TextureCopySrt
 {
-  SRV(GpuTexture) texture;
+  Texture2DPtr<float4>   src;
+  RWTexture2DPtr<float4> dst;
+};
+
+struct PostProcessingSrt
+{
+  Texture2DPtr<float4> texture;
 };
 
 struct PointLight
@@ -98,105 +230,63 @@ struct PointLight
   f32  intensity;
 };
 
-struct DownsampleComputeResources
+struct DofCocSrt
 {
-  SRV(GpuTexture) src;
-  UAV(GpuTexture) dst;
-};
+  Texture2DPtr<float4>   color_buffer;
+  Texture2DPtr<float>    depth_buffer;
+  RWTexture2DPtr<float2> render_target;
 
-struct DofOptions
-{
   f32 z_near;
   f32 aperture;
   f32 focal_dist;
   f32 focal_range;
 };
 
-struct DofCocComputeResources
+struct DofCoCDilateSrt
 {
-  CBV(DofOptions) options;
-  SRV(GpuTexture) color_buffer;
-  SRV(GpuTexture) depth_buffer;
-
-  UAV(GpuTexture) render_target;
+  Texture2DPtr<float2>   coc_buffer;
+  RWTexture2DPtr<float2> render_target;
 };
 
-struct DofCocDilateComputeResources
+struct DofBlurHorizSrt
 {
-  SRV(GpuTexture) coc_buffer;
+  Texture2DPtr<float4>   color_buffer;
+  Texture2DPtr<float2>   coc_buffer;
 
-  UAV(GpuTexture) render_target;
+  RWTexture2DPtr<float4> red_near_target;
+  RWTexture2DPtr<float4> green_near_target;
+  RWTexture2DPtr<float4> blue_near_target;
+
+  RWTexture2DPtr<float4> red_far_target;
+  RWTexture2DPtr<float4> green_far_target;
+  RWTexture2DPtr<float4> blue_far_target;
 };
 
-struct DofBlurHorizComputeResources
+struct DofBlurVertSrt
 {
-  SRV(GpuTexture) color_buffer;
-  SRV(GpuTexture) coc_buffer;
+  Texture2DPtr<float2>   coc_buffer;
 
-  UAV(GpuTexture) red_near_target;
-  UAV(GpuTexture) green_near_target;
-  UAV(GpuTexture) blue_near_target;
+  Texture2DPtr<float4>   red_near_buffer;
+  Texture2DPtr<float4>   green_near_buffer;
+  Texture2DPtr<float4>   blue_near_buffer;
 
-  UAV(GpuTexture) red_far_target;
-  UAV(GpuTexture) green_far_target;
-  UAV(GpuTexture) blue_far_target;
+  Texture2DPtr<float4>   red_far_buffer;
+  Texture2DPtr<float4>   green_far_buffer;
+  Texture2DPtr<float4>   blue_far_buffer;
+
+  RWTexture2DPtr<float3> blurred_near_target;
+  RWTexture2DPtr<float3> blurred_far_target;
 };
 
-struct DofBlurVertComputeResources
+struct DofCompositeSrt
 {
-  SRV(GpuTexture) coc_buffer;
+  Texture2DPtr<float2>   coc_buffer;
 
-  SRV(GpuTexture) red_near_buffer;
-  SRV(GpuTexture) green_near_buffer;
-  SRV(GpuTexture) blue_near_buffer;
+  Texture2DPtr<float4>   color_buffer;
+  Texture2DPtr<float3>   near_buffer;
+  Texture2DPtr<float3>   far_buffer;
 
-  SRV(GpuTexture) red_far_buffer;
-  SRV(GpuTexture) green_far_buffer;
-  SRV(GpuTexture) blue_far_buffer;
-
-  UAV(GpuTexture) blurred_near_target;
-  UAV(GpuTexture) blurred_far_target;
-};
-
-struct DofCompositeComputeResources
-{
-  SRV(GpuTexture) coc_buffer;
-
-  SRV(GpuTexture) color_buffer;
-  SRV(GpuTexture) near_buffer;
-  SRV(GpuTexture) far_buffer;
-
-  UAV(GpuTexture) render_target;
-};
-
-struct DebugGBufferOptions
-{
-  u32 gbuffer_target;
-};
-
-struct DebugGBufferResources
-{
-  CBV(DebugGBufferOptions) options;
-  SRV(GpuTexture)          gbuffer_material_ids;
-  SRV(GpuTexture)          gbuffer_world_pos;
-  SRV(GpuTexture)          gbuffer_diffuse_rgb_metallic_a;
-  SRV(GpuTexture)          gbuffer_normal_rgb_roughness_a;
-  SRV(GpuTexture)          gbuffer_depth;
-
-  UAV(GpuTexture)          render_target;
-};
-
-struct DebugCoCResources
-{
-  SRV(GpuTexture) coc_buffer;
-
-  UAV(GpuTexture) render_target;
-};
-
-struct DebugVisualizerResources
-{
-  SRV(GpuTexture) input;
-  UAV(GpuTexture) output;
+  RWTexture2DPtr<float3> render_target;
 };
 
 #define kProbeNumIrradianceInteriorTexels 14
@@ -221,66 +311,45 @@ struct DDGIVolDesc
   f32  probe_max_ray_distance;
 };
 
-struct ProbeTraceRTResources
+struct ProbeTraceSrt
 {
-  CBV(DDGIVolDesc) vol_desc;
-  SRV(GpuTexture)  probe_irradiance;
-  SRV(GpuTexture)  probe_distance;
+  ConstantBufferPtr<DDGIVolDesc> vol_desc;
+  Texture2DArrayPtr<float4>      probe_irradiance;
 
-  UAV(GpuTexture)  ray_data;
+  RWTexture2DArrayPtr<float4>    ray_data;
 };
 
-struct ProbeBlendingCSResources
+struct ProbeBlendingSrt
 {
-  CBV(DDGIVolDesc) vol_desc;
-  SRV(GpuTexture)  ray_data;
-  UAV(GpuTexture)  irradiance;
+  ConstantBufferPtr<DDGIVolDesc> vol_desc;
+  Texture2DArrayPtr<float4>      ray_data;
+  RWTexture2DArrayPtr<float4>    irradiance;
 };
 
-struct ProbeDistanceBlendingCSResources
+struct StandardBrdfSrt
 {
-  CBV(DDGIVolDesc) vol_desc;
-  SRV(GpuTexture)  ray_data;
-  UAV(GpuTexture)  distance;
+  Texture2DPtr<uint>             gbuffer_material_ids;
+  Texture2DPtr<float4>           gbuffer_diffuse_rgb_metallic_a;
+  Texture2DPtr<float4>           gbuffer_normal_rgb_roughness_a;
+  Texture2DPtr<float>            gbuffer_depth;
+
+  ConstantBufferPtr<DDGIVolDesc> ddgi_vol_desc;
+  Texture2DArrayPtr<float4>      ddgi_probe_irradiance;
+
+  RWTexture2DPtr<float4>         render_target;
 };
 
-struct ProbeDebugOptions
+struct TemporalAASrt
 {
-  u32 layer;
-};
+  Texture2DPtr<float4>   prev_hdr;
+  Texture2DPtr<float4>   curr_hdr;
 
-struct ProbeDebugCSResources
-{
-//    CBV(ProbeDebugOptions) options;
-  SRV(GpuTexture)  tex_2d_array;
-  UAV(GpuTexture)  render_target;
-};
+  Texture2DPtr<float2>   prev_velocity;
+  Texture2DPtr<float2>   curr_velocity;
 
-struct StandardBrdfRTResources
-{
-  SRV(GpuTexture)  gbuffer_material_ids;
-  SRV(GpuTexture)  gbuffer_diffuse_rgb_metallic_a;
-  SRV(GpuTexture)  gbuffer_normal_rgb_roughness_a;
-  SRV(GpuTexture)  gbuffer_depth;
+  Texture2DPtr<float>    gbuffer_depth;
 
-  CBV(DDGIVolDesc) ddgi_vol_desc;
-  SRV(GpuTexture)  ddgi_probe_irradiance;
-  SRV(GpuTexture)  ddgi_probe_distance;
-
-  UAV(GpuTexture)  render_target;
-};
-
-struct TAAResources
-{
-  SRV(GpuTexture) prev_hdr;
-  SRV(GpuTexture) curr_hdr;
-
-  SRV(GpuTexture) prev_velocity;
-  SRV(GpuTexture) curr_velocity;
-
-  SRV(GpuTexture) gbuffer_depth;
-
-  UAV(GpuTexture) taa;
+  RWTexture2DPtr<float4> taa;
 };
 
 

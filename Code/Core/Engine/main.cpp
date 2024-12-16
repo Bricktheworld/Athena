@@ -51,7 +51,7 @@ window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM lparam)
       if (g_MainWindow != nullptr)
       {
         swap_chain_resize(&g_MainWindow->swap_chain, window, g_GpuDevice);
-        renderer_on_resize(g_GpuDevice, &g_MainWindow->swap_chain);
+        renderer_on_resize(&g_MainWindow->swap_chain);
       }
     } break;
     case WM_DESTROY:
@@ -282,7 +282,7 @@ application_entry(HINSTANCE instance, int show_code)
 
         lpp_agent.CompileAndReloadChanges(lpp::LPP_RELOAD_BEHAVIOUR_WAIT_UNTIL_CHANGES_ARE_APPLIED);
 
-        renderer_on_resize(g_GpuDevice, &g_MainWindow->swap_chain);
+        renderer_on_resize(&g_MainWindow->swap_chain);
 
         dbgln("Live++ Hot Reloaded Successfully!");
 
@@ -370,7 +370,7 @@ application_entry(HINSTANCE instance, int show_code)
     begin_renderer_recording();
     submit_scene(scene);
 
-    execute_render_graph(&g_Renderer.graph, g_GpuDevice, back_buffer);
+    execute_render_graph(back_buffer);
     swap_chain_submit(&g_MainWindow->swap_chain, g_GpuDevice, back_buffer);
   }
 

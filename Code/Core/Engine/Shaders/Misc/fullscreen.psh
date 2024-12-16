@@ -7,11 +7,11 @@ struct PSInput
   float2 uv : TEXCOORD0;
 };
 
-ConstantBuffer<FullscreenRenderResources> render_resources : register(b0);
+ConstantBuffer<FullscreenSrt> g_Srt : register(b0);
 
 [RootSignature(BINDLESS_ROOT_SIGNATURE)]
 float4 PS_Fullscreen(PSInput IN) : SV_TARGET
 {
-  Texture2D<float4> input = ResourceDescriptorHeap[render_resources.texture];
+  Texture2D<float4> input = DEREF(g_Srt.texture);
   return input.Sample(g_BilinearSampler, IN.uv);
 }

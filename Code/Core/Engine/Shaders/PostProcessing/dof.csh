@@ -73,22 +73,22 @@ float2 mult_complex(float2 p, float2 q)
   return float2(p.x * q.x - p.y * q.y, p.x * q.y + p.y * q.x);
 }
 
-ConstantBuffer<DofBlurHorizComputeResources> g_blur_horiz : register(b0);
+ConstantBuffer<DofBlurHorizSrt> g_BlurHorizSrt : register(b0);
 
 [RootSignature(BINDLESS_ROOT_SIGNATURE)]
 [numthreads(8, 8, 1)]
 void CS_DoFBlurHorizontal( uint3 thread_id : SV_DispatchThreadID )
 {
-  Texture2D<float4>  color_buffer      = ResourceDescriptorHeap[g_blur_horiz.color_buffer];
-  Texture2D<half2>   coc_buffer        = ResourceDescriptorHeap[g_blur_horiz.coc_buffer];
+  Texture2D<float4>  color_buffer       = DEREF(g_BlurHorizSrt.color_buffer);
+  Texture2D<float2>  coc_buffer         = DEREF(g_BlurHorizSrt.coc_buffer);
 
-  RWTexture2D<half4> red_near_target   = ResourceDescriptorHeap[g_blur_horiz.red_near_target];
-  RWTexture2D<half4> blue_near_target  = ResourceDescriptorHeap[g_blur_horiz.blue_near_target];
-  RWTexture2D<half4> green_near_target = ResourceDescriptorHeap[g_blur_horiz.green_near_target];
+  RWTexture2D<float4> red_near_target   = DEREF(g_BlurHorizSrt.red_near_target);
+  RWTexture2D<float4> blue_near_target  = DEREF(g_BlurHorizSrt.blue_near_target);
+  RWTexture2D<float4> green_near_target = DEREF(g_BlurHorizSrt.green_near_target);
 
-  RWTexture2D<half4> red_far_target    = ResourceDescriptorHeap[g_blur_horiz.red_far_target];
-  RWTexture2D<half4> blue_far_target   = ResourceDescriptorHeap[g_blur_horiz.blue_far_target];
-  RWTexture2D<half4> green_far_target  = ResourceDescriptorHeap[g_blur_horiz.green_far_target];
+  RWTexture2D<float4> red_far_target    = DEREF(g_BlurHorizSrt.red_far_target);
+  RWTexture2D<float4> blue_far_target   = DEREF(g_BlurHorizSrt.blue_far_target);
+  RWTexture2D<float4> green_far_target  = DEREF(g_BlurHorizSrt.green_far_target);
 
   float2 in_res;
   color_buffer.GetDimensions(in_res.x, in_res.y);
@@ -148,24 +148,24 @@ void CS_DoFBlurHorizontal( uint3 thread_id : SV_DispatchThreadID )
   }
 }
 
-ConstantBuffer<DofBlurVertComputeResources> g_blur_vert : register(b0);
+ConstantBuffer<DofBlurVertSrt> g_BlurVertSrt : register(b0);
 
 [RootSignature(BINDLESS_ROOT_SIGNATURE)]
 [numthreads(8, 8, 1)]
 void CS_DoFBlurVertical( uint3 thread_id : SV_DispatchThreadID )
 {
-  Texture2D<half2>    coc_buffer          = ResourceDescriptorHeap[g_blur_vert.coc_buffer];
-
-  Texture2D<half4>    red_near_buffer     = ResourceDescriptorHeap[g_blur_vert.red_near_buffer];
-  Texture2D<half4>    blue_near_buffer    = ResourceDescriptorHeap[g_blur_vert.blue_near_buffer];
-  Texture2D<half4>    green_near_buffer   = ResourceDescriptorHeap[g_blur_vert.green_near_buffer];
-
-  Texture2D<half4>    red_far_buffer      = ResourceDescriptorHeap[g_blur_vert.red_far_buffer];
-  Texture2D<half4>    blue_far_buffer     = ResourceDescriptorHeap[g_blur_vert.blue_far_buffer];
-  Texture2D<half4>    green_far_buffer    = ResourceDescriptorHeap[g_blur_vert.green_far_buffer];
-
-  RWTexture2D<float3> blurred_near_target = ResourceDescriptorHeap[g_blur_vert.blurred_near_target];
-  RWTexture2D<float3> blurred_far_target  = ResourceDescriptorHeap[g_blur_vert.blurred_far_target];
+  Texture2D<float2>   coc_buffer          = DEREF(g_BlurVertSrt.coc_buffer);
+                                        
+  Texture2D<float4>   red_near_buffer     = DEREF(g_BlurVertSrt.red_near_buffer);
+  Texture2D<float4>   green_near_buffer   = DEREF(g_BlurVertSrt.green_near_buffer);
+  Texture2D<float4>   blue_near_buffer    = DEREF(g_BlurVertSrt.blue_near_buffer);
+                                        
+  Texture2D<float4>   red_far_buffer      = DEREF(g_BlurVertSrt.red_far_buffer);
+  Texture2D<float4>   green_far_buffer    = DEREF(g_BlurVertSrt.green_far_buffer);
+  Texture2D<float4>   blue_far_buffer     = DEREF(g_BlurVertSrt.blue_far_buffer);
+                                            
+  RWTexture2D<float3> blurred_near_target = DEREF(g_BlurVertSrt.blurred_near_target);
+  RWTexture2D<float3> blurred_far_target  = DEREF(g_BlurVertSrt.blurred_far_target);
 
   float2 coc_res;
   coc_buffer.GetDimensions(coc_res.x, coc_res.y);
@@ -227,23 +227,21 @@ void CS_DoFBlurVertical( uint3 thread_id : SV_DispatchThreadID )
   }
 }
 
-ConstantBuffer<DofCocComputeResources> g_coc : register(b0);
+ConstantBuffer<DofCocSrt> g_CoCSrt : register(b0);
 
 [RootSignature(BINDLESS_ROOT_SIGNATURE)]
 [numthreads(8, 8, 1)]
 void CS_DoFCoC( uint3 thread_id : SV_DispatchThreadID )
 {
-  Texture2D<half4>                     color_buffer  = ResourceDescriptorHeap[g_coc.color_buffer];
-  Texture2D<float>                     depth_buffer  = ResourceDescriptorHeap[g_coc.depth_buffer];
+  Texture2D<float4>   color_buffer  = DEREF(g_CoCSrt.color_buffer);
+  Texture2D<float>    depth_buffer  = DEREF(g_CoCSrt.depth_buffer);
 
-  RWTexture2D<half2>                   render_target = ResourceDescriptorHeap[g_coc.render_target];
+  RWTexture2D<float2> render_target = DEREF(g_CoCSrt.render_target);
 
-  ConstantBuffer<DofOptions> options       = ResourceDescriptorHeap[g_coc.options];
-
-  float z_near       = options.z_near;
-  float aperture     = options.aperture;
-  float focal_dist   = options.focal_dist;
-  float focal_range  = options.focal_range;
+  float z_near       = g_CoCSrt.z_near;
+  float aperture     = g_CoCSrt.aperture;
+  float focal_dist   = g_CoCSrt.focal_dist;
+  float focal_range  = g_CoCSrt.focal_range;
   float z            = z_near / depth_buffer[thread_id.xy];
 
   if (z > focal_dist)
@@ -256,14 +254,14 @@ void CS_DoFCoC( uint3 thread_id : SV_DispatchThreadID )
   render_target[thread_id.xy] = half2(clamp(-coc, 0.0h, kMaxCoC), clamp(coc, 0.0h, kMaxCoC));
 }
 
-ConstantBuffer<DofCocDilateComputeResources> g_coc_dilate : register(b0);
+ConstantBuffer<DofCoCDilateSrt> g_CoCDilateSrt : register(b0);
 
 [RootSignature(BINDLESS_ROOT_SIGNATURE)]
 [numthreads(8, 8, 1)]
 void CS_DoFCoCDilate( uint3 thread_id : SV_DispatchThreadID )
 {
-  Texture2D<half2>   coc_buffer    = ResourceDescriptorHeap[g_coc_dilate.coc_buffer];
-  RWTexture2D<half2> render_target = ResourceDescriptorHeap[g_coc_dilate.render_target];
+  Texture2D<float2>   coc_buffer    = DEREF(g_CoCDilateSrt.coc_buffer);
+  RWTexture2D<float2> render_target = DEREF(g_CoCDilateSrt.render_target);
 
   float2 resolution;
   coc_buffer.GetDimensions(resolution.x, resolution.y);
@@ -285,19 +283,19 @@ void CS_DoFCoCDilate( uint3 thread_id : SV_DispatchThreadID )
   render_target[thread_id.xy] = half2(max_near_coc, coc_buffer.Sample(g_BilinearSampler, uv).y);
 }
 
-ConstantBuffer<DofCompositeComputeResources> g_dof_composite : register(b0);
+ConstantBuffer<DofCompositeSrt> g_CompositeSrt : register(b0);
 
 [RootSignature(BINDLESS_ROOT_SIGNATURE)]
 [numthreads(8, 8, 1)]
 void CS_DoFComposite( uint3 thread_id : SV_DispatchThreadID )
 {
-  Texture2D<half4>    color_buffer = ResourceDescriptorHeap[g_dof_composite.color_buffer];
+  Texture2D<float4>   color_buffer  = DEREF(g_CompositeSrt.color_buffer);
+            
+  Texture2D<float2>   coc_buffer    = DEREF(g_CompositeSrt.coc_buffer);
+  Texture2D<float3>   near_buffer   = DEREF(g_CompositeSrt.near_buffer);
+  Texture2D<float3>   far_buffer    = DEREF(g_CompositeSrt.far_buffer);
 
-  Texture2D<half2>    coc_buffer   = ResourceDescriptorHeap[g_dof_composite.coc_buffer];
-  Texture2D<half3>    near_buffer  = ResourceDescriptorHeap[g_dof_composite.near_buffer];
-  Texture2D<half3>    far_buffer   = ResourceDescriptorHeap[g_dof_composite.far_buffer];
-
-  RWTexture2D<float3> render_target = ResourceDescriptorHeap[g_dof_composite.render_target];
+  RWTexture2D<float3> render_target = DEREF(g_CompositeSrt.render_target);
 
   float width, height;
   render_target.GetDimensions(width, height);

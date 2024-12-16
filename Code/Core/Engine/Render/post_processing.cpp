@@ -6,8 +6,8 @@
 
 struct PostProcessingParams
 {
-  RgReadHandle<GpuTexture>  hdr_buffer;
-  RgWriteHandle<GpuTexture> dst;
+  RgTexture2D<float4> hdr_buffer;
+  RgRtv               dst;
 };
 
 static void 
@@ -18,7 +18,10 @@ render_handler_post_processing(RenderContext* ctx, const void* data)
 
   ctx->om_set_render_targets({params->dst}, None);
 
-  ctx->graphics_bind_shader_resources<PostProcessingRenderResources>({.texture = params->hdr_buffer});
+  PostProcessingSrt srt;
+  srt.texture = params->hdr_buffer;
+
+  ctx->graphics_bind_srt(srt);
   ctx->set_graphics_pso(&g_Renderer.post_processing_pipeline);
 
   ctx->draw_instanced(3, 1, 0, 0);
@@ -33,12 +36,12 @@ init_post_processing(
   PostProcessingParams* params = HEAP_ALLOC(PostProcessingParams, g_InitHeap, 1);
   zero_memory(params, sizeof(PostProcessingParams));
 
-  RgPassBuilder* pass      = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "Post Processing", params, &render_handler_post_processing, 1, 1);
+  RgPassBuilder* pass      = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "Post Processing", params, &render_handler_post_processing);
 
-  RgHandle<GpuTexture> ret = rg_create_texture(builder, "Post Processing Buffer", FULL_RES(builder), DXGI_FORMAT_R16G16B16A16_FLOAT);
+  RgHandle<GpuTexture> ret = rg_create_texture(builder, "Post Processing Buffer", FULL_RES(builder), kGpuFormatRGBA16Float);
 
-  params->hdr_buffer       = rg_read_texture(pass, hdr_buffer, kReadTextureSrv);
-  params->dst              = rg_write_texture(pass, &ret, kWriteTextureColorTarget);
+  params->hdr_buffer       = RgTexture2D<float4>(pass, hdr_buffer);
+  params->dst              = RgRtv(pass, &ret);
 
   return ret;
 }

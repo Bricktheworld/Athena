@@ -11,12 +11,10 @@ struct Ddgi
 
 struct ReadDdgi
 {
-  RgReadHandle<GpuBuffer> desc;
-  RgReadHandle<GpuTexture>  irradiance;
+  RgConstantBuffer<DDGIVolDesc> desc;
+  RgTexture2DArray<float4>      irradiance;
 };
 
-constant u32 kDdgiReadCount = 3;
-
 Ddgi     init_ddgi(AllocHeap heap, RgBuilder* builder);
-ReadDdgi read_ddgi(RgPassBuilder* pass_builder, const Ddgi& ddgi, ReadTextureAccessMask access);
+ReadDdgi read_ddgi(RgPassBuilder* pass_builder, const Ddgi& ddgi);
 

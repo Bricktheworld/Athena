@@ -8,15 +8,15 @@
 RgHandle<GpuTexture>
 init_hdr_buffer(RgBuilder* builder)
 {
-  RgHandle<GpuTexture> ret = rg_create_texture(builder, "HDR Buffer", FULL_RES(builder), DXGI_FORMAT_R16G16B16A16_FLOAT);
+  RgHandle<GpuTexture> ret = rg_create_texture(builder, "HDR Buffer", FULL_RES(builder), kGpuFormatRGBA16Float);
   return ret;
 }
 
 struct LightingParams
 {
-  RgWriteHandle<GpuTexture> hdr_buffer;
-  ReadGBuffer             gbuffer;
-  ReadDdgi                ddgi;
+  RgRWTexture2D<float4> hdr_buffer;
+  ReadGBuffer           gbuffer;
+  ReadDdgi              ddgi;
 };
 
 static void
@@ -24,20 +24,17 @@ render_handler_lighting(RenderContext* ctx, const void* data)
 {
   const LightingParams* params = (const LightingParams*)data;
 
-  ctx->ray_tracing_bind_shader_resources<StandardBrdfRTResources>({
-    .gbuffer_material_ids           = params->gbuffer.material_id,
-    .gbuffer_diffuse_rgb_metallic_a = params->gbuffer.diffuse_metallic,
-    .gbuffer_normal_rgb_roughness_a = params->gbuffer.normal_roughness,
-    .gbuffer_depth                  = params->gbuffer.depth,
-
-    .ddgi_vol_desc                  = params->ddgi.desc,
-    .ddgi_probe_irradiance          = params->ddgi.irradiance,
-    .ddgi_probe_distance            = params->ddgi.irradiance,
-
-    .render_target                  = params->hdr_buffer,
-  });
+  StandardBrdfSrt srt;
+  srt.gbuffer_material_ids           = params->gbuffer.material_id;
+  srt.gbuffer_diffuse_rgb_metallic_a = params->gbuffer.diffuse_metallic;
+  srt.gbuffer_normal_rgb_roughness_a = params->gbuffer.normal_roughness;
+  srt.gbuffer_depth                  = params->gbuffer.depth;
+  srt.ddgi_vol_desc                  = params->ddgi.desc;
+  srt.ddgi_probe_irradiance          = params->ddgi.irradiance;
+  srt.render_target                  = params->hdr_buffer;
 
   ctx->set_ray_tracing_pso(&g_Renderer.standard_brdf_pso);
+  ctx->ray_tracing_bind_srt(srt);
   ctx->dispatch_rays(&g_Renderer.standard_brdf_st, ctx->m_Width, ctx->m_Height, 1);
 }
 
@@ -50,10 +47,10 @@ init_lighting(
   RgHandle<GpuTexture>* hdr_buffer
 ) {
   LightingParams* params = HEAP_ALLOC(LightingParams, g_InitHeap, 1);
-  RgPassBuilder* pass    = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "Lighting", params, &render_handler_lighting, kGBufferReadCount + kDdgiReadCount, 1);
+  RgPassBuilder* pass    = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "Lighting", params, &render_handler_lighting);
 
-  params->hdr_buffer     = rg_write_texture(pass, hdr_buffer, kWriteTextureUav);
-  params->gbuffer        = read_gbuffer(pass, gbuffer, kReadTextureSrv);
-  params->ddgi           = read_ddgi(pass, ddgi, kReadTextureSrv);
+  params->hdr_buffer     = RgRWTexture2D<float4>(pass, hdr_buffer);
+  params->gbuffer        = read_gbuffer(pass, gbuffer);
+  params->ddgi           = read_ddgi(pass, ddgi);
 }
 

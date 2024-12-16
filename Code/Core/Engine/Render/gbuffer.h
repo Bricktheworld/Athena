@@ -12,11 +12,11 @@ struct GBuffer
 
 struct ReadGBuffer
 {
-  RgReadHandle<GpuTexture> material_id;
-  RgReadHandle<GpuTexture> diffuse_metallic;
-  RgReadHandle<GpuTexture> normal_roughness;
-  RgReadHandle<GpuTexture> velocity;
-  RgReadHandle<GpuTexture> depth;
+  RgTexture2D<uint>   material_id;
+  RgTexture2D<float4> diffuse_metallic;
+  RgTexture2D<float4> normal_roughness;
+  RgTexture2D<float2> velocity;
+  RgTexture2D<float>  depth;
 };
 
 constant u32 kGBufferReadCount = 5;
@@ -24,5 +24,5 @@ constant u32 kGBufferReadCount = 5;
 GBuffer     init_gbuffer(RgBuilder* builder);
 void        init_gbuffer_static(AllocHeap heap, RgBuilder* builder, GBuffer* gbuffer);
 
-ReadGBuffer read_gbuffer(RgPassBuilder* pass_builder, const GBuffer& gbuffer, ReadTextureAccessMask access);
+ReadGBuffer read_gbuffer(RgPassBuilder* pass_builder, const GBuffer& gbuffer);
 

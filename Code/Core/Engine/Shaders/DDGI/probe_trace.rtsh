@@ -7,56 +7,55 @@
 
 GlobalRootSignature kBindlessRootSignature =
 {
-	BINDLESS_ROOT_SIGNATURE
+  BINDLESS_ROOT_SIGNATURE
 };
 
 TriangleHitGroup kHitGroup = 
 {
-	"", // Any hit
-	"hit", // Closest hit
+  "", // Any hit
+  "hit", // Closest hit
 };
 
 RaytracingShaderConfig kShaderConfig = 
 {
-	sizeof(Payload), // Max payload size
-	8,  // Max attribute size: sizeof(unorm float2) -> Barycentric
+  sizeof(Payload), // Max payload size
+  8,  // Max attribute size: sizeof(unorm float2) -> Barycentric
 };
 
 RaytracingPipelineConfig kPipelineConfig = 
 {
-	1, // Max trace recursion depth
+  1, // Max trace recursion depth
 };
 
-ConstantBuffer<ProbeTraceRTResources> rt_resources : register(b0);
+ConstantBuffer<ProbeTraceSrt> g_Srt : register(b0);
 
 [shader("raygeneration")]
 void ray_gen()
 {
-	uint2 launch_index      = DispatchRaysIndex().xy;
-	uint2 launch_dimensions = DispatchRaysDimensions().xy;
+  uint2 launch_index      = DispatchRaysIndex().xy;
+  uint2 launch_dimensions = DispatchRaysDimensions().xy;
 
-	Texture2DArray<float4>      probe_irradiance  = ResourceDescriptorHeap[rt_resources.probe_irradiance];
-	Texture2DArray<float2>      probe_distance    = ResourceDescriptorHeap[rt_resources.probe_distance];
-	RWTexture2DArray<float4>    ray_data          = ResourceDescriptorHeap[rt_resources.ray_data];
-	ConstantBuffer<DDGIVolDesc> vol_desc          = ResourceDescriptorHeap[rt_resources.vol_desc];
+  Texture2DArray<float4>      probe_irradiance  = DEREF(g_Srt.probe_irradiance);
+  RWTexture2DArray<float4>    ray_data          = DEREF(g_Srt.ray_data);
+  ConstantBuffer<DDGIVolDesc> vol_desc          = DEREF(g_Srt.vol_desc);
 
-	DirectionalLight            directional_light = g_ViewportBuffer.directional_light;
+  DirectionalLight            directional_light = g_ViewportBuffer.directional_light;
 
-	int ray_index         = DispatchRaysIndex().x;
-	int probe_plane_index = DispatchRaysIndex().y;
-	int plane_index       = DispatchRaysIndex().z;
+  int ray_index         = DispatchRaysIndex().x;
+  int probe_plane_index = DispatchRaysIndex().y;
+  int plane_index       = DispatchRaysIndex().z;
 
 
-	int probes_per_plane  = get_probes_per_plane(vol_desc);
+  int probes_per_plane  = get_probes_per_plane(vol_desc);
 
-	int probe_index       = (plane_index * probes_per_plane) + probe_plane_index;
+  int probe_index       = (plane_index * probes_per_plane) + probe_plane_index;
 
-	int3 probe_coords;
-	probe_coords.x        = probe_index % vol_desc.probe_count_x;
-	probe_coords.y        = probe_index / (vol_desc.probe_count_x * vol_desc.probe_count_z);
-	probe_coords.z        = (probe_index / vol_desc.probe_count_x) % vol_desc.probe_count_z;
+  int3 probe_coords;
+  probe_coords.x        = probe_index % vol_desc.probe_count_x;
+  probe_coords.y        = probe_index / (vol_desc.probe_count_x * vol_desc.probe_count_z);
+  probe_coords.z        = (probe_index / vol_desc.probe_count_x) % vol_desc.probe_count_z;
 
-	float3 probe_ws_pos   = get_probe_ws_pos(probe_coords, vol_desc);
+  float3 probe_ws_pos   = get_probe_ws_pos(probe_coords, vol_desc);
   float3 probe_ray_dir  = get_probe_ray_dir(ray_index, vol_desc);
   uint3  output_coords  = get_ray_data_texel_coords(ray_index, probe_index, vol_desc);
 
@@ -104,8 +103,7 @@ void ray_gen()
     surface_bias,
     payload.normal,
     vol_desc,
-    probe_irradiance,
-    probe_distance
+    probe_irradiance
   );
 
   // TODO(Brandon): Get this from the actual payload data
@@ -119,17 +117,17 @@ void ray_gen()
 [shader("closesthit")]
 void hit(inout Payload payload, BuiltInTriangleIntersectionAttributes attr)
 {
-	payload.t = RayTCurrent();
+  payload.t = RayTCurrent();
   payload.hit_kind = HitKind();
 
-	Vertex vertex  = get_vertex(attr);
-	payload.ws_pos = vertex.position.xyz;
-	payload.normal = vertex.normal.xyz;
-	payload.uv     = vertex.uv.xy;
+  Vertex vertex  = get_vertex(attr);
+  payload.ws_pos = vertex.position.xyz;
+  payload.normal = vertex.normal.xyz;
+  payload.uv     = vertex.uv.xy;
 }
 
 [shader("miss")]
 void miss(inout Payload payload)
 {
-	payload.t = -1.0f;
+  payload.t = -1.0f;
 }

@@ -66,6 +66,8 @@ def main():
           args.source.name,
           '-Zi',
           '-Qembed_debug',
+          '-HV',
+          '2021',
           '-Fh',
           tmp.name,
           '-Vn',

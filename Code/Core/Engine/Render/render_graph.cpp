@@ -1,6 +1,7 @@
 #include "Core/Foundation/context.h"
 #include "Core/Vendor/d3dx12.h"
 
+#include "Core/Engine/memory.h"
 #include "Core/Engine/Render/render_graph.h"
 
 #include "Core/Engine/Vendor/imgui/imgui_impl_dx12.h"
@@ -13,10 +14,13 @@ constant u32 kMaxTemporalLifetime = 3;
 #define RG_DBGLN(...) do { } while(0)
 #endif
 
+RenderGraph* g_RenderGraph = nullptr;
+RenderPassId g_HandlerId   = 0;
+
 static u32
 handle_index(RgBuilder* graph)
 {
-  return ++graph->handle_index;
+  return graph->handle_index++;
 }
 
 static void
@@ -409,7 +413,7 @@ init_physical_resources(
       GpuTextureDesc desc = {0};
       desc.width          = resource_desc->texture_desc.width;
       desc.height         = resource_desc->texture_desc.height;
-      desc.array_size     = 1;
+      desc.array_size     = resource_desc->texture_desc.array_size;
       desc.format         = resource_desc->texture_desc.format;
       desc.initial_state  = D3D12_RESOURCE_STATE_COMMON;
       desc.flags          = *unwrap(hash_table_find(&physical_flags, resource.id));
@@ -452,255 +456,112 @@ init_physical_resources(
   return ret;
 }
 
-struct PhysicalDescriptorMap
-{
-  HashTable<RgDescriptorKey, Descriptor> descriptor_map;
-  RgDescriptorHeap                       descriptor_heap;
-};
-
-static PhysicalDescriptorMap
+static void
 init_physical_descriptors(
   AllocHeap heap,
+  RgDescriptorHeap* descriptor_heap,
   const RgBuilder& builder,
-  const GpuDevice* device,
-  const PhysicalResourceMap& resource_map
+  const PhysicalResourceMap& resource_map,
+  RenderPass* render_passes
 ) {
-  ScratchAllocator scratch_arena = alloc_scratch_arena();
-  defer { free_scratch_arena(&scratch_arena); };
-
-  HashTable<u32, DescriptorType> descriptor_types  = init_hash_table<u32, DescriptorType>(scratch_arena, builder.resource_list.size);
-
-  for (const RgPassBuilder& pass : builder.render_passes)
+  for (RenderPassId render_pass_id = 0; render_pass_id < builder.render_passes.size; render_pass_id++)
   {
-    for (const RgPassBuilder::ResourceAccessData& data : pass.read_resources)
-    {
-      u8* type_mask = (u8*)hash_table_insert(&descriptor_types, data.handle.id);
-      if (data.handle.type == kResourceTypeBuffer)
-      {
-        ReadBufferAccessMask access = (ReadBufferAccessMask)data.access;
-        if (access & kReadBufferCbv)
-        {
-          *type_mask |= kDescriptorTypeCbv;
-        }
+    const RgPassBuilder& pass_builder = builder.render_passes[render_pass_id];
+    RenderPass*          pass         = &render_passes[render_pass_id];
 
-        if (access & kReadBufferSrvPixelShader || access & kReadBufferSrvNonPixelShader)
-        {
-          *type_mask |= kDescriptorTypeSrv;
-        }
-      }
-      else if (data.handle.type == kResourceTypeTexture)
+    pass->descriptors                  = init_array_zeroed<GpuDescriptor>(heap, pass_builder.descriptor_idx);
+
+    for (const RgPassBuilder::ResourceAccessData& desc : pass_builder.read_resources)
+    {
+      RgResourceKey   resource_key = {0};
+      resource_key.id              = desc.handle.id;
+
+      for (u32 iframe = 0; iframe <= get_temporal_lifetime(desc.handle.temporal_lifetime); iframe++)
       {
-        *type_mask |= kDescriptorTypeSrv;
+        resource_key.temporal_frame = iframe;
+
+        GpuDescriptor* dst = &pass->descriptors[desc.descriptor_idx + iframe];
+        if (desc.handle.type == kResourceTypeBuffer)
+        {
+          const GpuBuffer* buffer = unwrap(hash_table_find(&resource_map.buffers, resource_key));
+          if (desc.descriptor_type == kDescriptorTypeSrv)
+          {
+            *dst = alloc_descriptor(&descriptor_heap->cbv_srv_uav);
+            init_buffer_srv(dst, buffer, desc.buffer_srv);
+          }
+          else if (desc.descriptor_type == kDescriptorTypeCbv)
+          {
+            *dst = alloc_descriptor(&descriptor_heap->cbv_srv_uav);
+            init_buffer_cbv(dst, buffer, desc.buffer_cbv);
+          }
+          else { /*This means that it's a vertex/index buffer */ }
+        }
+        else if(desc.handle.type == kResourceTypeTexture)
+        {
+          const GpuTexture* texture = unwrap(hash_table_find(&resource_map.textures, resource_key));
+          if (desc.descriptor_type == kDescriptorTypeSrv)
+          {
+            *dst = alloc_descriptor(&descriptor_heap->cbv_srv_uav);
+            init_texture_srv(dst, texture, desc.texture_srv);
+          }
+          else { UNREACHABLE; }
+        }
+        else { UNREACHABLE; }
       }
     }
 
-    for (const RgPassBuilder::ResourceAccessData& data : pass.write_resources)
+    for (const RgPassBuilder::ResourceAccessData& desc : pass_builder.write_resources)
     {
-      u8* type_mask = (u8*)hash_table_insert(&descriptor_types, data.handle.id);
-      if (data.handle.type == kResourceTypeBuffer)
+      RgResourceKey resource_key = {0};
+      resource_key.id            = desc.handle.id;
+
+      // Back buffer descriptors get lazily initialized
+      if (resource_key.id == kRgBackBufferId)
       {
-        WriteBufferAccess access = (WriteBufferAccess)data.access;
-        if (access == kWriteBufferUav)
-        {
-          *type_mask |= kDescriptorTypeUav;
-        }
+        continue;
       }
-      else if (data.handle.type == kResourceTypeTexture)
+
+      for (u32 iframe = 0; iframe <= get_temporal_lifetime(desc.handle.temporal_lifetime); iframe++)
       {
-        WriteTextureAccess access = (WriteTextureAccess)data.access;
-        if (access == kWriteTextureDepthStencil)
+        resource_key.temporal_frame = iframe;
+
+        GpuDescriptor* dst = &pass->descriptors[desc.descriptor_idx + iframe];
+
+        if (desc.handle.type == kResourceTypeBuffer)
         {
-          *type_mask |= kDescriptorTypeDsv;
+          const GpuBuffer* buffer = unwrap(hash_table_find(&resource_map.buffers, resource_key));
+          if (desc.descriptor_type == kDescriptorTypeUav)
+          {
+            *dst = alloc_descriptor(&descriptor_heap->cbv_srv_uav);
+            init_buffer_uav(dst, buffer, desc.buffer_uav);
+          }
+          else { UNREACHABLE; }
         }
-        else if (access == kWriteTextureColorTarget)
+        else if(desc.handle.type == kResourceTypeTexture)
         {
-          *type_mask |= kDescriptorTypeRtv;
+          const GpuTexture* texture = unwrap(hash_table_find(&resource_map.textures, resource_key));
+          if (desc.descriptor_type == kDescriptorTypeUav)
+          {
+            *dst = alloc_descriptor(&descriptor_heap->cbv_srv_uav);
+            init_texture_uav(dst, texture, desc.texture_uav);
+          }
+          else if (desc.descriptor_type == kDescriptorTypeRtv)
+          {
+            *dst = alloc_descriptor(&descriptor_heap->rtv);
+            init_rtv(dst, texture);
+          }
+          else if (desc.descriptor_type == kDescriptorTypeDsv)
+          {
+            *dst = alloc_descriptor(&descriptor_heap->dsv);
+            init_dsv(dst, texture);
+          }
+          else { UNREACHABLE; }
         }
-        else if (access == kWriteTextureUav)
-        {
-          *type_mask |= kDescriptorTypeUav;
-        }
+        else { UNREACHABLE; }
       }
+
     }
   }
-
-  u32 descriptor_count  = 0;
-  u32 cbv_srv_uav_count = 0;
-  u32 rtv_count         = 0;
-  u32 dsv_count         = 0;
-  for (const ResourceHandle handle : builder.resource_list)
-  {
-    auto maybe_type_mask = hash_table_find(&descriptor_types, handle.id);
-    if (!maybe_type_mask)
-      continue;
-
-    DescriptorType type_mask = *unwrap(maybe_type_mask);
-
-    if (type_mask & kDescriptorTypeCbv)
-    {
-      descriptor_count  += get_temporal_lifetime(handle.temporal_lifetime) + 1;
-      cbv_srv_uav_count += get_temporal_lifetime(handle.temporal_lifetime) + 1;
-    }
-
-    if (type_mask & kDescriptorTypeSrv)
-    {
-      descriptor_count  += get_temporal_lifetime(handle.temporal_lifetime) + 1;
-      cbv_srv_uav_count += get_temporal_lifetime(handle.temporal_lifetime) + 1;
-    }
-
-    if (type_mask & kDescriptorTypeUav)
-    {
-      descriptor_count  += get_temporal_lifetime(handle.temporal_lifetime) + 1;
-      cbv_srv_uav_count += get_temporal_lifetime(handle.temporal_lifetime) + 1;
-    }
-
-    if (type_mask & kDescriptorTypeRtv)
-    {
-      descriptor_count  += get_temporal_lifetime(handle.temporal_lifetime) + 1;
-      rtv_count         += get_temporal_lifetime(handle.temporal_lifetime) + 1;
-    }
-
-    if (type_mask & kDescriptorTypeDsv)
-    {
-      descriptor_count  += get_temporal_lifetime(handle.temporal_lifetime) + 1;
-      dsv_count         += get_temporal_lifetime(handle.temporal_lifetime) + 1;
-    }
-  }
-
-  HashTable<RgDescriptorKey, Descriptor> descriptor_map = init_hash_table<RgDescriptorKey, Descriptor>(heap, descriptor_count);
-
-  RgDescriptorHeap descriptor_heap = {0};
-  descriptor_heap.cbv_srv_uav      = init_descriptor_linear_allocator(device, MAX(cbv_srv_uav_count, 128), kDescriptorHeapTypeCbvSrvUav);
-  descriptor_heap.rtv              = init_descriptor_linear_allocator(device, MAX(rtv_count, 128),         kDescriptorHeapTypeRtv);
-  descriptor_heap.dsv              = init_descriptor_linear_allocator(device, MAX(dsv_count, 128),         kDescriptorHeapTypeDsv);
-
-  for (const ResourceHandle handle : builder.resource_list)
-  {
-    auto maybe_type_mask = hash_table_find(&descriptor_types, handle.id);
-    if (!maybe_type_mask)
-      continue;
-
-    DescriptorType type_mask = *unwrap(hash_table_find(&descriptor_types, handle.id));
-
-    RgDescriptorKey key          = {0};
-    key.id                       = handle.id;
-    key.temporal_frame           = 0;
-
-    RgResourceKey   resource_key = {0};
-    resource_key.id              = handle.id;
-
-    for (u32 iframe = 0; iframe <= get_temporal_lifetime(handle.temporal_lifetime); iframe++)
-    {
-      resource_key.temporal_frame = (u8)iframe;
-      key.temporal_frame          = (u8)iframe;
-
-      if (type_mask & kDescriptorTypeCbv)
-      {
-        ASSERT(handle.type == kResourceTypeBuffer);
-        const GpuBuffer* buffer = unwrap(hash_table_find(&resource_map.buffers, resource_key));
-        key.type                = kDescriptorTypeCbv;
-  
-        Descriptor* dst         = hash_table_insert(&descriptor_map, key);
-  
-        *dst                    = alloc_descriptor(&descriptor_heap.cbv_srv_uav);
-        init_buffer_cbv(device, dst, buffer, 0, buffer->desc.size);
-      }
-  
-      if (type_mask & kDescriptorTypeSrv)
-      {
-        key.type        = kDescriptorTypeSrv;
-        Descriptor* dst = hash_table_insert(&descriptor_map, key);
-        *dst            = alloc_descriptor(&descriptor_heap.cbv_srv_uav);
-  
-        if (handle.type == kResourceTypeBuffer)
-        {
-          const GpuBuffer* buffer     = unwrap(hash_table_find(&resource_map.buffers, resource_key));
-          TransientResourceDesc* desc = unwrap(hash_table_find(&builder.resource_descs, handle.id));
-          init_buffer_srv(
-            device,
-            dst,
-            buffer,
-            0,
-            (u32)(desc->buffer_desc.size / desc->buffer_desc.stride),
-            desc->buffer_desc.stride
-          );
-        }
-        else if (handle.type == kResourceTypeTexture)
-        {
-          // You can't use the back buffer as an SRV
-          ASSERT(handle.id != builder.back_buffer.id);
-  
-          const GpuTexture* texture = unwrap(hash_table_find(&resource_map.textures, resource_key));
-          init_texture_srv(device, dst, texture);
-        } else { UNREACHABLE; }
-      }
-  
-      if (type_mask & kDescriptorTypeUav)
-      {
-        key.type        = kDescriptorTypeUav;
-        Descriptor* dst = hash_table_insert(&descriptor_map, key);
-        *dst            = alloc_descriptor(&descriptor_heap.cbv_srv_uav);
-  
-        if (handle.type == kResourceTypeBuffer)
-        {
-          const GpuBuffer*       buffer = unwrap(hash_table_find(&resource_map.buffers, resource_key));
-          TransientResourceDesc* desc   = unwrap(hash_table_find(&builder.resource_descs, handle.id));
-          init_buffer_uav(
-            device,
-            dst,
-            buffer,
-            0,
-            (u32)(desc->buffer_desc.size / desc->buffer_desc.stride),
-            desc->buffer_desc.stride
-          );
-        }
-        else if (handle.type == kResourceTypeTexture)
-        {
-          // You can't use the back buffer as a UAV
-          ASSERT(handle.id != builder.back_buffer.id);
-  
-          const GpuTexture* texture = unwrap(hash_table_find(&resource_map.textures, resource_key));
-          init_texture_uav(device, dst, texture);
-        } else { UNREACHABLE; }
-      }
-  
-      if (type_mask & kDescriptorHeapTypeRtv)
-      {
-        ASSERT(handle.type == kResourceTypeTexture);
-  
-        key.type                = kDescriptorTypeRtv;
-        Descriptor*     dst     = hash_table_insert(&descriptor_map, key);
-        *dst                    = alloc_descriptor(&descriptor_heap.rtv);
-        if (handle.id != builder.back_buffer.id)
-        {
-          const GpuTexture* texture = unwrap(hash_table_find(&resource_map.textures, resource_key));
-  
-          init_rtv(device, dst, texture);
-        }
-      }
-  
-      if (type_mask & kDescriptorHeapTypeDsv)
-      {
-        ASSERT(handle.type == kResourceTypeTexture);
-  
-        key.type                = kDescriptorTypeDsv;
-        Descriptor*     dst     = hash_table_insert(&descriptor_map, key);
-        *dst                    = alloc_descriptor(&descriptor_heap.dsv);
-        if (handle.id != builder.back_buffer.id)
-        {
-          const GpuTexture* texture = unwrap(hash_table_find(&resource_map.textures, resource_key));
-          init_dsv(device, dst, texture);
-        }
-      }
-    }
-  }
-
-  PhysicalDescriptorMap ret = {0};
-  ret.descriptor_map        = descriptor_map;
-  ret.descriptor_heap       = descriptor_heap;
-  
-
-  return ret;
 }
 
 static D3D12_RESOURCE_STATES
@@ -853,7 +714,7 @@ init_dependency_barriers(
     for (RenderPassId pass_id : level->render_passes)
     {
       const RgPassBuilder& pass = builder.render_passes[pass_id];
-      for (RgPassBuilder::ResourceAccessData data : pass.read_resources)
+      for (const RgPassBuilder::ResourceAccessData& data : pass.read_resources)
       {
         RgTemporalResourceKey key = {0};
         key.id                    = data.handle.id;
@@ -870,7 +731,7 @@ init_dependency_barriers(
         states->touched  = true;
       }
 
-      for (RgPassBuilder::ResourceAccessData data : pass.write_resources)
+      for (const RgPassBuilder::ResourceAccessData& data : pass.write_resources)
       {
         RgTemporalResourceKey key = {0};
         key.id                    = data.handle.id;
@@ -946,26 +807,33 @@ init_dependency_barriers(
 }
 
 void
-compile_render_graph(AllocHeap heap, const RgBuilder& builder, const GpuDevice* device, RenderGraph* out, RenderGraphDestroyFlags flags)
+compile_render_graph(AllocHeap heap, const RgBuilder& builder, RenderGraphDestroyFlags flags)
 {
   // You must write to the back buffer exactly once, never more.
+  ASSERT(builder.back_buffer.id      == kRgBackBufferId);
   ASSERT(builder.back_buffer.version == 1);
+
+  if (g_RenderGraph == nullptr)
+  {
+    g_RenderGraph = HEAP_ALLOC(RenderGraph, g_InitHeap, 1);
+  }
+
+  zero_memory(g_RenderGraph, sizeof(RenderGraph));
 
   if (flags & kRgDestroyCmdListAllocators)
   {
-    out->cmd_allocator     = init_cmd_list_allocator(heap, device, &device->graphics_queue, 4);
+    g_RenderGraph->cmd_allocator     = init_cmd_list_allocator(heap, g_GpuDevice, &g_GpuDevice->graphics_queue, 4);
   }
 
-  out->render_passes     = init_array<RenderPass>(heap, builder.render_passes.size);
-  out->dependency_levels = init_dependency_levels(heap, builder);
-  out->back_buffer       = builder.back_buffer;
-  out->frame_id          = 0;
-  out->width             = builder.width;
-  out->height            = builder.height;
+  g_RenderGraph->render_passes     = init_array<RenderPass>(heap, builder.render_passes.size);
+  g_RenderGraph->dependency_levels = init_dependency_levels(heap, builder);
+  g_RenderGraph->back_buffer       = builder.back_buffer;
+  g_RenderGraph->width             = builder.width;
+  g_RenderGraph->height            = builder.height;
 
   for (const RgPassBuilder& pass_builder : builder.render_passes)
   {
-    RenderPass* dst     = array_add(&out->render_passes);
+    RenderPass* dst     = array_add(&g_RenderGraph->render_passes);
     dst->handler        = pass_builder.handler;
     dst->data           = pass_builder.data;
     dst->name           = pass_builder.name;
@@ -973,17 +841,17 @@ compile_render_graph(AllocHeap heap, const RgBuilder& builder, const GpuDevice* 
 
   if (flags & kRgDestroyResourceHeaps)
   {
-    out->local_heap        = init_gpu_linear_allocator(device, MiB(700), kGpuHeapTypeLocal);
+    g_RenderGraph->local_heap        = init_gpu_linear_allocator(g_GpuDevice, MiB(700), kGpuHeapTypeLocal);
     for (u32 i = 0; i < kBackBufferCount; i++)
     {
-      out->upload_heaps[i] = init_gpu_linear_allocator(device, MiB(4), kGpuHeapTypeUpload);
+      g_RenderGraph->upload_heaps[i] = init_gpu_linear_allocator(g_GpuDevice, MiB(4), kGpuHeapTypeUpload);
     }
 
-    out->temporal_heaps = init_array<GpuLinearAllocator>(heap, kMaxTemporalLifetime);
+    g_RenderGraph->temporal_heaps = init_array<GpuLinearAllocator>(heap, kMaxTemporalLifetime);
     for (u8 i = 0; i < kMaxTemporalLifetime; i++)
     {
-      GpuLinearAllocator* dst = array_add(&out->temporal_heaps);
-      *dst                    = init_gpu_linear_allocator(device, MiB(128), kGpuHeapTypeLocal);
+      GpuLinearAllocator* dst = array_add(&g_RenderGraph->temporal_heaps);
+      *dst                    = init_gpu_linear_allocator(g_GpuDevice, MiB(128), kGpuHeapTypeLocal);
     }
   }
 
@@ -1001,46 +869,55 @@ compile_render_graph(AllocHeap heap, const RgBuilder& builder, const GpuDevice* 
 
   if (flags & kRgFreePhysicalResources)
   {
+    RgDescriptorHeap descriptor_heap = {0};
+    descriptor_heap.cbv_srv_uav      = init_descriptor_linear_allocator(g_GpuDevice, 2048, kDescriptorHeapTypeCbvSrvUav);
+    descriptor_heap.rtv              = init_descriptor_linear_allocator(g_GpuDevice, 128,  kDescriptorHeapTypeRtv);
+    descriptor_heap.dsv              = init_descriptor_linear_allocator(g_GpuDevice, 128,  kDescriptorHeapTypeDsv);
+
+    // We will preallocate the backbuffer descriptors and then initialize them at a later point.
+    g_RenderGraph->back_buffer_rtv = alloc_descriptor(&descriptor_heap.rtv);
+    g_RenderGraph->back_buffer_dsv = alloc_descriptor(&descriptor_heap.dsv);
+
     PhysicalResourceMap physical_resource_map = init_physical_resources(
       heap,
       builder,
-      device,
-      &out->local_heap,
-      out->upload_heaps,
-      out->temporal_heaps.memory,
+      g_GpuDevice,
+      &g_RenderGraph->local_heap,
+      g_RenderGraph->upload_heaps,
+      g_RenderGraph->temporal_heaps.memory,
       buffer_count,
       texture_count
     );
 
-    init_dependency_barriers(heap, builder, out->dependency_levels, &out->exit_barriers);
+    init_dependency_barriers(heap, builder, g_RenderGraph->dependency_levels, &g_RenderGraph->exit_barriers);
 
-    PhysicalDescriptorMap physical_descriptor_map = init_physical_descriptors(
+    init_physical_descriptors(
       heap,
+      &descriptor_heap,
       builder,
-      device,
-      physical_resource_map
+      physical_resource_map,
+      g_RenderGraph->render_passes.memory
     );
 
-    out->descriptor_heap = physical_descriptor_map.descriptor_heap;
-    out->descriptor_map  = physical_descriptor_map.descriptor_map;
-    out->buffer_map      = physical_resource_map.buffers;
-    out->texture_map     = physical_resource_map.textures;
+    g_RenderGraph->descriptor_heap = descriptor_heap;
+    g_RenderGraph->buffer_map      = physical_resource_map.buffers;
+    g_RenderGraph->texture_map     = physical_resource_map.textures;
   }
 }
 
 void
-destroy_render_graph(RenderGraph* graph, RenderGraphDestroyFlags flags)
+destroy_render_graph(RenderGraphDestroyFlags flags)
 {
   if (flags & kRgFreePhysicalResources)
   {
-    for (auto [_, buffer] : graph->buffer_map)
+    for (auto [_, buffer] : g_RenderGraph->buffer_map)
     {
       free_gpu_buffer(&buffer);
     }
 
-    for (auto [key, texture] : graph->texture_map)
+    for (auto [key, texture] : g_RenderGraph->texture_map)
     {
-      if (key.id == graph->back_buffer.id)
+      if (key.id == g_RenderGraph->back_buffer.id)
       {
         continue;
       }
@@ -1050,48 +927,48 @@ destroy_render_graph(RenderGraph* graph, RenderGraphDestroyFlags flags)
 
   if (flags & kRgDestroyResourceHeaps)
   {
-    destroy_gpu_linear_allocator(&graph->local_heap);
-    for (GpuLinearAllocator& upload_heap : graph->upload_heaps)
+    destroy_gpu_linear_allocator(&g_RenderGraph->local_heap);
+    for (GpuLinearAllocator& upload_heap : g_RenderGraph->upload_heaps)
     {
       destroy_gpu_linear_allocator(&upload_heap);
     }
 
-    for (GpuLinearAllocator& temporal_heap : graph->temporal_heaps)
+    for (GpuLinearAllocator& temporal_heap : g_RenderGraph->temporal_heaps)
     {
       destroy_gpu_linear_allocator(&temporal_heap);
     }
   }
   else
   {
-    reset_gpu_linear_allocator(&graph->local_heap);
-    for (GpuLinearAllocator& upload_heap : graph->upload_heaps)
+    reset_gpu_linear_allocator(&g_RenderGraph->local_heap);
+    for (GpuLinearAllocator& upload_heap : g_RenderGraph->upload_heaps)
     {
       reset_gpu_linear_allocator(&upload_heap);
     }
 
-    for (GpuLinearAllocator& temporal_heap : graph->temporal_heaps)
+    for (GpuLinearAllocator& temporal_heap : g_RenderGraph->temporal_heaps)
     {
       reset_gpu_linear_allocator(&temporal_heap);
     }
   }
 
-  destroy_descriptor_linear_allocator(&graph->descriptor_heap.cbv_srv_uav);
-  destroy_descriptor_linear_allocator(&graph->descriptor_heap.rtv);
-  destroy_descriptor_linear_allocator(&graph->descriptor_heap.dsv);
+  destroy_descriptor_linear_allocator(&g_RenderGraph->descriptor_heap.cbv_srv_uav);
+  destroy_descriptor_linear_allocator(&g_RenderGraph->descriptor_heap.rtv);
+  destroy_descriptor_linear_allocator(&g_RenderGraph->descriptor_heap.dsv);
 
   if (flags & kRgDestroyCmdListAllocators)
   {
-    destroy_cmd_list_allocator(&graph->cmd_allocator);
+    destroy_cmd_list_allocator(&g_RenderGraph->cmd_allocator);
   }
 
   if (flags == kRgDestroyAll)
   {
-    zero_memory(graph, sizeof(RenderGraph));
+    zero_memory(g_RenderGraph, sizeof(RenderGraph));
   }
 }
 
-static u8
-get_temporal_frame(u32 frame_id, u32 temporal_lifetime, s8 offset)
+u8
+rg_get_temporal_frame(u32 frame_id, u32 temporal_lifetime, s8 offset)
 {
   if (temporal_lifetime == kInfiniteLifetime)
   {
@@ -1126,7 +1003,7 @@ get_d3d12_resource_barrier(const RenderGraph* graph, const RgResourceBarrier& ba
     {
       RgResourceKey key  = {0};
       key.id             = barrier.transition.resource_id;
-      key.temporal_frame = get_temporal_frame(graph->frame_id, barrier.transition.resource_temporal_lifetime, barrier.transition.resource_temporal_frame);
+      key.temporal_frame = rg_get_temporal_frame(g_FrameId, barrier.transition.resource_temporal_lifetime, barrier.transition.resource_temporal_frame);
 
       ID3D12Resource* d3d12_resource = nullptr;
       if (barrier.transition.resource_type == kResourceTypeTexture)
@@ -1171,54 +1048,28 @@ get_d3d12_resource_barrier(const RenderGraph* graph, const RgResourceBarrier& ba
   }
 }
 
-static void
-lazy_init_back_buffer_descriptors(
-  RenderGraph* graph,
-  const GpuDevice* device,
-  RgHandle<GpuTexture> handle,
-  const GpuTexture* texture,
-  DescriptorType type
-) {
-  RgDescriptorKey key = {0};
-  key.id   = handle.id;
-  key.type = type;
-
-  Descriptor* dst = unwrap_or(hash_table_find(&graph->descriptor_map, key), nullptr);
-  if (dst == nullptr)
-    return;
-
-  switch (type)
-  {
-    case kDescriptorTypeRtv: init_rtv(device, dst, texture); break;
-    case kDescriptorTypeDsv: init_dsv(device, dst, texture); break;
-    default: UNREACHABLE;
-  }
-}
-
 void 
-execute_render_graph(RenderGraph* graph, const GpuDevice* device, const GpuTexture* back_buffer)
+execute_render_graph(const GpuTexture* back_buffer)
 {
   // NOTE(Brandon): This is honestly kinda dangerous, since we're just straight up copying the back buffer struct instead
   // of the pointer to the GpuImage which is what I really want... maybe there's a nicer way of doing this?
-  *hash_table_insert(&graph->texture_map, {graph->back_buffer.id, 0}) = *back_buffer;
+  *hash_table_insert(&g_RenderGraph->texture_map, {g_RenderGraph->back_buffer.id, 0}) = *back_buffer;
 
   // Initialize all of the back buffer descriptors
-  lazy_init_back_buffer_descriptors(graph, device, graph->back_buffer, back_buffer, kDescriptorTypeRtv);
-  lazy_init_back_buffer_descriptors(graph, device, graph->back_buffer, back_buffer, kDescriptorTypeDsv);
+  init_rtv(&g_RenderGraph->back_buffer_rtv, back_buffer);
+  // init_dsv(&g_RenderGraph->back_buffer_dsv, back_buffer);
 
-  CmdList       cmd_buffer = alloc_cmd_list(&graph->cmd_allocator);
+  CmdList       cmd_buffer = alloc_cmd_list(&g_RenderGraph->cmd_allocator);
   RenderContext ctx        = {0};
-  ctx.m_Graph              = graph;
-  ctx.m_Device             = device;
   ctx.m_CmdBuffer          = cmd_buffer;
-  ctx.m_Width              = graph->width;
-  ctx.m_Height             = graph->height;
+  ctx.m_Width              = g_RenderGraph->width;
+  ctx.m_Height             = g_RenderGraph->height;
 
   // Main render loop
-  for (u32 ilevel = 0; ilevel < graph->dependency_levels.size; ilevel++)
+  for (u32 ilevel = 0; ilevel < g_RenderGraph->dependency_levels.size; ilevel++)
   {
     RG_DBGLN("Level %u", ilevel);
-    const RgDependencyLevel& level = graph->dependency_levels[ilevel];
+    const RgDependencyLevel& level = g_RenderGraph->dependency_levels[ilevel];
     if (level.barriers.size > 0)
     {
       ScratchAllocator scratch_arena = alloc_scratch_arena();
@@ -1229,45 +1080,54 @@ execute_render_graph(RenderGraph* graph, const GpuDevice* device, const GpuTextu
       for (const RgResourceBarrier& barrier : level.barriers)
       {
         CD3DX12_RESOURCE_BARRIER* dst = array_add(&d3d12_barriers);
-        get_d3d12_resource_barrier(graph, barrier, dst);
+        get_d3d12_resource_barrier(g_RenderGraph, barrier, dst);
       }
 
+
+#if defined(RENDER_GRAPH_VERBOSE)
+      for (auto& barrier : d3d12_barriers)
+      {
+        cmd_buffer.d3d12_list->ResourceBarrier(1, &barrier);
+      }
+#else
       cmd_buffer.d3d12_list->ResourceBarrier((u32)d3d12_barriers.size, d3d12_barriers.memory);
+#endif
     }
 
     for (RenderPassId pass_id : level.render_passes)
     {
-      RG_DBGLN("%s", graph->render_passes[pass_id].name);
+      RG_DBGLN("%s", g_RenderGraph->render_passes[pass_id].name);
       set_graphics_root_signature(&cmd_buffer);
       set_compute_root_signature(&cmd_buffer);
-      set_descriptor_heaps(&cmd_buffer, {&graph->descriptor_heap.cbv_srv_uav});
+      set_descriptor_heaps(&cmd_buffer, {&g_RenderGraph->descriptor_heap.cbv_srv_uav});
 
-      const RenderPass& pass = graph->render_passes[pass_id];
+      g_HandlerId = pass_id;
+      const RenderPass& pass = g_RenderGraph->render_passes[pass_id];
       (*pass.handler)(&ctx, pass.data);
 
-      set_descriptor_heaps(&cmd_buffer, {&graph->descriptor_heap.cbv_srv_uav});
+      set_descriptor_heaps(&cmd_buffer, {&g_RenderGraph->descriptor_heap.cbv_srv_uav});
     }
   }
 
   // Execute all of the exit barriers
-  if (graph->exit_barriers.size > 0)
+  if (g_RenderGraph->exit_barriers.size > 0)
   {
     ScratchAllocator scratch_arena = alloc_scratch_arena();
     defer { free_scratch_arena(&scratch_arena); };
 
-    Array d3d12_barriers = init_array<CD3DX12_RESOURCE_BARRIER>(scratch_arena, graph->exit_barriers.size);
+    Array d3d12_barriers = init_array<CD3DX12_RESOURCE_BARRIER>(scratch_arena, g_RenderGraph->exit_barriers.size);
 
-    for (const RgResourceBarrier& barrier : graph->exit_barriers)
+    for (const RgResourceBarrier& barrier : g_RenderGraph->exit_barriers)
     {
       CD3DX12_RESOURCE_BARRIER* dst = array_add(&d3d12_barriers);
-      get_d3d12_resource_barrier(graph, barrier, dst);
+      get_d3d12_resource_barrier(g_RenderGraph, barrier, dst);
     }
 
     cmd_buffer.d3d12_list->ResourceBarrier((u32)d3d12_barriers.size, d3d12_barriers.memory);
   }
 
-  submit_cmd_lists(&graph->cmd_allocator, {cmd_buffer});
-  graph->frame_id++;
+  submit_cmd_lists(&g_RenderGraph->cmd_allocator, {cmd_buffer});
+  g_FrameId++;;
 }
 
 RgPassBuilder*
@@ -1278,8 +1138,6 @@ add_render_pass(
   const char* name,
   void* data,
   RenderHandler* handler,
-  u32 num_read_resources,
-  u32 num_write_resources,
   bool is_frame_init
 ) {
   RgPassBuilder* ret   = array_add(&graph->render_passes);
@@ -1289,9 +1147,10 @@ add_render_pass(
   ret->name            = name;
   ret->handler         = handler;
   ret->data            = data;
+  ret->graph           = graph;
 
-  ret->read_resources  = init_array<RgPassBuilder::ResourceAccessData>(heap, num_read_resources);
-  ret->write_resources = init_array<RgPassBuilder::ResourceAccessData>(heap, num_write_resources);
+  ret->read_resources  = init_array<RgPassBuilder::ResourceAccessData>(heap, 32);
+  ret->write_resources = init_array<RgPassBuilder::ResourceAccessData>(heap, 32);
 
   if (is_frame_init)
   {
@@ -1308,7 +1167,7 @@ rg_create_texture(
   const char* name,
   u32 width,
   u32 height,
-  DXGI_FORMAT format
+  GpuFormat format
 ) {
   return rg_create_texture_ex(builder, name, width, height, format, 0);
 }
@@ -1319,7 +1178,7 @@ rg_create_texture_ex(
   const char* name,
   u32 width,
   u32 height,
-  DXGI_FORMAT format,
+  GpuFormat format,
   u8 temporal_lifetime
 ) {
   return rg_create_texture_array_ex(builder, name, width, height, 1, format, temporal_lifetime);
@@ -1331,8 +1190,8 @@ rg_create_texture_array(
   const char* name,
   u32 width,
   u32 height,
-  u32 array_size,
-  DXGI_FORMAT format
+  u16 array_size,
+  GpuFormat format
 ) {
   return rg_create_texture_array_ex(builder, name, width, height, array_size, format, 0);
 }
@@ -1343,8 +1202,8 @@ rg_create_texture_array_ex(
   const char* name,
   u32 width,
   u32 height,
-  u32 array_size,
-  DXGI_FORMAT format,
+  u16 array_size,
+  GpuFormat format,
   u8 temporal_lifetime
 ) {
   ASSERT(temporal_lifetime == kInfiniteLifetime || temporal_lifetime <= kMaxTemporalLifetime);
@@ -1447,139 +1306,315 @@ rg_create_buffer_ex(
   return ret;
 }
 
-
-RgReadHandle<GpuTexture>
-rg_read_texture(RgPassBuilder* builder, RgHandle<GpuTexture> texture, ReadTextureAccessMask access, s8 temporal_frame)
+RgOpaqueDescriptor
+rg_read_texture(RgPassBuilder* builder, RgHandle<GpuTexture> texture, const GpuTextureSrvDesc& desc, s8 temporal_frame)
 {
-  ASSERT(temporal_frame <= 0);
-  ASSERT(-temporal_frame <= texture.temporal_lifetime);
-  ASSERT(!array_find(&builder->read_resources,  it->handle.id == texture.id && it->temporal_frame == temporal_frame));
-  ASSERT(!array_find(&builder->write_resources, it->handle.id == texture.id));
-
+  ASSERT(!array_find(&builder->write_resources, it->handle.id == texture.id && it->temporal_frame == temporal_frame));
+  ASSERT(texture.id != kRgBackBufferId);
   RgPassBuilder::ResourceAccessData* data = array_add(&builder->read_resources);
-  data->handle         = texture;
-  data->access         = (u32)access;
-  data->temporal_frame = temporal_frame;
-  data->is_write       = false;
+  data->handle          = texture;
+  data->access          = (u32)kReadTextureSrv;
+  data->temporal_frame  = temporal_frame;
+  data->is_write        = false;
+  data->descriptor_type = kDescriptorTypeSrv;
+  data->descriptor_idx  = builder->descriptor_idx;
 
-  return {texture.id, texture.temporal_lifetime, data->temporal_frame};
+  data->texture_srv     = desc;
+
+  RgOpaqueDescriptor ret   = {0};
+  ret.pass_id              = builder->pass_id;
+  ret.descriptor_idx       = builder->descriptor_idx;
+  ret.resource_id          = texture.id;
+  ret.temporal_frame       = temporal_frame;
+  ret.temporal_lifetime    = texture.temporal_lifetime;
+
+  builder->descriptor_idx += texture.temporal_lifetime + 1;
+
+  return ret;
 }
 
-RgWriteHandle<GpuTexture>
-rg_write_texture(RgPassBuilder* builder, RgHandle<GpuTexture>* texture, WriteTextureAccess access)
+RgOpaqueDescriptor
+rg_write_texture(RgPassBuilder* builder, RgHandle<GpuTexture>* texture, const GpuTextureUavDesc& desc)
+{
+  ASSERT(!array_find(&builder->read_resources,  it->handle.id == texture->id && it->temporal_frame == 0));
+  ASSERT(!array_find(&builder->write_resources, it->handle.id == texture->id));
+  ASSERT(texture->id != kRgBackBufferId);
+
+  defer { texture->version++; };
+
+  RgPassBuilder::ResourceAccessData* data = array_add(&builder->write_resources);
+  data->handle          = *texture;
+  data->access          = (u32)kWriteTextureUav;
+  data->temporal_frame  = 0;
+  data->is_write        = true;
+  data->descriptor_type = kDescriptorTypeUav;
+  data->descriptor_idx  = builder->descriptor_idx;
+
+  data->texture_uav     = desc;
+
+  RgOpaqueDescriptor ret   = {0};
+  ret.pass_id              = builder->pass_id;
+  ret.descriptor_idx       = builder->descriptor_idx;
+  ret.resource_id          = texture->id;
+  ret.temporal_frame       = 0;
+  ret.temporal_lifetime    = texture->temporal_lifetime;
+
+  builder->descriptor_idx += texture->temporal_lifetime + 1;
+
+  return ret;
+}
+
+RgOpaqueDescriptor
+rg_write_rtv(RgPassBuilder* builder, RgHandle<GpuTexture>* texture)
 {
   ASSERT(!array_find(&builder->read_resources,  it->handle.id == texture->id && it->temporal_frame == 0));
   ASSERT(!array_find(&builder->write_resources, it->handle.id == texture->id));
 
+  defer
+  {
+    texture->version++;
+  };
+
   RgPassBuilder::ResourceAccessData* data = array_add(&builder->write_resources);
-  data->handle         = *texture;
-  data->access         = (u32)access;
-  data->temporal_frame = 0;
-  data->is_write       = true;
+  data->handle          = *texture;
+  data->access          = (u32)kWriteTextureColorTarget;
+  data->temporal_frame  = 0;
+  data->is_write        = true;
+  data->descriptor_type = kDescriptorTypeRtv;
+  data->descriptor_idx  = builder->descriptor_idx;
 
-  texture->version++;
+  if (texture->id == kRgBackBufferId)
+  {
+    data->descriptor_idx     = U32_MAX;
 
-  return {texture->id, (u16)texture->temporal_lifetime, data->temporal_frame};
+    RgOpaqueDescriptor ret   = {0};
+    ret.pass_id              = U32_MAX;
+    ret.descriptor_idx       = U32_MAX;
+    ret.resource_id          = texture->id;
+    ret.temporal_frame       = 0;
+    ret.temporal_lifetime    = kInfiniteLifetime;
+
+    return ret;
+  }
+
+  RgOpaqueDescriptor ret   = {0};
+  ret.pass_id              = builder->pass_id;
+  ret.descriptor_idx       = builder->descriptor_idx;
+  ret.resource_id          = texture->id;
+  ret.temporal_frame       = 0;
+  ret.temporal_lifetime    = texture->temporal_lifetime;
+
+  builder->descriptor_idx += texture->temporal_lifetime + 1;
+
+  return ret;
 }
 
-RgReadHandle<GpuBuffer>
-rg_read_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer> buffer, ReadBufferAccessMask access)
+RgOpaqueDescriptor
+rg_write_dsv(RgPassBuilder* builder, RgHandle<GpuTexture>* texture)
 {
-  ASSERT(!array_find(&builder->read_resources,  it->handle.id == buffer.id));
-  ASSERT(!array_find(&builder->write_resources, it->handle.id == buffer.id));
+  ASSERT(!array_find(&builder->read_resources,  it->handle.id == texture->id && it->temporal_frame == 0));
+  ASSERT(!array_find(&builder->write_resources, it->handle.id == texture->id));
 
+  defer
+  {
+    texture->version++;
+  };
+
+  RgPassBuilder::ResourceAccessData* data = array_add(&builder->write_resources);
+  data->handle          = *texture;
+  data->access          = (u32)kWriteTextureDepthStencil;
+  data->temporal_frame  = 0;
+  data->is_write        = true;
+  data->descriptor_type = kDescriptorTypeDsv;
+  data->descriptor_idx  = builder->descriptor_idx;
+
+  if (texture->id == kRgBackBufferId)
+  {
+    data->descriptor_idx     = U32_MAX;
+
+    RgOpaqueDescriptor ret   = {0};
+    ret.pass_id              = U32_MAX;
+    ret.descriptor_idx       = U32_MAX;
+    ret.resource_id          = texture->id;
+    ret.temporal_frame       = 0;
+    ret.temporal_lifetime    = kInfiniteLifetime;
+
+    return ret;
+  }
+
+  RgOpaqueDescriptor ret   = {0};
+  ret.pass_id              = builder->pass_id;
+  ret.descriptor_idx       = builder->descriptor_idx;
+  ret.resource_id          = texture->id;
+  ret.temporal_frame       = 0;
+  ret.temporal_lifetime    = texture->temporal_lifetime;
+
+  builder->descriptor_idx += texture->temporal_lifetime + 1;
+
+  return ret;
+}
+
+RgOpaqueDescriptor
+rg_read_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer> buffer, const GpuBufferCbvDesc& desc, s8 temporal_frame)
+{
+  ASSERT(!array_find(&builder->write_resources, it->handle.id == buffer.id && it->temporal_frame == temporal_frame));
   RgPassBuilder::ResourceAccessData* data = array_add(&builder->read_resources);
-  data->handle         = buffer;
-  data->access         = (u32)access;
-  data->temporal_frame = 0;
-  data->is_write       = false;
+  data->handle          = buffer;
+  data->access          = (u32)kReadBufferCbv;
+  data->temporal_frame  = temporal_frame;
+  data->is_write        = false;
+  data->descriptor_type = kDescriptorTypeCbv;
+  data->descriptor_idx  = builder->descriptor_idx;
 
-  return {buffer.id, (u16)buffer.temporal_lifetime, data->temporal_frame};
+  data->buffer_cbv      = desc;
+
+  RgOpaqueDescriptor ret   = {0};
+  ret.pass_id              = builder->pass_id;
+  ret.descriptor_idx       = builder->descriptor_idx;
+  ret.resource_id          = buffer.id;
+  ret.temporal_frame       = temporal_frame;
+  ret.temporal_lifetime    = buffer.temporal_lifetime;
+
+  builder->descriptor_idx += buffer.temporal_lifetime + 1;
+
+  return ret;
 }
 
-RgWriteHandle<GpuBuffer>
-rg_write_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer>* buffer, WriteBufferAccess access)
+RgOpaqueDescriptor
+rg_read_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer> buffer, const GpuBufferSrvDesc& desc, s8 temporal_frame)
 {
-  ASSERT(!array_find(&builder->read_resources,  it->handle.id == buffer->id));
-  ASSERT(!array_find(&builder->write_resources, it->handle.id == buffer->id));
+  ASSERT(!array_find(&builder->write_resources, it->handle.id == buffer.id && it->temporal_frame == temporal_frame));
+  RgPassBuilder::ResourceAccessData* data = array_add(&builder->read_resources);
+  data->handle          = buffer;
+  data->access          = (u32)kReadBufferSrv;
+  data->temporal_frame  = temporal_frame;
+  data->is_write        = false;
+  data->descriptor_type = kDescriptorTypeSrv;
+  data->descriptor_idx  = builder->descriptor_idx;
+
+  data->buffer_srv      = desc;
+
+  RgOpaqueDescriptor ret   = {0};
+  ret.pass_id              = builder->pass_id;
+  ret.descriptor_idx       = builder->descriptor_idx;
+  ret.resource_id          = buffer.id;
+  ret.temporal_frame       = temporal_frame;
+  ret.temporal_lifetime    = buffer.temporal_lifetime;
+
+  builder->descriptor_idx += buffer.temporal_lifetime + 1;
+
+  return ret;
+}
+
+RgOpaqueDescriptor
+rg_write_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer>* buffer, const GpuBufferUavDesc& desc)
+{
+  ASSERT(!array_find(&builder->write_resources, it->handle.id == buffer->id && it->temporal_frame == 0));
+
+  defer { buffer->version++; };
 
   RgPassBuilder::ResourceAccessData* data = array_add(&builder->write_resources);
-  data->handle         = *buffer;
-  data->access         = (u32)access;
-  data->temporal_frame = 0;
-  data->is_write       = true;
+  data->handle          = *buffer;
+  data->access          = (u32)kWriteBufferUav;
+  data->temporal_frame  = 0;
+  data->is_write        = true;
+  data->descriptor_type = kDescriptorTypeUav;
+  data->descriptor_idx  = builder->descriptor_idx;
 
-  buffer->version++;
+  data->buffer_uav      = desc;
 
-  return {buffer->id, (u16)buffer->temporal_lifetime, data->temporal_frame};
+  RgOpaqueDescriptor ret   = {0};
+  ret.pass_id              = builder->pass_id;
+  ret.descriptor_idx       = builder->descriptor_idx;
+  ret.resource_id          = buffer->id;
+  ret.temporal_frame       = 0;
+  ret.temporal_lifetime    = buffer->temporal_lifetime;
+
+  builder->descriptor_idx += buffer->temporal_lifetime + 1;
+
+  return ret;
 }
 
-static const GpuTexture*
-deref_resource(const RenderGraph* graph, RgWriteHandle<GpuTexture> handle)
+
+RgOpaqueDescriptor
+rg_read_index_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer> buffer)
+{
+  ASSERT(!array_find(&builder->write_resources, it->handle.id == buffer.id));
+  RgPassBuilder::ResourceAccessData* data = array_add(&builder->read_resources);
+  data->handle          = buffer;
+  data->access          = (u32)kReadBufferIndex;
+  data->temporal_frame  = 0;
+  data->is_write        = false;
+  data->descriptor_type = kDescriptorTypeNull;
+  data->descriptor_idx  = builder->descriptor_idx;
+
+  RgOpaqueDescriptor ret   = {0};
+  ret.pass_id              = builder->pass_id;
+  ret.resource_id          = buffer.id;
+
+  return ret;
+}
+
+RgOpaqueDescriptor
+rg_read_vertex_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer> buffer)
+{
+  ASSERT(!array_find(&builder->write_resources, it->handle.id == buffer.id));
+  RgPassBuilder::ResourceAccessData* data = array_add(&builder->read_resources);
+  data->handle          = buffer;
+  data->access          = (u32)kReadBufferVertex;
+  data->temporal_frame  = 0;
+  data->is_write        = false;
+  data->descriptor_type = kDescriptorTypeNull;
+  data->descriptor_idx  = builder->descriptor_idx;
+
+  RgOpaqueDescriptor ret   = {0};
+  ret.pass_id              = builder->pass_id;
+  ret.resource_id          = buffer.id;
+
+  return ret;
+}
+
+template <>
+const GpuBuffer*
+rg_deref_buffer<RgIndexBuffer>(RgIndexBuffer rg_descriptor)
 {
   RgResourceKey key  = {0};
-  key.id             = handle.id;
-  key.temporal_frame = get_temporal_frame(graph->frame_id, handle.temporal_lifetime, handle.temporal_frame);
+  key.id             = rg_descriptor.m_ResourceId;
+  key.temporal_frame = rg_get_temporal_frame(g_FrameId, 0, 0);
 
-  return unwrap(hash_table_find(&graph->texture_map, key));
+  return unwrap(hash_table_find(&g_RenderGraph->buffer_map, key));
 }
 
-static const GpuTexture*
-deref_resource(const RenderGraph* graph, RgReadHandle<GpuTexture> handle)
+template <>
+const GpuBuffer*
+rg_deref_buffer<RgVertexBuffer>(RgVertexBuffer rg_descriptor)
 {
   RgResourceKey key  = {0};
-  key.id             = handle.id;
-  key.temporal_frame = get_temporal_frame(graph->frame_id, handle.temporal_lifetime, handle.temporal_frame);
+  key.id             = rg_descriptor.m_ResourceId;
+  key.temporal_frame = rg_get_temporal_frame(g_FrameId, 0, 0);
 
-  return unwrap(hash_table_find(&graph->texture_map, key));
+  return unwrap(hash_table_find(&g_RenderGraph->buffer_map, key));
 }
 
-static const GpuBuffer*
-deref_resource(const RenderGraph* graph, RgWriteHandle<GpuBuffer> handle)
+template <>
+const GpuBuffer*
+rg_deref_buffer<RgCpuUploadBuffer>(RgCpuUploadBuffer rg_descriptor)
 {
   RgResourceKey key  = {0};
-  key.id             = handle.id;
-  key.temporal_frame = get_temporal_frame(graph->frame_id, handle.temporal_lifetime, handle.temporal_frame);
+  key.id             = rg_descriptor.m_ResourceId;
+  key.temporal_frame = rg_get_temporal_frame(g_FrameId, rg_descriptor.m_TemporalLifetime, 0);
 
-  return unwrap(hash_table_find(&graph->buffer_map, key));
-}
-
-static const GpuBuffer*
-deref_resource(const RenderGraph* graph, RgReadHandle<GpuBuffer> handle)
-{
-  RgResourceKey key  = {0};
-  key.id             = handle.id;
-  key.temporal_frame = get_temporal_frame(graph->frame_id, handle.temporal_lifetime, handle.temporal_frame);
-
-  return unwrap(hash_table_find(&graph->buffer_map, key));
-}
-
-
-static const Descriptor*
-deref_descriptor(const RenderGraph* graph, u32 handle_id, u32 temporal_lifetime, s8 temporal_frame, DescriptorType type)
-{
-  RgDescriptorKey key = {0};
-  key.id              = handle_id;
-  key.type            = type;
-  key.temporal_frame  = get_temporal_frame(graph->frame_id, temporal_lifetime, temporal_frame);
-  return unwrap(hash_table_find(&graph->descriptor_map, key));
-}
-
-template <typename T>
-static const Descriptor*
-deref_descriptor(const RenderGraph* graph, T handle, DescriptorType type)
-{
-  return deref_descriptor(graph, handle.id, handle.temporal_lifetime, handle.temporal_frame, type);
+  return unwrap(hash_table_find(&g_RenderGraph->buffer_map, key));
 }
 
 void
 RenderContext::clear_depth_stencil_view(
-  RgWriteHandle<GpuTexture> depth_stencil,
+  RgDsv depth_stencil,
   DepthStencilClearFlags flags,
   f32 depth,
   u8 stencil
 ) {
-  const Descriptor* descriptor = deref_descriptor(m_Graph, depth_stencil, kDescriptorTypeDsv);
+  const GpuDescriptor* descriptor = depth_stencil.deref();
 
   D3D12_CLEAR_FLAGS clear_flags = (D3D12_CLEAR_FLAGS)0;
   if (flags & kClearDepth)
@@ -1603,10 +1638,10 @@ RenderContext::clear_depth_stencil_view(
 
 void
 RenderContext::clear_render_target_view(
-  RgWriteHandle<GpuTexture> render_target_view,
+  RgRtv render_target_view,
   const Vec4& rgba
 ) {
-  const Descriptor* descriptor = deref_descriptor(m_Graph, render_target_view, kDescriptorTypeRtv);
+  const GpuDescriptor* descriptor = render_target_view.deref();
 
   m_CmdBuffer.d3d12_list->ClearRenderTargetView(
     descriptor->cpu_handle,
@@ -1731,9 +1766,9 @@ RenderContext::ia_set_index_buffer(const GpuBuffer* buffer, u32 stride, u32 size
 }
 
 void
-RenderContext::ia_set_index_buffer(RgReadHandle<GpuBuffer> buffer, u32 stride, u32 size)
+RenderContext::ia_set_index_buffer(RgIndexBuffer buffer, u32 stride, u32 size)
 {
-  const GpuBuffer* physical = deref_resource(m_Graph, buffer);
+  const GpuBuffer* physical = rg_deref_buffer(buffer);
   ia_set_index_buffer(physical, stride, size);
 }
 
@@ -1760,11 +1795,11 @@ RenderContext::ia_set_vertex_buffer(
 void
 RenderContext::ia_set_vertex_buffer(
   u32 start_slot,
-  RgReadHandle<GpuBuffer> buffer,
+  RgVertexBuffer buffer,
   u32 size,
   u32 stride
 ) {
-  const GpuBuffer* physical = deref_resource(m_Graph, buffer);
+  const GpuBuffer* physical = rg_deref_buffer(buffer);
   ia_set_vertex_buffer(start_slot, physical, size, stride);
 }
 
@@ -1776,23 +1811,23 @@ RenderContext::clear_state()
 
 void
 RenderContext::om_set_render_targets(
-  Span<RgWriteHandle<GpuTexture>> rtvs,
-  Option<RgWriteHandle<GpuTexture>> dsv
+  Span<RgRtv> rtvs,
+  Option<RgDsv> dsv
 ) {
   D3D12_CPU_DESCRIPTOR_HANDLE rtv_handles[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
   u32 rtv_count = 0;
   ASSERT(rtvs.size <= ARRAY_LENGTH(rtv_handles));
 
-  for (RgWriteHandle<GpuTexture> handle : rtvs)
+  for (RgRtv handle : rtvs)
   {
-    const Descriptor* descriptor = deref_descriptor(m_Graph, handle, kDescriptorTypeRtv);
+    const GpuDescriptor* descriptor = handle.deref();
     rtv_handles[rtv_count++]     = descriptor->cpu_handle;
   }
 
   D3D12_CPU_DESCRIPTOR_HANDLE dsv_handle;
   if (dsv)
   {
-    const Descriptor* descriptor = deref_descriptor(m_Graph, unwrap(dsv), kDescriptorTypeDsv);
+    const GpuDescriptor* descriptor = unwrap(dsv).deref();
     dsv_handle                   = descriptor->cpu_handle;
   }
 
@@ -1822,29 +1857,11 @@ RenderContext::set_compute_root_shader_resource_view(
 }
 
 void
-RenderContext::set_compute_root_shader_resource_view(
-  u32 root_parameter_index,
-  RgReadHandle<GpuBuffer> buffer
-) {
-  const GpuBuffer* physical = deref_resource(m_Graph, buffer);
-  set_compute_root_shader_resource_view(root_parameter_index, physical);
-}
-
-void
 RenderContext::set_graphics_root_shader_resource_view(
   u32 root_parameter_index,
   const GpuBuffer* buffer
 ) {
   m_CmdBuffer.d3d12_list->SetGraphicsRootShaderResourceView(root_parameter_index, buffer->gpu_addr);
-}
-
-void
-RenderContext::set_graphics_root_shader_resource_view(
-  u32 root_parameter_index,
-  RgReadHandle<GpuBuffer> buffer
-) {
-  const GpuBuffer* physical = deref_resource(m_Graph, buffer);
-  set_graphics_root_shader_resource_view(root_parameter_index, physical);
 }
 
 void
@@ -1854,106 +1871,37 @@ RenderContext::set_compute_root_constant_buffer_view(u32 root_parameter_index, c
 }
 
 void
-RenderContext::set_compute_root_constant_buffer_view(u32 root_parameter_index, RgReadHandle<GpuBuffer> buffer)
-{
-  const GpuBuffer* physical = deref_resource(m_Graph, buffer);
-  set_compute_root_constant_buffer_view(root_parameter_index, physical);
-}
-
-void
 RenderContext::set_graphics_root_constant_buffer_view(u32 root_parameter_index, const GpuBuffer* buffer)
 {
   m_CmdBuffer.d3d12_list->SetGraphicsRootConstantBufferView(root_parameter_index, buffer->gpu_addr);
 }
 
 void
-RenderContext::set_graphics_root_constant_buffer_view(u32 root_parameter_index, RgReadHandle<GpuBuffer> buffer)
-{
-  const GpuBuffer* physical = deref_resource(m_Graph, buffer);
-  set_graphics_root_constant_buffer_view(root_parameter_index, physical);
-}
-
-void
 RenderContext::set_graphics_root_32bit_constants(
   u32 root_parameter_index,
-  Span<u32> src,
+  const u32* src,
+  u32 count,
   u32 dst_offset
 ) {
-  m_CmdBuffer.d3d12_list->SetGraphicsRoot32BitConstants(root_parameter_index, (u32)src.size, src.memory, dst_offset);
+  m_CmdBuffer.d3d12_list->SetGraphicsRoot32BitConstants(root_parameter_index, count, src, dst_offset);
 }
 
 void
-RenderContext::set_compute_root_32bit_constants(u32 root_parameter_index, Span<u32> src, u32 dst_offset)
+RenderContext::set_compute_root_32bit_constants(u32 root_parameter_index, const u32* src, u32 count, u32 dst_offset)
 {
-  m_CmdBuffer.d3d12_list->SetComputeRoot32BitConstants(root_parameter_index, (u32)src.size, src.memory, dst_offset);
+  m_CmdBuffer.d3d12_list->SetComputeRoot32BitConstants(root_parameter_index, count, src, dst_offset);
 }
 
 void
 RenderContext::set_descriptor_heaps(Span<const DescriptorLinearAllocator*> heaps)
 {
-  // ::set_descriptor_heaps(&m_CmdBuffer, heaps);
   m_CmdBuffer.d3d12_list->SetDescriptorHeaps(1, &heaps[0]->d3d12_heap);
 }
 
 void
-RenderContext::graphics_bind_shader_resources(Span<ShaderResource> resources)
+RenderContext::write_cpu_upload_buffer(RgCpuUploadBuffer dst, const void* src, u64 size)
 {
-  ScratchAllocator scratch_arena = alloc_scratch_arena();
-  defer { free_scratch_arena(&scratch_arena); };
-
-  Array<u32> root_consts = init_array<u32>(scratch_arena, resources.size);
-
-  for (const ShaderResource& shader_resource : resources)
-  {
-    const Descriptor* descriptor = deref_descriptor(
-      m_Graph,
-      shader_resource.id,
-      shader_resource.temporal_lifetime,
-      shader_resource.temporal_frame,
-      shader_resource.descriptor_type
-    );
-
-    *array_add(&root_consts) = descriptor->index;
-  }
-
-  set_graphics_root_32bit_constants(0, root_consts, 0);
-}
-
-// TODO(Brandon): Don't copy pasta this code... combine graphics and compute into single function
-void
-RenderContext::compute_bind_shader_resources(Span<ShaderResource> resources)
-{
-  ScratchAllocator scratch_arena = alloc_scratch_arena();
-  defer { free_scratch_arena(&scratch_arena); };
-
-  Array<u32> root_consts = init_array<u32>(scratch_arena, resources.size);
-
-  for (const ShaderResource& shader_resource : resources)
-  {
-    const Descriptor* descriptor = deref_descriptor(
-      m_Graph,
-      shader_resource.id,
-      shader_resource.temporal_lifetime,
-      shader_resource.temporal_frame,
-      shader_resource.descriptor_type
-    );
-
-    *array_add(&root_consts) = descriptor->index;
-  }
-
-  set_compute_root_32bit_constants(0, root_consts, 0);
-}
-
-void
-RenderContext::ray_tracing_bind_shader_resources(Span<ShaderResource> resources)
-{
-  compute_bind_shader_resources(resources);
-}
-
-void
-RenderContext::write_cpu_upload_buffer(RgReadHandle<GpuBuffer> dst, const void* src, u64 size)
-{
-  const GpuBuffer* physical = deref_resource(m_Graph, dst);
+  const GpuBuffer* physical = rg_deref_buffer(dst);
   write_cpu_upload_buffer(physical, src, size);
 }
 

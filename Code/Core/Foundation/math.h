@@ -7,6 +7,178 @@
 static constexpr f32 kPI  = 3.1415926535897932f;
 static constexpr f32 k2PI = 6.2831853071795864f;
 
+struct UVec2
+{
+  UVec2() : x(0u), y(0u) {}
+  UVec2(u32 all) : x(all), y(all) {}
+  UVec2(u32 x, u32 y) : x(x), y(y) {}
+
+  struct
+  {
+    union
+    {
+      u32 x;
+      u32 r;
+    };
+    union
+    {
+      u32 y;
+      u32 g;
+    };
+  };
+};
+
+struct UVec3
+{
+  UVec3() : x(0u), y(0u), z(0u) {}
+  UVec3(u32 all) : x(all), y(all), z(all) {}
+  UVec3(u32 x, u32 y, u32 z) : x(x), y(y), z(z) {}
+  UVec3(UVec2 v, u32 z = 0u) : x(v.x), y(v.y), z(z) {}
+
+  struct
+  {
+    union
+    {
+      u32 x;
+      u32 r;
+    };
+    union
+    {
+      u32 y;
+      u32 g;
+    };
+    union
+    {
+      u32 z;
+      u32 b;
+    };
+  };
+};
+
+struct UVec4
+{
+  UVec4() : x(0u), y(0u), z(0u), w(0u) {}
+  UVec4(u32 all) : x(all), y(all), z(all), w(all) {}
+  UVec4(u32 x, u32 y, u32 z, u32 w) : x(x), y(y), z(z), w(w) {}
+  UVec4(UVec2 v, u32 z = 0u, u32 w = 0u) : x(v.x), y(v.y), z(z), w(w) {}
+  UVec4(UVec3 v, u32 w = 0u) : x(v.x), y(v.y), z(v.z), w(w) {}
+
+  u32 x;
+  u32 y;
+  u32 z;
+  u32 w;
+
+  struct
+  {
+    union
+    {
+      u32 x;
+      u32 r;
+    };
+    union
+    {
+      u32 y;
+      u32 g;
+    };
+    union
+    {
+      u32 z;
+      u32 b;
+    };
+    union
+    {
+      u32 w;
+      u32 a;
+    };
+  };
+};
+
+struct SVec2
+{
+  SVec2() : x(0), y(0) {}
+  SVec2(s32 all) : x(all), y(all) {}
+  SVec2(s32 x, s32 y) : x(x), y(y) {}
+
+  struct
+  {
+    union
+    {
+      s32 x;
+      s32 r;
+    };
+    union
+    {
+      s32 y;
+      s32 g;
+    };
+  };
+};
+
+struct SVec3
+{
+  SVec3() : x(0), y(0), z(0) {}
+  SVec3(s32 all) : x(all), y(all), z(all) {}
+  SVec3(s32 x, s32 y, s32 z) : x(x), y(y), z(z) {}
+  SVec3(UVec2 v, s32 z = 0) : x(v.x), y(v.y), z(z) {}
+
+  struct
+  {
+    union
+    {
+      s32 x;
+      s32 r;
+    };
+    union
+    {
+      s32 y;
+      s32 g;
+    };
+    union
+    {
+      s32 z;
+      s32 b;
+    };
+  };
+};
+
+struct SVec4
+{
+  SVec4() : x(0), y(0), z(0), w(0) {}
+  SVec4(s32 all) : x(all), y(all), z(all), w(all) {}
+  SVec4(s32 x, s32 y, s32 z, s32 w) : x(x), y(y), z(z), w(w) {}
+  SVec4(SVec2 v, s32 z = 0, s32 w = 0) : x(v.x), y(v.y), z(z), w(w) {}
+  SVec4(SVec3 v, s32 w = 0) : x(v.x), y(v.y), z(v.z), w(w) {}
+
+  s32 x;
+  s32 y;
+  s32 z;
+  s32 w;
+
+  struct
+  {
+    union
+    {
+      s32 x;
+      s32 r;
+    };
+    union
+    {
+      s32 y;
+      s32 g;
+    };
+    union
+    {
+      s32 z;
+      s32 b;
+    };
+    union
+    {
+      s32 w;
+      s32 a;
+    };
+  };
+};
+
 inline s64
 modulo(s64 x, s64 mod)
 {
@@ -206,6 +378,196 @@ normalize_f32(Vec2 v)
 }
 
 ////////////////////////////////////////////////////////////////
+/// UVec2 ops
+
+inline UVec2 pass_by_register
+operator+(UVec2 a, UVec2 b)
+{
+  UVec2 ret;
+  ret.x = a.x + b.x;
+  ret.y = a.y + b.y;
+  return ret;
+}
+
+inline UVec2 pass_by_register
+operator-(UVec2 a, UVec2 b)
+{
+  UVec2 ret;
+  ret.x = a.x - b.x;
+  ret.y = a.y - b.y;
+  return ret;
+}
+
+inline UVec2& pass_by_register
+operator+=(UVec2& a, UVec2 b)
+{
+  a.x += b.x;
+  a.y += b.y;
+  return a;
+}
+
+inline UVec2& pass_by_register
+operator-=(UVec2& a, UVec2 b)
+{
+  a.x -= b.x;
+  a.y -= b.y;
+  return a;
+}
+
+inline UVec2 pass_by_register
+operator*(UVec2 a, u32 scale)
+{
+  UVec2 ret;
+  ret.x = a.x * scale;
+  ret.y = a.y * scale;
+  return ret;
+}
+
+inline UVec2& pass_by_register
+operator*=(UVec2& a, u32 scale)
+{
+  a.x *= scale;
+  a.y *= scale;
+  return a;
+}
+
+inline UVec2 pass_by_register
+operator/(UVec2 a, u32 scale)
+{
+  UVec2 ret;
+  ret.x = a.x / scale;
+  ret.y = a.y / scale;
+  return ret;
+}
+
+inline UVec2& pass_by_register
+operator/=(UVec2& a, u32 scale)
+{
+  a.x /= scale;
+  a.y /= scale;
+  return a;
+}
+
+inline UVec2 pass_by_register
+hadamard_u32(UVec2 a, UVec2 b)
+{
+  return UVec2(a.x * b.x, a.y * b.y);
+}
+
+inline u32 pass_by_register
+dot_u32(UVec2 a, UVec2 b)
+{
+  UVec2 res = hadamard_u32(a, b);
+
+  return res.x + res.y;
+}
+
+inline f32 pass_by_register 
+length_u32(UVec2 v)
+{
+  return sqrt((f32)dot_u32(v, v));
+}
+
+////////////////////////////////////////////////////////////////
+/// SVec2 ops
+
+inline SVec2 pass_by_register
+operator+(SVec2 a, SVec2 b)
+{
+  SVec2 ret;
+  ret.x = a.x + b.x;
+  ret.y = a.y + b.y;
+  return ret;
+}
+
+inline SVec2 pass_by_register
+operator-(SVec2 a, SVec2 b)
+{
+  SVec2 ret;
+  ret.x = a.x - b.x;
+  ret.y = a.y - b.y;
+  return ret;
+}
+
+inline SVec2& pass_by_register
+operator-(SVec2& a)
+{
+  a.x = -a.x;
+  a.y = -a.y;
+  return a;
+}
+
+inline SVec2& pass_by_register
+operator+=(SVec2& a, SVec2 b)
+{
+  a.x += b.x;
+  a.y += b.y;
+  return a;
+}
+
+inline SVec2& pass_by_register
+operator-=(SVec2& a, SVec2 b)
+{
+  a.x -= b.x;
+  a.y -= b.y;
+  return a;
+}
+
+inline SVec2 pass_by_register
+operator*(SVec2 a, s32 scale)
+{
+  SVec2 ret;
+  ret.x = a.x * scale;
+  ret.y = a.y * scale;
+  return ret;
+}
+
+inline SVec2& pass_by_register
+operator*=(SVec2& a, s32 scale)
+{
+  a.x *= scale;
+  a.y *= scale;
+  return a;
+}
+
+inline SVec2 pass_by_register
+operator/(SVec2 a, s32 scale)
+{
+  SVec2 ret;
+  ret.x = a.x / scale;
+  ret.y = a.y / scale;
+  return ret;
+}
+
+inline SVec2& pass_by_register
+operator/=(SVec2& a, s32 scale)
+{
+  a.x /= scale;
+  a.y /= scale;
+  return a;
+}
+
+inline SVec2 pass_by_register
+hadamard_s32(SVec2 a, SVec2 b)
+{
+  return SVec2(a.x * b.x, a.y * b.y);
+}
+
+inline s32 pass_by_register
+dot_s32(SVec2 a, SVec2 b)
+{
+  SVec2 res = hadamard_s32(a, b);
+
+  return res.x + res.y;
+}
+
+inline f32 pass_by_register 
+length_s32(SVec2 v)
+{
+  return sqrt((f32)dot_s32(v, v));
+}
+
+////////////////////////////////////////////////////////////////
 /// Vec3 ops
 
 inline Vec3 pass_by_register
@@ -317,6 +679,214 @@ inline Vec3 pass_by_register
 normalize_f32(Vec3 v)
 {
   return v / length_f32(v);
+}
+
+
+////////////////////////////////////////////////////////////////
+/// UVec3 ops
+
+inline UVec3 pass_by_register
+operator+(UVec3 a, UVec3 b)
+{
+  UVec3 ret;
+  ret.x = a.x + b.x;
+  ret.y = a.y + b.y;
+  ret.z = a.z + b.z;
+  return ret;
+}
+
+inline UVec3 pass_by_register
+operator-(UVec3 a, UVec3 b)
+{
+  UVec3 ret;
+  ret.x = a.x - b.x;
+  ret.y = a.y - b.y;
+  ret.z = a.z - b.z;
+  return ret;
+}
+
+inline UVec3& pass_by_register
+operator+=(UVec3& a, UVec3 b)
+{
+  a.x += b.x;
+  a.y += b.y;
+  a.z += b.z;
+  return a;
+}
+
+inline UVec3& pass_by_register
+operator-=(UVec3& a, UVec3 b)
+{
+  a.x -= b.x;
+  a.y -= b.y;
+  a.z -= b.z;
+  return a;
+}
+
+inline UVec3 pass_by_register
+operator*(UVec3 a, u32 scale)
+{
+  UVec3 ret;
+  ret.x = a.x * scale;
+  ret.y = a.y * scale;
+  ret.z = a.z * scale;
+  return ret;
+}
+
+inline UVec3& pass_by_register
+operator*=(UVec3& a, u32 scale)
+{
+  a.x *= scale;
+  a.y *= scale;
+  a.z *= scale;
+  return a;
+}
+
+inline UVec3 pass_by_register
+operator/(UVec3 a, u32 scale)
+{
+  UVec3 ret;
+  ret.x = a.x / scale;
+  ret.y = a.y / scale;
+  ret.z = a.z / scale;
+  return ret;
+}
+
+inline UVec3& pass_by_register
+operator/=(UVec3& a, u32 scale)
+{
+  a.x /= scale;
+  a.y /= scale;
+  a.z /= scale;
+  return a;
+}
+
+inline UVec3 pass_by_register
+hadamard_u32(UVec3 a, UVec3 b)
+{
+  return UVec3(a.x * b.x, a.y * b.y, a.z * b.z);
+}
+
+inline u32 pass_by_register
+dot_u32(UVec3 a, UVec3 b)
+{
+  UVec3 res = hadamard_u32(a, b);
+
+  return res.x + res.y + res.z;
+}
+
+inline f32 pass_by_register 
+length_u32(UVec3 v)
+{
+  return sqrt((f32)dot_u32(v, v));
+}
+
+////////////////////////////////////////////////////////////////
+/// SVec3 ops
+
+inline SVec3 pass_by_register
+operator+(SVec3 a, SVec3 b)
+{
+  SVec3 ret;
+  ret.x = a.x + b.x;
+  ret.y = a.y + b.y;
+  ret.z = a.z + b.z;
+  return ret;
+}
+
+inline SVec3 pass_by_register
+operator-(SVec3 a, SVec3 b)
+{
+  SVec3 ret;
+  ret.x = a.x - b.x;
+  ret.y = a.y - b.y;
+  ret.z = a.z - b.z;
+  return ret;
+}
+
+inline SVec3& pass_by_register
+operator-(SVec3& a)
+{
+  a.x = -a.x;
+  a.y = -a.y;
+  a.z = -a.z;
+  return a;
+}
+
+inline SVec3& pass_by_register
+operator+=(SVec3& a, SVec3 b)
+{
+  a.x += b.x;
+  a.y += b.y;
+  a.z += b.z;
+  return a;
+}
+
+inline SVec3& pass_by_register
+operator-=(SVec3& a, SVec3 b)
+{
+  a.x -= b.x;
+  a.y -= b.y;
+  a.z -= b.z;
+  return a;
+}
+
+inline SVec3 pass_by_register
+operator*(SVec3 a, s32 scale)
+{
+  SVec3 ret;
+  ret.x = a.x * scale;
+  ret.y = a.y * scale;
+  ret.z = a.z * scale;
+  return ret;
+}
+
+inline SVec3& pass_by_register
+operator*=(SVec3& a, s32 scale)
+{
+  a.x *= scale;
+  a.y *= scale;
+  a.z *= scale;
+  return a;
+}
+
+inline SVec3 pass_by_register
+operator/(SVec3 a, s32 scale)
+{
+  SVec3 ret;
+  ret.x = a.x / scale;
+  ret.y = a.y / scale;
+  ret.z = a.z / scale;
+  return ret;
+}
+
+inline SVec3& pass_by_register
+operator/=(SVec3& a, s32 scale)
+{
+  a.x /= scale;
+  a.y /= scale;
+  a.z /= scale;
+  return a;
+}
+
+inline SVec3 pass_by_register
+hadamard_s32(SVec3 a, SVec3 b)
+{
+  return SVec3(a.x * b.x, a.y * b.y, a.z * b.z);
+}
+
+inline s32 pass_by_register
+dot_s32(SVec3 a, SVec3 b)
+{
+  SVec3 res = hadamard_s32(a, b);
+
+  return res.x + res.y + res.z;
+}
+
+inline f32 pass_by_register 
+length_s32(SVec3 v)
+{
+  return sqrt((f32)dot_s32(v, v));
 }
 
 ////////////////////////////////////////////////////////////////
@@ -1026,3 +1596,4 @@ struct Aabb3d
   Vec3 min;
   Vec3 max;
 };
+

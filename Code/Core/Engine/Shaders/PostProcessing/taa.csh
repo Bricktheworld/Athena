@@ -3,11 +3,11 @@
 #include "../Include/math.hlsli"
 
 
-ConstantBuffer<TAAResources> g_Resources : register(b0);
+ConstantBuffer<TemporalAASrt> g_Srt : register(b0);
 
 uint2 get_dilated_texel(int2 texel)
 {
-  Texture2D<float> depth_buffer = ResourceDescriptorHeap[g_Resources.gbuffer_depth];
+  Texture2D<float> depth_buffer = DEREF(g_Srt.gbuffer_depth);
   float  closest_depth     = 0.0f;
   float2 closest_texel_pos = texel;
 
@@ -39,7 +39,7 @@ void tap_curr_buffer(
   inout float3 min_color,
   inout float3 max_color
 ) {
-  Texture2D<float4> curr_buffer = ResourceDescriptorHeap[g_Resources.curr_hdr];
+  Texture2D<float4> curr_buffer = DEREF(g_Srt.curr_hdr);
 
   float2 uv_offset = float2(texel_offset) / dimensions;
   float3 color     = curr_buffer.Sample(g_BilinearSampler, uv + uv_offset).rgb;
@@ -127,13 +127,13 @@ float4 sample_texture_catmull_rom(Texture2D<float4> texture, float2 uv)
 [numthreads(8, 8, 1)]
 void CS_TAA( uint3 thread_id : SV_DispatchThreadID )
 {
-  Texture2D<float4>   prev_buffer = ResourceDescriptorHeap[g_Resources.prev_hdr];
-  Texture2D<float4>   curr_buffer = ResourceDescriptorHeap[g_Resources.curr_hdr];
+  Texture2D<float4>   prev_buffer = DEREF(g_Srt.prev_hdr);
+  Texture2D<float4>   curr_buffer = DEREF(g_Srt.curr_hdr);
 
-  RWTexture2D<float4> taa_buffer  = ResourceDescriptorHeap[g_Resources.taa];
+  RWTexture2D<float4> taa_buffer  = DEREF(g_Srt.taa);
 
-  Texture2D<float2> curr_velocity_buffer = ResourceDescriptorHeap[g_Resources.curr_velocity];
-  Texture2D<float2> prev_velocity_buffer = ResourceDescriptorHeap[g_Resources.prev_velocity];
+  Texture2D<float2> curr_velocity_buffer = DEREF(g_Srt.curr_velocity);
+  Texture2D<float2> prev_velocity_buffer = DEREF(g_Srt.prev_velocity);
 
   float width, height;
   curr_buffer.GetDimensions(width, height);
