@@ -1,16 +1,15 @@
 using Sharpmake;
 using System.IO;
 using System.Linq;
+using System.Collections.Generic;
 using System.Text.RegularExpressions;
 
 namespace Athena
 {
   abstract class AthenaProject : Project
   {
-    public Strings BuiltShaderHeaders;
     public AthenaProject()
     {
-      BuiltShaderHeaders = new Strings();
       AddTargets(
         new Target(
           Platform.win64,
@@ -58,13 +57,89 @@ namespace Athena
       }
       conf.Options.Add(Options.Vc.Linker.Reference.KeepUnreferencedData);
       conf.Defines.Add("UNICODE");
+      conf.VcxprojUserFile = new Configuration.VcxprojUserFileSettings();
+      conf.VcxprojUserFile.LocalDebuggerWorkingDirectory = @"[project.SharpmakeCsPath]";
+    }
+  }
+
+  abstract class AthenaRuntimeProject : AthenaProject
+  {
+    public Strings BuiltShaderHeaders;
+    public AthenaRuntimeProject()
+    {
+      BuiltShaderHeaders = new Strings();
+    }
+  }
+
+  abstract class AthenaToolProject : AthenaProject
+  {
+    [Configure]
+    public override void ConfigureAll(Project.Configuration conf, Target target)
+    {
+      base.ConfigureAll(conf, target);
+      conf.IncludePaths.Add(@"[project.SourceRootPath]\..\Vendor");
+    }
+  }
+
+  abstract class AthenaToolQtProject : AthenaToolProject
+  {
+    [Configure]
+    public override void ConfigureAll(Project.Configuration conf, Target target)
+    {
+      base.ConfigureAll(conf, target);
+      conf.LibraryFiles.Add(@"[project.SourceRootPath]\..\Lib\Qt6\Qt6BundledFreetype.lib");
+      conf.LibraryFiles.Add(@"[project.SourceRootPath]\..\Lib\Qt6\Qt6BundledLibjpeg.lib");
+      conf.LibraryFiles.Add(@"[project.SourceRootPath]\..\Lib\Qt6\Qt6BundledLibpng.lib");
+      conf.LibraryFiles.Add(@"[project.SourceRootPath]\..\Lib\Qt6\Qt6Concurrent.lib");
+      conf.LibraryFiles.Add(@"[project.SourceRootPath]\..\Lib\Qt6\Qt6Core.lib");
+      conf.LibraryFiles.Add(@"[project.SourceRootPath]\..\Lib\Qt6\Qt6DBus.lib");
+      conf.LibraryFiles.Add(@"[project.SourceRootPath]\..\Lib\Qt6\Qt6DeviceDiscoverySupport.lib");
+      conf.LibraryFiles.Add(@"[project.SourceRootPath]\..\Lib\Qt6\Qt6EntryPoint.lib");
+      conf.LibraryFiles.Add(@"[project.SourceRootPath]\..\Lib\Qt6\Qt6ExampleIcons.lib");
+      conf.LibraryFiles.Add(@"[project.SourceRootPath]\..\Lib\Qt6\Qt6ExamplesAssetDownloader.lib");
+      conf.LibraryFiles.Add(@"[project.SourceRootPath]\..\Lib\Qt6\Qt6FbSupport.lib");
+      conf.LibraryFiles.Add(@"[project.SourceRootPath]\..\Lib\Qt6\Qt6Gui.lib");
+      conf.LibraryFiles.Add(@"[project.SourceRootPath]\..\Lib\Qt6\Qt6OpenGL.lib");
+      conf.LibraryFiles.Add(@"[project.SourceRootPath]\..\Lib\Qt6\Qt6OpenGLWidgets.lib");
+      conf.LibraryFiles.Add(@"[project.SourceRootPath]\..\Lib\Qt6\Qt6PrintSupport.lib");
+      conf.LibraryFiles.Add(@"[project.SourceRootPath]\..\Lib\Qt6\Qt6Sql.lib");
+      conf.LibraryFiles.Add(@"[project.SourceRootPath]\..\Lib\Qt6\Qt6Test.lib");
+      conf.LibraryFiles.Add(@"[project.SourceRootPath]\..\Lib\Qt6\Qt6Widgets.lib");
+      conf.LibraryFiles.Add(@"[project.SourceRootPath]\..\Lib\Qt6\Qt6Xml.lib");
+
+      conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\..\Lib\Qt6\Qt6Concurrent.dll");
+      conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\..\Lib\Qt6\Qt6Core.dll");
+      conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\..\Lib\Qt6\Qt6DBus.dll");
+      conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\..\Lib\Qt6\Qt6Gui.dll");
+      conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\..\Lib\Qt6\Qt6Network.dll");
+      conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\..\Lib\Qt6\Qt6OpenGL.dll");
+      conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\..\Lib\Qt6\Qt6OpenGLWidgets.dll");
+      conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\..\Lib\Qt6\Qt6PrintSupport.dll");
+      conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\..\Lib\Qt6\Qt6Sql.dll");
+      conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\..\Lib\Qt6\Qt6Test.dll");
+      conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\..\Lib\Qt6\Qt6Widgets.dll");
+      conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\..\Lib\Qt6\Qt6Xml.dll");
+      conf.TargetCopyFilesToSubDirectory.Add(new KeyValuePair<string, string>(@"[project.SourceRootPath]\..\Lib\Qt6\generic\qtuiotouchplugin.dll", @"generic"));
+      conf.TargetCopyFilesToSubDirectory.Add(new KeyValuePair<string, string>(@"[project.SourceRootPath]\..\Lib\Qt6\imageformats\qgif.dll", @"imageformats"));
+      conf.TargetCopyFilesToSubDirectory.Add(new KeyValuePair<string, string>(@"[project.SourceRootPath]\..\Lib\Qt6\imageformats\qico.dll", @"imageformats"));
+      conf.TargetCopyFilesToSubDirectory.Add(new KeyValuePair<string, string>(@"[project.SourceRootPath]\..\Lib\Qt6\imageformats\qjpeg.dll", @"imageformats"));
+      conf.TargetCopyFilesToSubDirectory.Add(new KeyValuePair<string, string>(@"[project.SourceRootPath]\..\Lib\Qt6\networkinformation\qnetworklistmanager.dll", @"networkinformation"));
+      conf.TargetCopyFilesToSubDirectory.Add(new KeyValuePair<string, string>(@"[project.SourceRootPath]\..\Lib\Qt6\platforms\qdirect2d.dll", @"platforms"));
+      conf.TargetCopyFilesToSubDirectory.Add(new KeyValuePair<string, string>(@"[project.SourceRootPath]\..\Lib\Qt6\platforms\qminimal.dll", @"platforms"));
+      conf.TargetCopyFilesToSubDirectory.Add(new KeyValuePair<string, string>(@"[project.SourceRootPath]\..\Lib\Qt6\platforms\qoffscreen.dll", @"platforms"));
+      conf.TargetCopyFilesToSubDirectory.Add(new KeyValuePair<string, string>(@"[project.SourceRootPath]\..\Lib\Qt6\platforms\qwindows.dll", @"platforms"));
+      conf.TargetCopyFilesToSubDirectory.Add(new KeyValuePair<string, string>(@"[project.SourceRootPath]\..\Lib\Qt6\sqldrivers\qsqlite.dll", @"sqldrivers"));
+      conf.TargetCopyFilesToSubDirectory.Add(new KeyValuePair<string, string>(@"[project.SourceRootPath]\..\Lib\Qt6\sqldrivers\qsqlodbc.dll", @"sqldrivers"));
+      conf.TargetCopyFilesToSubDirectory.Add(new KeyValuePair<string, string>(@"[project.SourceRootPath]\..\Lib\Qt6\styles\qmodernwindowsstyle.dll", @"styles"));
+      conf.TargetCopyFilesToSubDirectory.Add(new KeyValuePair<string, string>(@"[project.SourceRootPath]\..\Lib\Qt6\tls\qcertonlybackend.dll", @"tls"));
+      conf.TargetCopyFilesToSubDirectory.Add(new KeyValuePair<string, string>(@"[project.SourceRootPath]\..\Lib\Qt6\tls\qschannelbackend.dll", @"tls"));
     }
   }
 
   [Sharpmake.Generate]
   class CustomBuildShaderFile : Project.Configuration.CustomFileBuildStep
   {
-    public CustomBuildShaderFile(AthenaProject project, string src, string dst)
+    public CustomBuildShaderFile(AthenaRuntimeProject project, string src, string dst)
     {
       Strings hlsli_files = new Strings(project.ResolvedSourceFiles.Where(file => Regex.IsMatch(file, @".*\.hlsli$")));
       string output_full = project.GetSourcePath(dst);
@@ -88,7 +163,7 @@ namespace Athena
       project.SourceFilesExtensions.Add(".rtsh");
     }
 
-    public static void ClaimShaderFiles(AthenaProject project)
+    public static void ClaimShaderFiles(AthenaRuntimeProject project)
     {
       Strings hlsl_files = new Strings(project.ResolvedSourceFiles.Where(file => Regex.IsMatch(file, @".*\.[vpcrtm]+sh$")));
       foreach (string file in hlsl_files)
@@ -117,6 +192,7 @@ namespace Athena
       SourceRootPath = @"[project.SharpmakeCsPath]\Code\Core\Foundation";
     }
 
+    [Configure]
     public override void ConfigureAll(Configuration conf, Target target)
     {
       base.ConfigureAll(conf, target);
@@ -127,7 +203,7 @@ namespace Athena
   }
 
   [Sharpmake.Generate]
-  class EngineProject : AthenaProject
+  class EngineProject : AthenaRuntimeProject
   {
     public string ShaderTableHeader
     {
@@ -180,6 +256,7 @@ namespace Athena
       }
     }
 
+    [Configure]
     public override void ConfigureAll(Configuration conf, Target target)
     {
       base.ConfigureAll(conf, target);
@@ -197,8 +274,6 @@ namespace Athena
       conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\D3D12Core.pdb");
       conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\D3D12SDKLayers.dll");
       conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\D3D12SDKLayers.pdb");
-      conf.VcxprojUserFile = new Configuration.VcxprojUserFileSettings();
-      conf.VcxprojUserFile.LocalDebuggerWorkingDirectory = @"[project.SharpmakeCsPath]";
       conf.Options.Add(Options.Vc.Linker.SubSystem.Windows);
     }
   }
@@ -212,14 +287,12 @@ namespace Athena
       SourceRootPath = @"[project.SharpmakeCsPath]\Code\Core\Tools\AssetBuilder";
     }
 
+    [Configure]
     public override void ConfigureAll(Configuration conf, Target target)
     {
       base.ConfigureAll(conf, target);
       conf.Output = Configuration.OutputType.Exe;
       conf.AddPublicDependency<FoundationProject>(target);
-      conf.IncludePaths.Add(@"[project.SourceRootPath]\Vendor");
-      conf.VcxprojUserFile = new Configuration.VcxprojUserFileSettings();
-      conf.VcxprojUserFile.LocalDebuggerWorkingDirectory = @"[project.SharpmakeCsPath]";
       if (target.Optimization == Optimization.Debug)
       {
         conf.LibraryFiles.Add(@"[project.SourceRootPath]\Lib\Debug\DirectXMesh.lib");
@@ -232,6 +305,24 @@ namespace Athena
         conf.LibraryFiles.Add(@"[project.SourceRootPath]\Lib\Release\assimp-vc143-mtd.lib");
         conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Release\assimp-vc143-mtd.dll");
       }
+    }
+  }
+
+  [Sharpmake.Generate]
+  class MaterialGraphEditorProject : AthenaToolQtProject
+  {
+    public MaterialGraphEditorProject()
+    {
+      Name = "MaterialGraphEditor";
+      SourceRootPath = @"[project.SharpmakeCsPath]\Code\Core\Tools\MaterialGraphEditor";
+    }
+
+    [Configure]
+    public override void ConfigureAll(Configuration conf, Target target)
+    {
+      base.ConfigureAll(conf, target);
+      conf.Output = Configuration.OutputType.Exe;
+      conf.AddPublicDependency<FoundationProject>(target);
     }
   }
 
@@ -259,6 +350,7 @@ namespace Athena
       conf.AddProject<EngineProject>(target);
       conf.AddProject<FoundationProject>(target);
       conf.AddProject<AssetBuilderProject>(target);
+      conf.AddProject<MaterialGraphEditorProject>(target);
     }
   }
 
