@@ -283,6 +283,10 @@ namespace Athena
       conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\D3D12Core.pdb");
       conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\D3D12SDKLayers.dll");
       conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\D3D12SDKLayers.pdb");
+
+      conf.LibraryFiles.Add(@"[project.SourceRootPath]\Lib\dstorage.lib");
+      conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\dstorage.dll");
+      conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\dstoragecore.dll");
       conf.Options.Add(Options.Vc.Linker.SubSystem.Windows);
     }
   }

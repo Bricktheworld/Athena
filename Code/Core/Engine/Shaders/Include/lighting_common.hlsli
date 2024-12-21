@@ -110,12 +110,13 @@ float3 evaluate_directional_light(
 }
 
 
-float light_visibility(float3 light_direction,
-                       float3 ws_pos,
-                       float3 normal,
-                       float t_max,
-                       float normal_bias)
-{
+float light_visibility(
+  float3 light_direction,
+  float3 ws_pos,
+  float3 normal,
+  float t_max,
+  float normal_bias
+) {
   RayDesc ray;
   ray.Origin    = ws_pos + normal * normal_bias;
   ray.Direction = normalize(-light_direction);

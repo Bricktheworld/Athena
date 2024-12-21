@@ -215,7 +215,6 @@ struct RgDependencyLevel
 
 struct RgDescriptorHeap
 {
-  DescriptorLinearAllocator cbv_srv_uav;
   DescriptorLinearAllocator rtv;
   DescriptorLinearAllocator dsv;
 };

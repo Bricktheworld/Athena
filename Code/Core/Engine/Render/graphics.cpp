@@ -1,9 +1,9 @@
 #include "Core/Foundation/context.h"
+#include "Core/Foundation/colors.h"
 
 #include "Core/Engine/memory.h"
 #include "Core/Engine/job_system.h"
 #include "Core/Engine/Render/graphics.h"
-#include "Core/Engine/Render/colors.h"
 #include "Core/Engine/Render/frame_time.h"
 
 #include "Core/Engine/Vendor/imgui/imgui.h"
@@ -175,10 +175,10 @@ init_gpu_fence(ID3D12Device2* d3d12_dev)
 }
 
 GpuFence
-init_fence(const GpuDevice* device)
+init_gpu_fence()
 {
   GpuFence ret = {0};
-  HASSERT(device->d3d12->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&ret.d3d12_fence)));
+  HASSERT(g_GpuDevice->d3d12->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&ret.d3d12_fence)));
   ASSERT(ret.d3d12_fence != nullptr);
 
   ret.cpu_event = CreateEventW(NULL, FALSE, FALSE, NULL);
@@ -204,19 +204,19 @@ inc_fence(GpuFence* fence)
   return ++fence->value;
 }
 
-static FenceValue
-poll_fence_value(GpuFence* fence)
+FenceValue
+poll_gpu_fence_value(GpuFence* fence)
 {
-  fence->last_completed_value = max(fence->last_completed_value, fence->d3d12_fence->GetCompletedValue());
+  fence->last_completed_value = MAX(fence->last_completed_value, fence->d3d12_fence->GetCompletedValue());
   return fence->last_completed_value;
 }
 
-static bool
-is_fence_complete(GpuFence* fence, FenceValue value)
+bool
+is_gpu_fence_complete(GpuFence* fence, FenceValue value)
 {
   if (value > fence->last_completed_value)
   {
-    poll_fence_value(fence);
+    poll_gpu_fence_value(fence);
   }
 
   return value <= fence->last_completed_value;
@@ -227,14 +227,14 @@ block_gpu_fence(GpuFence* fence, FenceValue value)
 {
   // If you hit this assertion, it's because only a single thread can wait on a fence at a time
   ASSERT(!fence->already_waiting);
-  if (is_fence_complete(fence, value))
+  if (is_gpu_fence_complete(fence, value))
     return;
 
   HASSERT(fence->d3d12_fence->SetEventOnCompletion(value, fence->cpu_event));
   fence->already_waiting = true;
 
   WaitForSingleObject(fence->cpu_event, (DWORD)-1);
-  poll_fence_value(fence);
+  poll_gpu_fence_value(fence);
   fence->already_waiting = false;
 }
 
@@ -289,7 +289,7 @@ init_cmd_list_allocator(
   ASSERT(pool_size > 0);
   CmdListAllocator ret = {0};
   ret.d3d12_queue = queue->d3d12_queue;
-  ret.fence = init_fence(device);
+  ret.fence = init_gpu_fence();
   ret.allocators = init_ring_queue<CmdAllocator>(heap, pool_size);
   ret.lists = init_ring_queue<ID3D12GraphicsCommandList4*>(heap, pool_size);
 
@@ -1408,7 +1408,7 @@ init_acceleration_structure(
   cmd_list.d3d12_list->ResourceBarrier(1, &uav_barrier);
   cmd_list.d3d12_list->BuildRaytracingAccelerationStructure(&top_level_build_desc, 0, nullptr);
   cmd_list.d3d12_list->ResourceBarrier(1, &uav_barrier);
-  GpuFence fence = init_fence(device);
+  GpuFence fence = init_gpu_fence();
   defer { destroy_gpu_fence(&fence); };
 
   FenceValue fence_value = submit_cmd_lists(&device->graphics_cmd_allocator, {cmd_list}, &fence);
@@ -1589,7 +1589,7 @@ init_swap_chain(HWND window, const GpuDevice* device)
   ret.d3d12_swap_chain->SetMaximumFrameLatency(kFramesInFlight);
   ret.d3d12_latency_waitable = ret.d3d12_swap_chain->GetFrameLatencyWaitableObject();
 
-  ret.fence = init_fence(device);
+  ret.fence = init_gpu_fence();
   zero_memory(ret.frame_fence_values, sizeof(ret.frame_fence_values));
 
   for (u32 i = 0; i < ARRAY_LENGTH(ret.back_buffers); i++)
@@ -1702,7 +1702,7 @@ set_descriptor_heaps(CmdList* cmd, const DescriptorPool* heaps, u32 num_heaps)
 }
 
 void
-set_descriptor_heaps(CmdList* cmd, Span<const DescriptorLinearAllocator*> heaps)
+set_descriptor_heaps(CmdList* cmd, Span<const DescriptorPool*> heaps)
 {
   ScratchAllocator scratch_arena = alloc_scratch_arena();
   defer { free_scratch_arena(&scratch_arena); };

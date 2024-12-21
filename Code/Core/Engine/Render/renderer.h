@@ -13,7 +13,8 @@ static constexpr D3D12_COMPARISON_FUNC kDepthComparison = D3D12_COMPARISON_FUNC_
 static constexpr f32 kZNear = 0.1f;
 
 struct ShaderManager;
-extern ShaderManager* g_ShaderManager;
+extern ShaderManager*  g_ShaderManager;
+extern DescriptorPool* g_DescriptorCbvSrvUavPool;
 
 // TODO(Brandon): This entire system will be reworked once I figure out,
 // generally how I want to handle render entries in this engine. For now,
@@ -42,13 +43,15 @@ void destroy_shader_manager();
 const GpuShader* get_engine_shader(u32 index);
 
 
-struct RenderMeshInst
+struct RenderModelSubset
 {
   GraphicsPSO gbuffer_pso;
   u32 index_buffer_offset = 0;
-  u32 index_count;
+  u32 index_count         = 0;
   EngineShaderIndex vertex_shader   = kVS_Basic;
   EngineShaderIndex material_shader = kPS_BasicNormalGloss;
+
+  AssetId           material        = kNullAssetId;
 };
 
 enum ResolutionScale
@@ -91,7 +94,7 @@ struct Renderer
 
   DescriptorLinearAllocator imgui_descriptor_heap;
 
-  Array<RenderMeshInst> meshes;
+  Array<RenderModelSubset> meshes;
   Camera prev_camera;
   Camera camera;
   Vec2   taa_jitter;
@@ -131,7 +134,7 @@ void destroy_renderer();
 
 
 void begin_renderer_recording();
-void submit_mesh(RenderMeshInst mesh);
+void submit_mesh(RenderModelSubset mesh);
 
 void execute_render(
   const GpuDevice* device,
@@ -153,7 +156,7 @@ enum SceneObjectFlags : u8
 
 struct RenderModel
 {
-  Array<RenderMeshInst> mesh_insts;
+  Array<RenderModelSubset> model_subsets;
 };
 
 struct SceneObject

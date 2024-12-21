@@ -3,6 +3,7 @@
 
 #include "Core/Engine/memory.h"
 #include "Core/Engine/Render/render_graph.h"
+#include "Core/Engine/Render/renderer.h"
 
 #include "Core/Engine/Vendor/imgui/imgui_impl_dx12.h"
 
@@ -380,12 +381,12 @@ init_physical_resources(
     RgResourceKey key  = {0};
     key.id             = resource.id;
 
-    TransientResourceDesc* resource_desc = unwrap(hash_table_find(&builder.resource_descs, resource.id));
+    TransientResourceDesc* resource_desc = hash_table_find(&builder.resource_descs, resource.id);
     if (resource.type == kResourceTypeBuffer)
     {
       GpuBufferDesc desc = {0};
       desc.size          = resource_desc->buffer_desc.size;
-      desc.flags         = *unwrap(hash_table_find(&physical_flags, resource.id));
+      desc.flags         = *hash_table_find(&physical_flags, resource.id);
       desc.initial_state = D3D12_RESOURCE_STATE_COMMON;
 
       if (resource_desc->temporal_lifetime > 0 && resource_desc->temporal_lifetime < kInfiniteLifetime)
@@ -416,7 +417,7 @@ init_physical_resources(
       desc.array_size     = resource_desc->texture_desc.array_size;
       desc.format         = resource_desc->texture_desc.format;
       desc.initial_state  = D3D12_RESOURCE_STATE_COMMON;
-      desc.flags          = *unwrap(hash_table_find(&physical_flags, resource.id));
+      desc.flags          = *hash_table_find(&physical_flags, resource.id);
 
       if (is_depth_format(desc.format))
       {
@@ -483,25 +484,25 @@ init_physical_descriptors(
         GpuDescriptor* dst = &pass->descriptors[desc.descriptor_idx + iframe];
         if (desc.handle.type == kResourceTypeBuffer)
         {
-          const GpuBuffer* buffer = unwrap(hash_table_find(&resource_map.buffers, resource_key));
+          const GpuBuffer* buffer = hash_table_find(&resource_map.buffers, resource_key);
           if (desc.descriptor_type == kDescriptorTypeSrv)
           {
-            *dst = alloc_descriptor(&descriptor_heap->cbv_srv_uav);
+            *dst = alloc_descriptor(g_DescriptorCbvSrvUavPool);
             init_buffer_srv(dst, buffer, desc.buffer_srv);
           }
           else if (desc.descriptor_type == kDescriptorTypeCbv)
           {
-            *dst = alloc_descriptor(&descriptor_heap->cbv_srv_uav);
+            *dst = alloc_descriptor(g_DescriptorCbvSrvUavPool);
             init_buffer_cbv(dst, buffer, desc.buffer_cbv);
           }
           else { /*This means that it's a vertex/index buffer */ }
         }
         else if(desc.handle.type == kResourceTypeTexture)
         {
-          const GpuTexture* texture = unwrap(hash_table_find(&resource_map.textures, resource_key));
+          const GpuTexture* texture = hash_table_find(&resource_map.textures, resource_key);
           if (desc.descriptor_type == kDescriptorTypeSrv)
           {
-            *dst = alloc_descriptor(&descriptor_heap->cbv_srv_uav);
+            *dst = alloc_descriptor(g_DescriptorCbvSrvUavPool);
             init_texture_srv(dst, texture, desc.texture_srv);
           }
           else { UNREACHABLE; }
@@ -532,7 +533,7 @@ init_physical_descriptors(
           const GpuBuffer* buffer = hash_table_find(&resource_map.buffers, resource_key);
           if (desc.descriptor_type == kDescriptorTypeUav)
           {
-            *dst = alloc_descriptor(&descriptor_heap->cbv_srv_uav);
+            *dst = alloc_descriptor(g_DescriptorCbvSrvUavPool);
             init_buffer_uav(dst, buffer, desc.buffer_uav);
           }
           else { UNREACHABLE; }
@@ -542,7 +543,7 @@ init_physical_descriptors(
           const GpuTexture* texture = hash_table_find(&resource_map.textures, resource_key);
           if (desc.descriptor_type == kDescriptorTypeUav)
           {
-            *dst = alloc_descriptor(&descriptor_heap->cbv_srv_uav);
+            *dst = alloc_descriptor(g_DescriptorCbvSrvUavPool);
             init_texture_uav(dst, texture, desc.texture_uav);
           }
           else if (desc.descriptor_type == kDescriptorTypeRtv)
@@ -870,7 +871,6 @@ compile_render_graph(AllocHeap heap, const RgBuilder& builder, RenderGraphDestro
   if (flags & kRgFreePhysicalResources)
   {
     RgDescriptorHeap descriptor_heap = {0};
-    descriptor_heap.cbv_srv_uav      = init_descriptor_linear_allocator(g_GpuDevice, 2048, kDescriptorHeapTypeCbvSrvUav);
     descriptor_heap.rtv              = init_descriptor_linear_allocator(g_GpuDevice, 128,  kDescriptorHeapTypeRtv);
     descriptor_heap.dsv              = init_descriptor_linear_allocator(g_GpuDevice, 128,  kDescriptorHeapTypeDsv);
 
@@ -952,7 +952,6 @@ destroy_render_graph(RenderGraphDestroyFlags flags)
     }
   }
 
-  destroy_descriptor_linear_allocator(&g_RenderGraph->descriptor_heap.cbv_srv_uav);
   destroy_descriptor_linear_allocator(&g_RenderGraph->descriptor_heap.rtv);
   destroy_descriptor_linear_allocator(&g_RenderGraph->descriptor_heap.dsv);
 
@@ -1099,13 +1098,13 @@ execute_render_graph(const GpuTexture* back_buffer)
       RG_DBGLN("%s", g_RenderGraph->render_passes[pass_id].name);
       set_graphics_root_signature(&cmd_buffer);
       set_compute_root_signature(&cmd_buffer);
-      set_descriptor_heaps(&cmd_buffer, {&g_RenderGraph->descriptor_heap.cbv_srv_uav});
+      set_descriptor_heaps(&cmd_buffer, {g_DescriptorCbvSrvUavPool});
 
       g_HandlerId = pass_id;
       const RenderPass& pass = g_RenderGraph->render_passes[pass_id];
       (*pass.handler)(&ctx, pass.data);
 
-      set_descriptor_heaps(&cmd_buffer, {&g_RenderGraph->descriptor_heap.cbv_srv_uav});
+      set_descriptor_heaps(&cmd_buffer, {g_DescriptorCbvSrvUavPool});
     }
   }
 

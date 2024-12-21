@@ -14,7 +14,8 @@ asset_builder::import_model(
   const char* path,
   const char* project_root,
   ImportedModel* out_imported_model,
-  AssetId* out_asset_id
+  ImportedMaterial** out_materials,
+  u32* out_material_count
 ) {
   AssetId asset_id = path_to_asset_id(path);
   char full_path[512];
@@ -33,7 +34,7 @@ asset_builder::import_model(
 
   if (assimp_model == nullptr)
   {
-    printf("Failed to import scene throguh assimp!\n");
+    printf("Failed to import scene through assimp!\n");
     return false;
   }
 
@@ -53,35 +54,94 @@ asset_builder::import_model(
     printf("Found %u lights in the scene\n", assimp_model->mNumLights);
   }
 
-  printf("%u mesh instances in model\n", assimp_model->mNumMeshes);
-  printf("%u materials in model\n", assimp_model->mNumMaterials);
+  printf("%u subsets in model\n", assimp_model->mNumMeshes);
+  printf("%u materials in model\n",      assimp_model->mNumMaterials);
+
+  u32               material_count = assimp_model->mNumMaterials;
+  ImportedMaterial* materials      = HEAP_ALLOC(ImportedMaterial, heap, material_count);
+
+
+  char parent_dir[kMaxPathLength];
+  memcpy(parent_dir, path, kMaxPathLength);
+
+  printf("%s\n", path);
+  parent_dir[get_parent_dir(parent_dir, (u32)strlen(parent_dir))] = 0;
+  printf("%s\n", parent_dir);
 
   for (u32 imaterial = 0; imaterial < assimp_model->mNumMaterials; imaterial++)
   {
     aiMaterial* assimp_material = assimp_model->mMaterials[imaterial];
-    aiString material_name = assimp_material->GetName();
-    printf("\tMaterial[%u] %s\n", imaterial, material_name.C_Str());
+    aiString    material_name   = assimp_material->GetName();
 
-    u32 num_diffuse_textures = assimp_material->GetTextureCount(aiTextureType_DIFFUSE);
-    printf("\t\tDiffuse Textures: %lu\n", num_diffuse_textures);
-    for (u32 itexture = 0; itexture < num_diffuse_textures; itexture++)
+    snprintf(materials[imaterial].path, kMaxPathLength, "%s/%u.material", path, imaterial);
+    printf("  Material[%u] %s\n", imaterial, materials[imaterial].path);
+
+    materials[imaterial].hash         = path_to_asset_id(materials[imaterial].path);
+    // This is hard coded for now where invalid slots will just be null asset ptrs.
+    materials[imaterial].num_textures = 5;
+
+    zero_memory(materials[imaterial].texture_paths, sizeof(materials[imaterial].texture_paths));
+
+    u32 num_diffuse_textures = assimp_material->GetTextureCount(aiTextureType_BASE_COLOR);
+    if (num_diffuse_textures > 0)
     {
       aiString texture_path;
-      assimp_material->GetTexture(aiTextureType_DIFFUSE, itexture, &texture_path);
-      printf("\t\t\t%s\n", texture_path.C_Str());
+      assimp_material->GetTexture(aiTextureType_BASE_COLOR, 0, &texture_path);
+      snprintf(materials[imaterial].texture_paths[0], kMaxPathLength, "%s%s", parent_dir, texture_path.C_Str());
+      printf("      Diffuse: %s\n", materials[imaterial].texture_paths[0]);
+    }
+
+    u32 num_normal_textures = assimp_material->GetTextureCount(aiTextureType_NORMALS);
+    if (num_normal_textures > 0)
+    {
+      aiString texture_path;
+      assimp_material->GetTexture(aiTextureType_NORMALS, 0, &texture_path);
+      snprintf(materials[imaterial].texture_paths[1], kMaxPathLength, "%s%s", parent_dir, texture_path.C_Str());
+      printf("      Normal: %s\n", materials[imaterial].texture_paths[1]);
+    }
+
+    u32 num_roughness_textures = assimp_material->GetTextureCount(aiTextureType_DIFFUSE_ROUGHNESS);
+    if (num_roughness_textures > 0)
+    {
+      aiString texture_path;
+      assimp_material->GetTexture(aiTextureType_DIFFUSE_ROUGHNESS, 0, &texture_path);
+      snprintf(materials[imaterial].texture_paths[2], kMaxPathLength, "%s%s", parent_dir, texture_path.C_Str());
+      printf("      Roughness: %s\n", materials[imaterial].texture_paths[2]);
+    }
+
+    u32 num_metalness_textures = assimp_material->GetTextureCount(aiTextureType_METALNESS);
+    if (num_metalness_textures > 0)
+    {
+      aiString texture_path;
+      assimp_material->GetTexture(aiTextureType_METALNESS, 0, &texture_path);
+      snprintf(materials[imaterial].texture_paths[3], kMaxPathLength, "%s%s", parent_dir, texture_path.C_Str());
+      printf("      Metalness: %s\n", materials[imaterial].texture_paths[3]);
+    }
+
+    u32 num_ao_textures = assimp_material->GetTextureCount(aiTextureType_AMBIENT_OCCLUSION);
+    if (num_ao_textures > 0)
+    {
+      aiString texture_path;
+      assimp_material->GetTexture(aiTextureType_AMBIENT_OCCLUSION, 0, &texture_path);
+      snprintf(materials[imaterial].texture_paths[4], kMaxPathLength, "%s%s", parent_dir, texture_path.C_Str());
+      printf("      Ambient Occlusion: %s\n", materials[imaterial].texture_paths[4]);
     }
   }
 
-  ImportedModel imported_model = {0};
-  imported_model.num_model_subsets = assimp_model->mNumMeshes;
+  u64 path_len = strlen(path);
 
-  imported_model.model_subsets = HEAP_ALLOC(ImportedModelSubset, heap, imported_model.num_model_subsets);
+  ImportedModel imported_model     = {0};
+  imported_model.hash              = asset_id;
+  memcpy(imported_model.path, path, path_len + 1);
+
+  imported_model.num_model_subsets = assimp_model->mNumMeshes;
+  imported_model.model_subsets     = HEAP_ALLOC(ImportedModelSubset, heap, imported_model.num_model_subsets);
 
   for (u32 imesh = 0; imesh < assimp_model->mNumMeshes; imesh++)
   {
-    aiMesh* assimp_mesh = assimp_model->mMeshes[imesh];
-    u32 num_vertices = assimp_mesh->mNumVertices;
-    u32 num_indices = assimp_mesh->mNumFaces * 3;
+    aiMesh* assimp_mesh  = assimp_model->mMeshes[imesh];
+    u32     num_vertices = assimp_mesh->mNumVertices;
+    u32     num_indices  = assimp_mesh->mNumFaces * 3;
 
     ImportedModelSubset* model_subset = imported_model.model_subsets + imesh;
 
@@ -124,18 +184,21 @@ asset_builder::import_model(
     model_subset->num_indices  = num_indices;
     model_subset->vertices     = vertices;
     model_subset->indices      = indices;
+    model_subset->material     = materials[assimp_mesh->mMaterialIndex].hash;
 
     // TODO(Brandon): We'll need to figure out how to link these correctly...
-    model_subset->material.num_textures  = 0;
-    model_subset->material.texture_paths = nullptr;
+    //model_subset->material.num_textures  = 0;
+    //model_subset->material.texture_paths = nullptr;
 
     const aiAABB* aabb  = &assimp_mesh->mAABB;
     model_subset->aabb.min = Vec3(aabb->mMin.x, aabb->mMin.y, aabb->mMin.z);
     model_subset->aabb.max = Vec3(aabb->mMax.x, aabb->mMax.y, aabb->mMax.z);
   }
 
-  *out_asset_id       = asset_id;
+  ASSERT_MSG_FATAL(path_to_asset_id(imported_model.path) == imported_model.hash, "Imported model path and hash do not match!");
   *out_imported_model = imported_model;
+  *out_materials      = materials;
+  *out_material_count = material_count;
 
   return true;
 }
@@ -143,12 +206,14 @@ asset_builder::import_model(
 void
 asset_builder::dump_imported_model(ImportedModel model)
 {
-  dbgln("Model: %lu subsets", model.num_model_subsets);
+  ASSERT_MSG_FATAL(path_to_asset_id(model.path) == model.hash, "Imported model path and hash do not match!");
+  dbgln("Model(0x%x): %s", model.hash, model.path);
+  dbgln("  Subset: %lu", model.num_model_subsets);
   for (u32 imodel_subset = 0; imodel_subset < model.num_model_subsets; imodel_subset++)
   {
     const ImportedModelSubset* model_subset = model.model_subsets + imodel_subset;
     dbgln(
-      "\tModelSubset[%lu]: %lu vertices, %lu indices ",
+      "  ModelSubset[%lu]: %lu vertices, %lu indices ",
       imodel_subset,
       model_subset->num_vertices,
       model_subset->num_indices
@@ -158,7 +223,7 @@ asset_builder::dump_imported_model(ImportedModel model)
     {
       const VertexAsset* vertex = model_subset->vertices + ivertex;
       dbgln(
-        "\t\t[%u]{position: (%f,%f,%f), normal: (%f,%f,%f), uv: (%f,%f)}",
+        "    [%u]{position: (%f,%f,%f), normal: (%f,%f,%f), uv: (%f,%f)}",
         ivertex,
         vertex->position.x,
         vertex->position.y,
@@ -180,7 +245,7 @@ asset_builder::dump_imported_model(ImportedModel model)
 }
 
 check_return bool 
-asset_builder::write_model_to_asset(AssetId asset_id, const char* project_root, const ImportedModel& model)
+asset_builder::write_model_to_asset(const char* project_root, const ImportedModel& model)
 {
   ScratchAllocator scratch_arena = alloc_scratch_arena();
   defer { free_scratch_arena(&scratch_arena); };
@@ -207,7 +272,7 @@ asset_builder::write_model_to_asset(AssetId asset_id, const char* project_root, 
   model_asset.metadata.magic_number    = kAssetMagicNumber;
   model_asset.metadata.version         = kModelAssetVersion;
   model_asset.metadata.asset_type      = AssetType::kModel,
-  model_asset.metadata.asset_hash      = asset_id;
+  model_asset.metadata.asset_hash      = model.hash;
   model_asset.num_model_subsets        = model.num_model_subsets;
   model_asset.model_subsets            = sizeof(ModelAsset);
 
@@ -222,7 +287,7 @@ asset_builder::write_model_to_asset(AssetId asset_id, const char* project_root, 
 
     model_subset.num_vertices = imported_model_subset->num_vertices;
     model_subset.num_indices  = imported_model_subset->num_indices;
-    model_subset.material     = 0;
+    model_subset.material     = imported_model_subset->material;
 
     size_t vertex_size        = sizeof(VertexAsset) * model_subset.num_vertices;
     size_t index_size         = sizeof(u32)         * model_subset.num_indices;
@@ -236,7 +301,7 @@ asset_builder::write_model_to_asset(AssetId asset_id, const char* project_root, 
   }
 
   char built_path[512]{0};
-  snprintf(built_path, sizeof(built_path), "%s/Assets/Built/0x%08x.built", project_root, asset_id);
+  snprintf(built_path, sizeof(built_path), "%s/Assets/Built/0x%08x.built", project_root, model.hash);
   printf("Writing model asset file to %s...\n", built_path);
 
   auto new_file = create_file(built_path, FileCreateFlags::kCreateTruncateExisting);

@@ -7,6 +7,7 @@
 
 #include "Core/Engine/memory.h"
 #include "Core/Engine/job_system.h"
+#include "Core/Engine/asset_streaming.h"
 
 #include "Core/Engine/Render/graphics.h"
 #include "Core/Engine/Render/renderer.h"
@@ -213,6 +214,12 @@ application_entry(HINSTANCE instance, int show_code)
   init_graphics_device(window);
   defer { destroy_graphics_device(); };
 
+  init_gpu_stream_device();
+  defer { destroy_gpu_stream_device(); };
+
+  init_asset_loader();
+  defer { destroy_asset_loader(); };
+
   g_MainWindow = HEAP_ALLOC(Window, g_InitHeap, 1);
 
   g_MainWindow->swap_chain = init_swap_chain(window, g_GpuDevice);
@@ -220,7 +227,6 @@ application_entry(HINSTANCE instance, int show_code)
 
   init_global_upload_context(g_GpuDevice);
   defer { destroy_global_upload_context(); };
-
 
   init_shader_manager(g_GpuDevice);
   defer { destroy_shader_manager(); };
@@ -234,6 +240,7 @@ application_entry(HINSTANCE instance, int show_code)
   Scene scene       = init_scene(g_InitHeap);
 
   SceneObject* sponza = nullptr;
+  kick_asset_load(ASSET_ID("Assets/Source/sponza/Sponza.gltf"));
   {
     ScratchAllocator scratch_arena = alloc_scratch_arena();
     defer { free_scratch_arena(&scratch_arena); };
@@ -246,7 +253,7 @@ application_entry(HINSTANCE instance, int show_code)
     u64 buf_size = get_file_size(sponza_built_file.value());
     u8* buf      = HEAP_ALLOC(u8, scratch_arena, buf_size);
 
-    ASSERT_MSG_FATAL(read_file(sponza_built_file.value(), buf, buf_size), "Failed to read sponza file into memory.");
+    ASSERT_MSG_FATAL(read_file(sponza_built_file.value(), buf, buf_size, 0), "Failed to read sponza file into memory.");
 
     ModelData model;
     AssetLoadResult res = load_model(scratch_arena, buf, buf_size, &model);
@@ -301,6 +308,8 @@ application_entry(HINSTANCE instance, int show_code)
     }
 
     reset_frame_heap();
+    process_asset_loads();
+    submit_gpu_stream_requests();
 
     if (g_MainWindow->needs_resize)
     {

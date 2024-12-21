@@ -1,4 +1,5 @@
 #include "Core/Engine/memory.h"
+#include "Core/Engine/asset_streaming.h"
 
 #include "Core/Engine/Render/renderer.h"
 #include "Core/Engine/Render/blit.h"
@@ -20,8 +21,8 @@
 Renderer g_Renderer;
 
 UnifiedGeometryBuffer g_UnifiedGeometryBuffer;
-
-ShaderManager* g_ShaderManager = nullptr;
+ShaderManager*  g_ShaderManager           = nullptr;
+DescriptorPool* g_DescriptorCbvSrvUavPool = nullptr;
 
 void
 init_shader_manager(const GpuDevice* device)
@@ -148,11 +149,15 @@ init_renderer(
 ) {
   zero_memory(&g_Renderer, sizeof(g_Renderer));
 
+  g_DescriptorCbvSrvUavPool   = HEAP_ALLOC(DescriptorPool, g_InitHeap, 1);
+  *g_DescriptorCbvSrvUavPool  = init_descriptor_pool(g_InitHeap, device, 2048, kDescriptorHeapTypeCbvSrvUav);
+
   const uint32_t kGraphMemory = MiB(32);
-  g_Renderer.graph_allocator = init_linear_allocator(HEAP_ALLOC_ALIGNED(g_InitHeap, kGraphMemory, alignof(uint64_t)), kGraphMemory);
+  g_Renderer.graph_allocator  = init_linear_allocator(HEAP_ALLOC_ALIGNED(g_InitHeap, kGraphMemory, alignof(uint64_t)), kGraphMemory);
 
   init_renderer_dependency_graph(swap_chain, kRgDestroyAll);
   init_renderer_psos(device, swap_chain);
+
 
   g_Renderer.imgui_descriptor_heap = init_descriptor_linear_allocator(device, 1, kDescriptorHeapTypeCbvSrvUav);
   init_imgui_ctx(device, kGpuFormatRGBA16Float, window, &g_Renderer.imgui_descriptor_heap);
@@ -199,11 +204,11 @@ build_acceleration_structures(GpuDevice* device)
 void
 begin_renderer_recording()
 {
-  g_Renderer.meshes = init_array<RenderMeshInst>(g_FrameHeap, 128);
+  g_Renderer.meshes = init_array<RenderModelSubset>(g_FrameHeap, 128);
 }
 
 void
-submit_mesh(RenderMeshInst mesh)
+submit_mesh(RenderModelSubset mesh)
 {
   *array_add(&g_Renderer.meshes) = mesh;
 }
@@ -340,11 +345,11 @@ static RenderModel
 init_render_model(AllocHeap heap, const ModelData& model)
 {
   RenderModel ret = {0};
-  ret.mesh_insts = init_array<RenderMeshInst>(heap, model.mesh_insts.size);
-  for (u32 imesh_inst = 0; imesh_inst < model.mesh_insts.size; imesh_inst++)
+  ret.model_subsets = init_array<RenderModelSubset>(heap, model.model_subsets.size);
+  for (u32 imodel_subset = 0; imodel_subset < model.model_subsets.size; imodel_subset++)
   {
-    const MeshInstData* src = &model.mesh_insts[imesh_inst];
-    RenderMeshInst* dst = array_add(&ret.mesh_insts);
+    const ModelSubsetData* src = &model.model_subsets[imodel_subset];
+    RenderModelSubset* dst = array_add(&ret.model_subsets);
 
     reset_linear_allocator(&g_UploadContext.cpu_upload_arena);
 
@@ -354,6 +359,10 @@ init_render_model(AllocHeap heap, const ModelData& model)
     dst->index_buffer_offset = alloc_into_index_uber(dst->index_count);
     dst->vertex_shader       = kVS_Basic;
     dst->material_shader     = kPS_BasicNormalGloss;
+    dst->material            = src->material;
+
+    // Kick asset loading
+    kick_asset_load(dst->material);
 
     GraphicsPipelineDesc graphics_pipeline_desc =
     {
@@ -465,7 +474,7 @@ submit_scene(const Scene& scene)
 //      flags &= ~kSceneObjectPendingLoad;
 //    }
 
-    for (const RenderMeshInst& mesh_inst : obj.model.mesh_insts)
+    for (const RenderModelSubset& mesh_inst : obj.model.model_subsets)
     {
       submit_mesh(mesh_inst);
     }
