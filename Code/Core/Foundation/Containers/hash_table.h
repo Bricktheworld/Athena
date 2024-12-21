@@ -265,7 +265,7 @@ hash_table_insert(HashTable<K, V>* table, const K& key)
 }
 
 template <typename K, typename V>
-inline Option<V*>
+inline V*
 hash_table_find(const HashTable<K, V>* table, const K& key)
 {
   using Hash = typename HashTable<K, V>::Hash;

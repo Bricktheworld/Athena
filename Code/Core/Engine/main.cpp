@@ -7,6 +7,7 @@
 
 #include "Core/Engine/memory.h"
 #include "Core/Engine/job_system.h"
+#include "Core/Engine/asset_streaming.h"
 
 #include "Core/Engine/Render/graphics.h"
 #include "Core/Engine/Render/renderer.h"
@@ -213,6 +214,9 @@ application_entry(HINSTANCE instance, int show_code)
   init_graphics_device(window);
   defer { destroy_graphics_device(); };
 
+  init_asset_loader();
+  defer { destroy_asset_loader(); };
+
   g_MainWindow = HEAP_ALLOC(Window, g_InitHeap, 1);
 
   g_MainWindow->swap_chain = init_swap_chain(window, g_GpuDevice);
@@ -220,7 +224,6 @@ application_entry(HINSTANCE instance, int show_code)
 
   init_global_upload_context(g_GpuDevice);
   defer { destroy_global_upload_context(); };
-
 
   init_shader_manager(g_GpuDevice);
   defer { destroy_shader_manager(); };

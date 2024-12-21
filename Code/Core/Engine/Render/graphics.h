@@ -192,7 +192,7 @@ struct GpuFence
   bool         already_waiting      = false;
 };
 
-GpuFence init_gpu_fence(const GpuDevice* device);
+GpuFence init_gpu_fence(void);
 void     destroy_gpu_fence(GpuFence* fence);
 void     block_gpu_fence(GpuFence* fence, FenceValue value);
 

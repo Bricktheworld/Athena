@@ -175,10 +175,10 @@ init_gpu_fence(ID3D12Device2* d3d12_dev)
 }
 
 GpuFence
-init_fence(const GpuDevice* device)
+init_gpu_fence()
 {
   GpuFence ret = {0};
-  HASSERT(device->d3d12->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&ret.d3d12_fence)));
+  HASSERT(g_GpuDevice->d3d12->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&ret.d3d12_fence)));
   ASSERT(ret.d3d12_fence != nullptr);
 
   ret.cpu_event = CreateEventW(NULL, FALSE, FALSE, NULL);
@@ -289,7 +289,7 @@ init_cmd_list_allocator(
   ASSERT(pool_size > 0);
   CmdListAllocator ret = {0};
   ret.d3d12_queue = queue->d3d12_queue;
-  ret.fence = init_fence(device);
+  ret.fence = init_gpu_fence();
   ret.allocators = init_ring_queue<CmdAllocator>(heap, pool_size);
   ret.lists = init_ring_queue<ID3D12GraphicsCommandList4*>(heap, pool_size);
 
@@ -1408,7 +1408,7 @@ init_acceleration_structure(
   cmd_list.d3d12_list->ResourceBarrier(1, &uav_barrier);
   cmd_list.d3d12_list->BuildRaytracingAccelerationStructure(&top_level_build_desc, 0, nullptr);
   cmd_list.d3d12_list->ResourceBarrier(1, &uav_barrier);
-  GpuFence fence = init_fence(device);
+  GpuFence fence = init_gpu_fence();
   defer { destroy_gpu_fence(&fence); };
 
   FenceValue fence_value = submit_cmd_lists(&device->graphics_cmd_allocator, {cmd_list}, &fence);
@@ -1589,7 +1589,7 @@ init_swap_chain(HWND window, const GpuDevice* device)
   ret.d3d12_swap_chain->SetMaximumFrameLatency(kFramesInFlight);
   ret.d3d12_latency_waitable = ret.d3d12_swap_chain->GetFrameLatencyWaitableObject();
 
-  ret.fence = init_fence(device);
+  ret.fence = init_gpu_fence();
   zero_memory(ret.frame_fence_values, sizeof(ret.frame_fence_values));
 
   for (u32 i = 0; i < ARRAY_LENGTH(ret.back_buffers); i++)

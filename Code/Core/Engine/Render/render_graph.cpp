@@ -380,12 +380,12 @@ init_physical_resources(
     RgResourceKey key  = {0};
     key.id             = resource.id;
 
-    TransientResourceDesc* resource_desc = unwrap(hash_table_find(&builder.resource_descs, resource.id));
+    TransientResourceDesc* resource_desc = hash_table_find(&builder.resource_descs, resource.id);
     if (resource.type == kResourceTypeBuffer)
     {
       GpuBufferDesc desc = {0};
       desc.size          = resource_desc->buffer_desc.size;
-      desc.flags         = *unwrap(hash_table_find(&physical_flags, resource.id));
+      desc.flags         = *hash_table_find(&physical_flags, resource.id);
       desc.initial_state = D3D12_RESOURCE_STATE_COMMON;
 
       if (resource_desc->temporal_lifetime > 0 && resource_desc->temporal_lifetime < kInfiniteLifetime)
@@ -416,7 +416,7 @@ init_physical_resources(
       desc.array_size     = resource_desc->texture_desc.array_size;
       desc.format         = resource_desc->texture_desc.format;
       desc.initial_state  = D3D12_RESOURCE_STATE_COMMON;
-      desc.flags          = *unwrap(hash_table_find(&physical_flags, resource.id));
+      desc.flags          = *hash_table_find(&physical_flags, resource.id);
 
       if (is_depth_format(desc.format))
       {
@@ -483,7 +483,7 @@ init_physical_descriptors(
         GpuDescriptor* dst = &pass->descriptors[desc.descriptor_idx + iframe];
         if (desc.handle.type == kResourceTypeBuffer)
         {
-          const GpuBuffer* buffer = unwrap(hash_table_find(&resource_map.buffers, resource_key));
+          const GpuBuffer* buffer = hash_table_find(&resource_map.buffers, resource_key);
           if (desc.descriptor_type == kDescriptorTypeSrv)
           {
             *dst = alloc_descriptor(&descriptor_heap->cbv_srv_uav);
@@ -498,7 +498,7 @@ init_physical_descriptors(
         }
         else if(desc.handle.type == kResourceTypeTexture)
         {
-          const GpuTexture* texture = unwrap(hash_table_find(&resource_map.textures, resource_key));
+          const GpuTexture* texture = hash_table_find(&resource_map.textures, resource_key);
           if (desc.descriptor_type == kDescriptorTypeSrv)
           {
             *dst = alloc_descriptor(&descriptor_heap->cbv_srv_uav);
