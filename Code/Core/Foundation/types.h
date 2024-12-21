@@ -187,6 +187,8 @@ template <class F> __Deferrer__<F> operator*(__DeferDummy__, F f) { return {f}; 
 #define DEBUG
 #endif
 
+FOUNDATION_API void print_backtrace();
+
 #ifdef DEBUG
 #define DEBUG_BREAK() __debugbreak()
 
@@ -197,6 +199,7 @@ template <class F> __Deferrer__<F> operator*(__DeferDummy__, F f) { return {f}; 
     else \
     { \
       dbgln("Assertion failed! %s, %d", __FILE__, __LINE__); \
+      print_backtrace(); \
       DEBUG_BREAK();  \
     } \
   } while(0)
@@ -211,6 +214,7 @@ template <class F> __Deferrer__<F> operator*(__DeferDummy__, F f) { return {f}; 
       _com_error err(hres); \
       const wchar_t* err_msg = err.ErrorMessage(); \
       dbgln("HRESULT failed (%s, %d): %ls", __FILE__, __LINE__, err_msg); \
+      print_backtrace(); \
       DEBUG_BREAK();  \
     } \
   } while(0)
