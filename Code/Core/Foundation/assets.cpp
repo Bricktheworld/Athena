@@ -1,11 +1,11 @@
 #include "Core/Foundation/assets.h"
 
-fs::FileStream 
+Result<FileStream, FileError>
 open_built_asset_file(AssetId asset)
 {
   char path[512];
   snprintf(path, 512, "Assets/Built/0x%08x.built", asset);
-  return fs::open_file(path);
+  return open_file(path);
 }
 
 AssetType

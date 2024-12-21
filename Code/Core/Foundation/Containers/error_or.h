@@ -33,38 +33,50 @@ struct Result
 {
   Result(const Ok<V>& v)
   {
-    memmove(ok, v.buffer, sizeof(V));
+    memmove(m_Ok, v.buffer, sizeof(V));
   }
 
   Result(const Err<E>& e)
   {
-    memmove(err, e.buffer, sizeof(E));
-    has_error = true;
+    memmove(m_Err, e.buffer, sizeof(E));
+    m_HasError = true;
   }
 
   operator bool() const
   {
-    return !has_error;
+    return !m_HasError;
   }
 
   V& value()
   {
-    ASSERT(!has_error);
-    return *reinterpret_cast<V*>(ok);
+    ASSERT_MSG_FATAL(!m_HasError, "Attempting to unwrap result that has an error!");
+    return *reinterpret_cast<V*>(m_Ok);
   }
 
   const V& value() const
   {
-    ASSERT(!has_error);
-    return *reinterpret_cast<V*>(ok);
+    ASSERT_MSG_FATAL(!m_HasError, "Attempting to unwrap result that has an error!");
+    return *reinterpret_cast<V*>(m_Ok);
+  }
+
+  E& error()
+  {
+    ASSERT_MSG_FATAL(m_HasError, "Attempting to get error from result that is ok!");
+    return *reinterpret_cast<E*>(m_Err);
+  }
+
+  const E& error() const
+  {
+    ASSERT_MSG_FATAL(m_HasError, "Attempting to get error from result that is ok!");
+    return *reinterpret_cast<E*>(m_Err);
   }
 
   union
   {
-    alignas(V) byte ok[sizeof(V)];
-    alignas(E) byte err[sizeof(E)];
+    alignas(V) byte m_Ok[sizeof(V)];
+    alignas(E) byte m_Err[sizeof(E)];
   };
-  bool has_error = false;
+  bool m_HasError = false;
 };
 
 template <typename E>
@@ -74,17 +86,16 @@ struct Result<void, E>
   Result(Ok<void> _) {}
   Result(const Err<E>& e)
   {
-    memmove(err, e.buffer, sizeof(E));
-    has_error = true;
+    memmove(m_Err, e.buffer, sizeof(E));
+    m_HasError = true;
   }
 
   operator bool() const
   {
-    return !has_error;
+    return !m_HasError;
   }
 
-  alignas(E) byte err[sizeof(E)];
-  bool has_error = false;
+  alignas(E) byte m_Err[sizeof(E)];
+  bool m_HasError = false;
 };
-
 

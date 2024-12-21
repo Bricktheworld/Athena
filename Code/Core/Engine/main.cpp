@@ -238,13 +238,15 @@ application_entry(HINSTANCE instance, int show_code)
     ScratchAllocator scratch_arena = alloc_scratch_arena();
     defer { free_scratch_arena(&scratch_arena); };
 
-    fs::FileStream sponza_built_file = open_built_asset_file(ASSET_ID("Assets/Source/sponza/Sponza.gltf"));
-    defer { fs::close_file(&sponza_built_file); };
+    AssetId sponza_model = ASSET_ID("Assets/Source/sponza/Sponza.gltf");
+    auto sponza_built_file = open_built_asset_file(sponza_model);
+    ASSERT_MSG_FATAL(sponza_built_file, "Failed to load sponza file! Did you run the AssetBuilder? You should see file Assets/Built/0x%x.built", sponza_model);
+    defer { close_file(&sponza_built_file.value()); };
 
-    u64 buf_size = fs::get_file_size(sponza_built_file);
+    u64 buf_size = get_file_size(sponza_built_file.value());
     u8* buf      = HEAP_ALLOC(u8, scratch_arena, buf_size);
 
-    ASSERT(fs::read_file(sponza_built_file, buf, buf_size));
+    ASSERT_MSG_FATAL(read_file(sponza_built_file.value(), buf, buf_size), "Failed to read sponza file into memory.");
 
     ModelData model;
     AssetLoadResult res = load_model(scratch_arena, buf, buf_size, &model);

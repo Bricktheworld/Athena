@@ -23,7 +23,6 @@ print_backtrace()
     SYMBOL_INFO info;
     char buf[256];
     IMAGEHLP_LINE64 line;
-    char filename[MAX_PATH];
   };
 
   Symbol symbol = {0};
@@ -32,7 +31,6 @@ print_backtrace()
   symbol.info.SizeOfStruct = sizeof(SYMBOL_INFO);
 
   symbol.line.SizeOfStruct = sizeof(IMAGEHLP_LINE64);
-  symbol.line.FileName     = symbol.filename;
 
   dbgln("=======CALLSTACK=======");
   for (u32 i = 1; i < frame_count; i++)

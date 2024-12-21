@@ -1,23 +1,28 @@
 #pragma once
 #include "Core/Foundation/types.h"
+#include "Core/Foundation/Containers/error_or.h"
 
-namespace fs
+struct FileStream
 {
-  struct FileStream
-  {
-    HANDLE handle = nullptr;
-  };
+  HANDLE handle = nullptr;
+};
 
-  enum FileCreateFlags : u32
-  {
-    kCreateTruncateExisting = 1 << 0,
-  };
+enum FileCreateFlags : u32
+{
+  kCreateTruncateExisting = 1 << 0,
+};
 
-  FOUNDATION_API FileStream create_file(const char* path, FileCreateFlags flags);
-  FOUNDATION_API FileStream open_file(const char* path);
-  FOUNDATION_API void close_file(FileStream* file_stream);
+enum FileError
+{
+  kFileOk,
+  kFileFailedToCreate,
+  kFileDoesNotExist,
+};
 
-  FOUNDATION_API check_return bool write_file(FileStream file_stream, const void* src, u64 size);
-  FOUNDATION_API check_return bool read_file(FileStream file_stream, void* dst, u64 size);
-  FOUNDATION_API u64 get_file_size(FileStream file_stream);
-}
+FOUNDATION_API Result<FileStream, FileError> create_file(const char* path, FileCreateFlags flags);
+FOUNDATION_API Result<FileStream, FileError> open_file(const char* path);
+FOUNDATION_API void close_file(FileStream* file_stream);
+
+FOUNDATION_API check_return bool write_file(FileStream file_stream, const void* src, u64 size);
+FOUNDATION_API check_return bool read_file(FileStream file_stream, void* dst, u64 size);
+FOUNDATION_API u64 get_file_size(FileStream file_stream);

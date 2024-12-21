@@ -2,10 +2,8 @@
 #include "Core/Foundation/filesystem.h"
 #include <windows.h>
 
-using namespace fs;
-
-FileStream
-fs::create_file(const char* path, FileCreateFlags flags)
+Result<FileStream, FileError>
+create_file(const char* path, FileCreateFlags flags)
 {
   FileStream ret = {0};
 
@@ -24,14 +22,17 @@ fs::create_file(const char* path, FileCreateFlags flags)
     NULL
   );
 
-  ASSERT(handle != INVALID_HANDLE_VALUE);
+  if (handle == INVALID_HANDLE_VALUE)
+  {
+    return Err(kFileFailedToCreate);
+  }
   ret.handle = handle;
 
-  return ret;
+  return Ok(ret);
 }
 
-FileStream
-fs::open_file(const char* path)
+Result<FileStream, FileError>
+open_file(const char* path)
 {
   FileStream ret = {0};
 
@@ -45,15 +46,18 @@ fs::open_file(const char* path)
     NULL
   );
 
-  ASSERT(handle != INVALID_HANDLE_VALUE);
+  if (handle == INVALID_HANDLE_VALUE)
+  {
+    return Err(kFileDoesNotExist);
+  }
 
   ret.handle = handle;
 
-  return ret;
+  return Ok(ret);
 }
 
 void
-fs::close_file(FileStream* file_stream)
+close_file(FileStream* file_stream)
 {
   CloseHandle(file_stream->handle);
   zero_memory(file_stream, sizeof(FileStream));
@@ -61,21 +65,21 @@ fs::close_file(FileStream* file_stream)
 
 // TODO(bshihabi): If you need to read more than 4 gigs this is not gonna work, need to support paging since apparently I can't write/read more than that from a file at a time on win32...
 bool
-fs::write_file(FileStream file_stream, const void* src, u64 size)
+write_file(FileStream file_stream, const void* src, u64 size)
 {
-  ASSERT(size <= U32_MAX);
+  ASSERT_MSG_FATAL(size <= U32_MAX, "Writing to file with size %lu not supported currently due to 32-bit limit.", size);
   return WriteFile(file_stream.handle, src, (u32)size, NULL, NULL);
 }
 
 bool
-fs::read_file(FileStream file_stream, void* dst, u64 size)
+read_file(FileStream file_stream, void* dst, u64 size)
 {
-  ASSERT(size <= U32_MAX);
+  ASSERT_MSG_FATAL(size <= U32_MAX, "Reading from file with size %lu not supported currently due to 32-bit limit.", size);
   return ReadFile(file_stream.handle, dst, (u32)size, NULL, NULL);
 }
 
 u64
-fs::get_file_size(FileStream file_stream)
+get_file_size(FileStream file_stream)
 {
   LARGE_INTEGER ret = {0};
   ret.QuadPart = 0;

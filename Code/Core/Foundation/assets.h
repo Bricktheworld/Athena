@@ -67,7 +67,7 @@ path_to_asset_id(const char* path)
 }
 
 #define ASSET_ID(A) std::integral_constant<AssetId, path_to_asset_id(A)>::value
-FOUNDATION_API fs::FileStream open_built_asset_file(AssetId asset);
+FOUNDATION_API Result<FileStream, FileError> open_built_asset_file(AssetId asset);
 
 enum struct TextureFormat : u32
 {

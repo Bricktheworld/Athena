@@ -239,10 +239,16 @@ asset_builder::write_model_to_asset(AssetId asset_id, const char* project_root, 
   snprintf(built_path, sizeof(built_path), "%s/Assets/Built/0x%08x.built", project_root, asset_id);
   printf("Writing model asset file to %s...\n", built_path);
 
-  fs::FileStream new_file = fs::create_file(built_path, fs::FileCreateFlags::kCreateTruncateExisting);
-  defer { fs::close_file(&new_file); };
+  auto new_file = create_file(built_path, FileCreateFlags::kCreateTruncateExisting);
+  if (!new_file)
+  {
+    printf("Failed to create output file!\n");
+    return false;
+  }
 
-  if (!fs::write_file(new_file, buffer, output_size))
+  defer { close_file(&new_file.value()); };
+
+  if (!write_file(new_file.value(), buffer, output_size))
   {
     printf("Failed to write output file!\n");
     return false;

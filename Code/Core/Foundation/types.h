@@ -204,6 +204,18 @@ FOUNDATION_API void print_backtrace();
     } \
   } while(0)
 
+#define ASSERT_MSG_FATAL(expr, msg, ...) \
+  do \
+  { \
+    if (expr) { } \
+    else \
+    { \
+      dbgln("Assertion failed! " msg, ##__VA_ARGS__); \
+      print_backtrace(); \
+      DEBUG_BREAK();  \
+    } \
+  } while(0)
+
 #include <comdef.h>
 #define HASSERT(hres) \
   do \
