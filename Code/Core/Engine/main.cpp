@@ -12,6 +12,7 @@
 #include "Core/Engine/Render/renderer.h"
 #include "Core/Engine/Render/render_graph.h"
 
+
 #include "Core/Engine/Vendor/imgui/imgui.h"
 #include "Core/Engine/Vendor/imgui/imgui_impl_win32.h"
 #include "Core/Engine/Vendor/imgui/imgui_impl_dx12.h"
@@ -32,9 +33,12 @@ ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
 struct Window
 {
   SwapChain swap_chain;
+  bool      needs_resize = false;
 };
 
 static Window* g_MainWindow = nullptr;
+
+
 
 
 LRESULT CALLBACK
@@ -50,8 +54,7 @@ window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM lparam)
     {
       if (g_MainWindow != nullptr)
       {
-        swap_chain_resize(&g_MainWindow->swap_chain, window, g_GpuDevice);
-        renderer_on_resize(&g_MainWindow->swap_chain);
+        g_MainWindow->needs_resize = true;
       }
     } break;
     case WM_DESTROY:
@@ -297,8 +300,14 @@ application_entry(HINSTANCE instance, int show_code)
 
     reset_frame_heap();
 
-    swap_chain_wait_latency(&g_MainWindow->swap_chain);
+    if (g_MainWindow->needs_resize)
+    {
+      swap_chain_resize(&g_MainWindow->swap_chain, window, g_GpuDevice);
+      renderer_on_resize(&g_MainWindow->swap_chain);
+      g_MainWindow->needs_resize = false;
+    }
 
+    swap_chain_wait_latency(&g_MainWindow->swap_chain);
     const GpuTexture* back_buffer = swap_chain_acquire(&g_MainWindow->swap_chain);
 
     MSG message;
