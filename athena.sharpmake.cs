@@ -309,6 +309,24 @@ namespace Athena
   }
 
   [Sharpmake.Generate]
+  class UsdBuilderProject : AthenaToolProject
+  {
+    public UsdBuilderProject()
+    {
+      Name = "UsdBuilder";
+      SourceRootPath = @"[project.SharpmakeCsPath]\Code\Core\Tools\UsdBuilder";
+    }
+
+    public override void ConfigureAll(Configuration conf, Target target)
+    {
+      base.ConfigureAll(conf, target);
+      conf.Output = Configuration.OutputType.Exe;
+      conf.AddPublicDependency<FoundationProject>(target);
+      conf.IncludePaths.Add(@"[project.SourceRootPath]\Vendor");
+    }
+  }
+
+  [Sharpmake.Generate]
   class MaterialGraphEditorProject : AthenaToolQtProject
   {
     public MaterialGraphEditorProject()
@@ -350,6 +368,7 @@ namespace Athena
       conf.AddProject<EngineProject>(target);
       conf.AddProject<FoundationProject>(target);
       conf.AddProject<AssetBuilderProject>(target);
+      conf.AddProject<UsdBuilderProject>(target);
       conf.AddProject<MaterialGraphEditorProject>(target);
     }
   }
