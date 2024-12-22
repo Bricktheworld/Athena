@@ -152,8 +152,6 @@ swap(T* a, T* b)
 
 #define check_return [[nodiscard]]
 
-#define constant static constexpr
-
 #define ASSERT_SERIALIZABLE(T) static_assert(__has_unique_object_representations(T))
 
 #define PACK_STRUCT_BEGIN() __pragma(pack(push, 1))
@@ -211,7 +209,7 @@ FOUNDATION_API void print_backtrace();
     if (expr) { } \
     else \
     { \
-      dbgln("Assertion failed! " msg, ##__VA_ARGS__); \
+      dbgln("Assertion failed: " msg, ##__VA_ARGS__); \
       print_backtrace(); \
       DEBUG_BREAK();  \
     } \

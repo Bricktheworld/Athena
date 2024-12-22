@@ -8,7 +8,7 @@
 void
 print_backtrace()
 {
-  constant u32 kMaxStackCount = 128;
+  static constexpr u32 kMaxStackCount = 128;
   void* stack[kMaxStackCount];
 
   HANDLE process = GetCurrentProcess();

@@ -17,7 +17,7 @@ typedef u32 RenderPassId;
 extern RenderGraph* g_RenderGraph;
 extern RenderPassId g_HandlerId;
 
-constant u32 kRgBackBufferId = 0;
+static constexpr u32 kRgBackBufferId = 0;
 
 enum ResourceType : u8
 {
@@ -285,7 +285,7 @@ rg_deref_texture(T rg_descriptor)
   key.id             = rg_descriptor.m_ResourceId;
   key.temporal_frame = rg_get_temporal_frame(g_FrameId, rg_descriptor.m_TemporalLifetime, rg_descriptor.m_TemporalFrame);
 
-  return unwrap(hash_table_find(&g_RenderGraph->texture_map, key));
+  return hash_table_find(&g_RenderGraph->texture_map, key);
 }
 
 template <typename T>
@@ -296,7 +296,7 @@ rg_deref_buffer(T rg_descriptor)
   key.id             = rg_descriptor.m_ResourceId;
   key.temporal_frame = rg_get_temporal_frame(g_FrameId, rg_descriptor.m_TemporalLifetime, rg_descriptor.m_TemporalFrame);
 
-  return unwrap(hash_table_find(&g_RenderGraph->buffer_map, key));
+  return hash_table_find(&g_RenderGraph->buffer_map, key);
 }
 
 RgPassBuilder* add_render_pass(
@@ -374,7 +374,7 @@ enum WriteBufferAccess : u32
   kWriteBufferUav,
 };
 
-constant u8 kInfiniteLifetime = 0xFF;
+static constexpr u8 kInfiniteLifetime = 0xFF;
 
 RgHandle<GpuTexture> rg_create_texture(
   RgBuilder* builder,
@@ -590,7 +590,7 @@ struct RgBuffer
     }
     else
     {
-      TransientResourceDesc* resource_desc = unwrap(hash_table_find(&builder->graph->resource_descs, buffer.id));
+      TransientResourceDesc* resource_desc = hash_table_find(&builder->graph->resource_descs, buffer.id);
       ASSERT(resource_desc->type == kResourceTypeBuffer);
       GpuBufferSrvDesc desc = {0};
       desc.first_element    = 0;
@@ -645,7 +645,7 @@ struct RgByteAddressBuffer
     }
     else
     {
-      TransientResourceDesc* resource_desc = unwrap(hash_table_find(&builder->graph->resource_descs, buffer.id));
+      TransientResourceDesc* resource_desc = hash_table_find(&builder->graph->resource_descs, buffer.id);
       ASSERT(resource_desc->type == kResourceTypeBuffer);
       GpuBufferSrvDesc srv = {0};
       srv.first_element    = 0;
@@ -700,7 +700,7 @@ struct RgConstantBuffer
     }
     else
     {
-      TransientResourceDesc* resource_desc = unwrap(hash_table_find(&builder->graph->resource_descs, buffer.id));
+      TransientResourceDesc* resource_desc = hash_table_find(&builder->graph->resource_descs, buffer.id);
       ASSERT(resource_desc->type == kResourceTypeBuffer);
       GpuBufferCbvDesc cbv = {0};
       cbv.buffer_offset    = 0;
@@ -754,7 +754,7 @@ struct RgRWBuffer
     }
     else
     {
-      TransientResourceDesc* resource_desc = unwrap(hash_table_find(&builder->graph->resource_descs, buffer->id));
+      TransientResourceDesc* resource_desc = hash_table_find(&builder->graph->resource_descs, buffer->id);
       ASSERT(resource_desc->type == kResourceTypeBuffer);
       GpuBufferUavDesc uav = {0};
       uav.first_element    = 0;
@@ -810,7 +810,7 @@ struct RgRWByteAddressBuffer
     }
     else
     {
-      TransientResourceDesc* resource_desc = unwrap(hash_table_find(&builder->graph->resource_descs, buffer->id));
+      TransientResourceDesc* resource_desc = hash_table_find(&builder->graph->resource_descs, buffer->id);
       ASSERT(resource_desc->type == kResourceTypeBuffer);
       GpuBufferUavDesc uav = {0};
       uav.first_element    = 0;
@@ -866,7 +866,7 @@ struct RgRWStructuredBuffer
     }
     else
     {
-      TransientResourceDesc* resource_desc = unwrap(hash_table_find(&builder->graph->resource_descs, buffer->id));
+      TransientResourceDesc* resource_desc = hash_table_find(&builder->graph->resource_descs, buffer->id);
       ASSERT(resource_desc->type == kResourceTypeBuffer);
       GpuBufferUavDesc uav = {0};
       uav.first_element    = 0;
@@ -921,7 +921,7 @@ struct RgRWTexture2D
     }
     else
     {
-      TransientResourceDesc* resource_desc = unwrap(hash_table_find(&builder->graph->resource_descs, texture->id));
+      TransientResourceDesc* resource_desc = hash_table_find(&builder->graph->resource_descs, texture->id);
       ASSERT(resource_desc->type == kResourceTypeTexture);
       GpuTextureUavDesc uav = {0};
       uav.array_size        = 1;
@@ -973,7 +973,7 @@ struct RgRWTexture2DArray
     }
     else
     {
-      TransientResourceDesc* resource_desc = unwrap(hash_table_find(&builder->graph->resource_descs, texture->id));
+      TransientResourceDesc* resource_desc = hash_table_find(&builder->graph->resource_descs, texture->id);
       ASSERT(resource_desc->type == kResourceTypeTexture);
       GpuTextureUavDesc uav = {0};
       uav.array_size        = resource_desc->texture_desc.array_size;
@@ -1026,7 +1026,7 @@ struct RgStructuredBuffer
     }
     else
     {
-      TransientResourceDesc* resource_desc = unwrap(hash_table_find(&builder->graph->resource_descs, buffer.id));
+      TransientResourceDesc* resource_desc = hash_table_find(&builder->graph->resource_descs, buffer.id);
       ASSERT(resource_desc->type == kResourceTypeBuffer);
       GpuBufferSrvDesc srv = {0};
       srv.first_element    = 0;
@@ -1081,7 +1081,7 @@ struct RgTexture2D
     }
     else
     {
-      TransientResourceDesc* resource_desc = unwrap(hash_table_find(&builder->graph->resource_descs, texture.id));
+      TransientResourceDesc* resource_desc = hash_table_find(&builder->graph->resource_descs, texture.id);
       ASSERT(resource_desc->type == kResourceTypeTexture);
       GpuTextureSrvDesc srv = {0};
       srv.mip_levels        = 1;
@@ -1136,7 +1136,7 @@ struct RgTexture2DArray
     }
     else
     {
-      TransientResourceDesc* resource_desc = unwrap(hash_table_find(&builder->graph->resource_descs, texture.id));
+      TransientResourceDesc* resource_desc = hash_table_find(&builder->graph->resource_descs, texture.id);
       ASSERT(resource_desc->type == kResourceTypeTexture);
       GpuTextureSrvDesc srv = {0};
       srv.mip_levels        = 1;

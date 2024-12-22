@@ -2,6 +2,18 @@
 #include "Core/Foundation/filesystem.h"
 #include <windows.h>
 
+const char*
+file_error_to_str(FileError err)
+{
+  switch (err)
+  {
+    case kFileOk:             return "Ok";
+    case kFileFailedToCreate: return "Failed to create file";
+    case kFileDoesNotExist:   return "File does not exist";
+    default: UNREACHABLE;
+  }
+}
+
 Result<FileStream, FileError>
 create_file(const char* path, FileCreateFlags flags)
 {

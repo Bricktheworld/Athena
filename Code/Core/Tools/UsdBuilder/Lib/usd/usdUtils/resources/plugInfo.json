@@ -1,0 +1,21 @@
+{
+    "Plugins": [
+        {
+            "Info": {
+                "Validators": {
+                    "PackageEncapsulationValidator": {
+                        "doc": "If the root layer is a package, then its recommended for the composed stage to not contain references to files outside the package. The package should be self-contained, warn if not."
+                    },
+                    "keywords": [
+                        "UsdUtilsValidators"
+                    ]
+                }
+            },
+            "LibraryPath": "../../usd_usdUtils.dll",
+            "Name": "usdUtils",
+            "ResourcePath": "resources",
+            "Root": "..",
+            "Type": "library"
+        }
+    ]
+}

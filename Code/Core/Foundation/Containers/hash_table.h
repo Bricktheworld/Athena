@@ -293,12 +293,12 @@ hash_table_find(const HashTable<K, V>* table, const K& key)
     // If there is at least one non-empty element, then that means that the hash _had_
     // a place to go, but there obviously isn't one.
     if (empty_mask != 0)
-      return None;
+      return nullptr;
 
     group_index = (group_index + 1) % table->groups_size;
   } while (group_index != start_index);
 
-  return None;
+  return nullptr;
 }
 
 template <typename K, typename V>

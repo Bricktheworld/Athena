@@ -19,7 +19,7 @@ struct ReadGBuffer
   RgTexture2D<float>  depth;
 };
 
-constant u32 kGBufferReadCount = 5;
+static constexpr u32 kGBufferReadCount = 5;
 
 GBuffer     init_gbuffer(RgBuilder* builder);
 void        init_gbuffer_static(AllocHeap heap, RgBuilder* builder, GBuffer* gbuffer);

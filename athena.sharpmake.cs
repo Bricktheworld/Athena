@@ -36,7 +36,6 @@ namespace Athena
       conf.ProjectPath = @"[project.SharpmakeCsPath]\VS\[project.Name]";
       conf.Options.Add(Options.Vc.Compiler.CppLanguageStandard.CPP20);
       conf.Options.Add(Options.Vc.Compiler.Exceptions.Disable);
-      conf.Options.Add(Options.Vc.General.TreatWarningsAsErrors.Enable);
       conf.Options.Add(Options.Vc.Linker.CreateHotPatchableImage.Enable);
       conf.Options.Add(Options.Vc.Linker.EnableCOMDATFolding.DoNotRemoveRedundantCOMDATs);
       conf.Options.Add(Options.Vc.Linker.GenerateDebugInformation.Enable);
@@ -68,6 +67,13 @@ namespace Athena
     public AthenaRuntimeProject()
     {
       BuiltShaderHeaders = new Strings();
+    }
+
+    [Configure]
+    public override void ConfigureAll(Project.Configuration conf, Target target)
+    {
+      base.ConfigureAll(conf, target);
+      conf.Options.Add(Options.Vc.General.TreatWarningsAsErrors.Enable);
     }
   }
 
@@ -198,6 +204,7 @@ namespace Athena
       base.ConfigureAll(conf, target);
       conf.Defines.Add("FOUNDATION_EXPORT");
       conf.IncludePaths.Add(@"[project.SourceRootPath]\..\..\");
+      conf.Options.Add(Options.Vc.General.TreatWarningsAsErrors.Enable);
       conf.Output = Configuration.OutputType.Dll;
     }
   }
@@ -324,6 +331,12 @@ namespace Athena
       conf.AddPublicDependency<FoundationProject>(target);
       conf.IncludePaths.Add(@"[project.SourceRootPath]\Vendor");
       conf.IncludePaths.Add(@"[project.SourceRootPath]\Vendor\TinyUsd");
+      var copy_usd_folder = new Configuration.BuildStepCopy(
+        @"[project.SourceRootPath]\Lib\usd",
+        @"output\[target.Platform]\[target.Optimization]\usd"
+      );
+      copy_usd_folder.Mirror = true;
+      conf.EventPostBuildExe.Add(copy_usd_folder);
       if (target.Optimization == Optimization.Debug)
       {
         conf.LibraryFiles.Add(@"[project.SourceRootPath]\Lib\TinyUsd\Debug\tinyusdz_static.lib");

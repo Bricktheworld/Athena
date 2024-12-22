@@ -19,6 +19,9 @@ enum FileError
   kFileDoesNotExist,
 };
 
+FOUNDATION_API const char* file_error_to_str(FileError err);
+
+
 FOUNDATION_API Result<FileStream, FileError> create_file(const char* path, FileCreateFlags flags);
 FOUNDATION_API Result<FileStream, FileError> open_file(const char* path);
 FOUNDATION_API void close_file(FileStream* file_stream);

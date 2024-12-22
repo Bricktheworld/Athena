@@ -6,7 +6,7 @@
 
 #include "Core/Engine/Vendor/imgui/imgui_impl_dx12.h"
 
-constant u32 kMaxTemporalLifetime = 3;
+static constexpr u32 kMaxTemporalLifetime = 3;
 
 #if defined(RENDER_GRAPH_VERBOSE)
 #define RG_DBGLN(...) dbgln(__VA_ARGS__)
@@ -529,7 +529,7 @@ init_physical_descriptors(
 
         if (desc.handle.type == kResourceTypeBuffer)
         {
-          const GpuBuffer* buffer = unwrap(hash_table_find(&resource_map.buffers, resource_key));
+          const GpuBuffer* buffer = hash_table_find(&resource_map.buffers, resource_key);
           if (desc.descriptor_type == kDescriptorTypeUav)
           {
             *dst = alloc_descriptor(&descriptor_heap->cbv_srv_uav);
@@ -539,7 +539,7 @@ init_physical_descriptors(
         }
         else if(desc.handle.type == kResourceTypeTexture)
         {
-          const GpuTexture* texture = unwrap(hash_table_find(&resource_map.textures, resource_key));
+          const GpuTexture* texture = hash_table_find(&resource_map.textures, resource_key);
           if (desc.descriptor_type == kDescriptorTypeUav)
           {
             *dst = alloc_descriptor(&descriptor_heap->cbv_srv_uav);
@@ -720,7 +720,7 @@ init_dependency_barriers(
         key.id                    = data.handle.id;
         key.temporal_frame        = data.temporal_frame;
 
-        ResourceStates* states    = unwrap(hash_table_find(&resource_states, key));
+        ResourceStates* states    = hash_table_find(&resource_states, key);
 
         if (!states->touched)
         {
@@ -737,7 +737,7 @@ init_dependency_barriers(
         key.id                    = data.handle.id;
         key.temporal_frame        = 0;
 
-        ResourceStates* states    = unwrap(hash_table_find(&resource_states, key));
+        ResourceStates* states    = hash_table_find(&resource_states, key);
         states->current           = get_d3d12_resource_state(data);
         states->touched           = true;
       }
@@ -752,7 +752,7 @@ init_dependency_barriers(
         key.id                    = handle.id;
         key.temporal_frame        = temporal_frame;
 
-        ResourceStates* states    = unwrap(hash_table_find(&resource_states, key));
+        ResourceStates* states    = hash_table_find(&resource_states, key);
   
         if (states->history != states->current)
         {
@@ -790,7 +790,7 @@ init_dependency_barriers(
       key.id                    = handle.id;
       key.temporal_frame        = temporal_frame;
 
-      ResourceStates* states    = unwrap(hash_table_find(&resource_states, key));
+      ResourceStates* states    = hash_table_find(&resource_states, key);
       if (states->history == D3D12_RESOURCE_STATE_COMMON)
         continue;
       
@@ -1008,12 +1008,12 @@ get_d3d12_resource_barrier(const RenderGraph* graph, const RgResourceBarrier& ba
       ID3D12Resource* d3d12_resource = nullptr;
       if (barrier.transition.resource_type == kResourceTypeTexture)
       {
-        GpuTexture* texture = unwrap(hash_table_find(&graph->texture_map, key));
+        GpuTexture* texture = hash_table_find(&graph->texture_map, key);
         d3d12_resource      = texture->d3d12_texture;
       }
       else if (barrier.transition.resource_type == kResourceTypeBuffer)
       {
-        GpuBuffer* buffer = unwrap(hash_table_find(&graph->buffer_map, key));
+        GpuBuffer* buffer = hash_table_find(&graph->buffer_map, key);
         d3d12_resource    = buffer->d3d12_buffer;
       } else { UNREACHABLE; }
 
@@ -1033,12 +1033,12 @@ get_d3d12_resource_barrier(const RenderGraph* graph, const RgResourceBarrier& ba
       ID3D12Resource* d3d12_resource = nullptr;
       if (barrier.uav.resource_type == kResourceTypeTexture)
       {
-        GpuTexture* texture = unwrap(hash_table_find(&graph->texture_map, key));
+        GpuTexture* texture = hash_table_find(&graph->texture_map, key);
         d3d12_resource      = texture->d3d12_texture;
       }
       else if (barrier.uav.resource_type == kResourceTypeBuffer)
       {
-        GpuBuffer* buffer = unwrap(hash_table_find(&graph->buffer_map, key));
+        GpuBuffer* buffer = hash_table_find(&graph->buffer_map, key);
         d3d12_resource    = buffer->d3d12_buffer;
       } else { UNREACHABLE; }
 
@@ -1582,7 +1582,7 @@ rg_deref_buffer<RgIndexBuffer>(RgIndexBuffer rg_descriptor)
   key.id             = rg_descriptor.m_ResourceId;
   key.temporal_frame = rg_get_temporal_frame(g_FrameId, 0, 0);
 
-  return unwrap(hash_table_find(&g_RenderGraph->buffer_map, key));
+  return hash_table_find(&g_RenderGraph->buffer_map, key);
 }
 
 template <>
@@ -1593,7 +1593,7 @@ rg_deref_buffer<RgVertexBuffer>(RgVertexBuffer rg_descriptor)
   key.id             = rg_descriptor.m_ResourceId;
   key.temporal_frame = rg_get_temporal_frame(g_FrameId, 0, 0);
 
-  return unwrap(hash_table_find(&g_RenderGraph->buffer_map, key));
+  return hash_table_find(&g_RenderGraph->buffer_map, key);
 }
 
 template <>
@@ -1604,7 +1604,7 @@ rg_deref_buffer<RgCpuUploadBuffer>(RgCpuUploadBuffer rg_descriptor)
   key.id             = rg_descriptor.m_ResourceId;
   key.temporal_frame = rg_get_temporal_frame(g_FrameId, rg_descriptor.m_TemporalLifetime, 0);
 
-  return unwrap(hash_table_find(&g_RenderGraph->buffer_map, key));
+  return hash_table_find(&g_RenderGraph->buffer_map, key);
 }
 
 void

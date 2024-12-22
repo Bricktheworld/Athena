@@ -8,9 +8,9 @@
 #include "Core/Engine/Shaders/interlop.hlsli"
 #include "Core/Engine/Generated/shader_table.h"
 
-constant D3D12_COMPARISON_FUNC kDepthComparison = D3D12_COMPARISON_FUNC_GREATER;
+static constexpr D3D12_COMPARISON_FUNC kDepthComparison = D3D12_COMPARISON_FUNC_GREATER;
 
-constant f32 kZNear = 0.1f;
+static constexpr f32 kZNear = 0.1f;
 
 struct ShaderManager;
 extern ShaderManager* g_ShaderManager;
