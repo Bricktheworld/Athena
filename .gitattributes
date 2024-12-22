@@ -61,3 +61,7 @@
 Bin/** linguist-vendored
 Code/Core/Tools/UsdBuilder/Lib/TinyUsd/tinyusdz_static.lib filter=lfs diff=lfs merge=lfs -text
 Code/Core/Tools/UsdBuilder/Lib/TinyUsd/tinyusdz_static.pdb filter=lfs diff=lfs merge=lfs -text
+Code/Core/Tools/UsdBuilder/Lib/TinyUsd/Release/tinyusdz_static.pdb filter=lfs diff=lfs merge=lfs -text
+Code/Core/Tools/UsdBuilder/Lib/TinyUsd/Release/tinyusdz_static.lib filter=lfs diff=lfs merge=lfs -text
+Code/Core/Tools/UsdBuilder/Lib/TinyUsd/Debug/tinyusdz_static.lib filter=lfs diff=lfs merge=lfs -text
+Code/Core/Tools/UsdBuilder/Lib/TinyUsd/Debug/tinyusdz_static.pdb filter=lfs diff=lfs merge=lfs -text

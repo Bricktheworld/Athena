@@ -1,6 +1,7 @@
 #pragma once
 #include <stdint.h>
 #include <stdio.h>
+#define NOMINMAX
 #include <windows.h>
 #include <immintrin.h>
 #include <intrin.h>
@@ -233,6 +234,7 @@ FOUNDATION_API void print_backtrace();
 #else
 #define DEBUG_BREAK() do { } while(0)
 #define ASSERT(expr) do { if (expr) { } } while(0)
+#define ASSERT_MSG_FATAL(expr, msg, ...) do { if (expr) { } } while(0)
 #define HASSERT(hres) hres
 #endif
 

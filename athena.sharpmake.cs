@@ -323,6 +323,15 @@ namespace Athena
       conf.Output = Configuration.OutputType.Exe;
       conf.AddPublicDependency<FoundationProject>(target);
       conf.IncludePaths.Add(@"[project.SourceRootPath]\Vendor");
+      conf.IncludePaths.Add(@"[project.SourceRootPath]\Vendor\TinyUsd");
+      if (target.Optimization == Optimization.Debug)
+      {
+        conf.LibraryFiles.Add(@"[project.SourceRootPath]\Lib\TinyUsd\Debug\tinyusdz_static.lib");
+      }
+      else if (target.Optimization == Optimization.Release)
+      {
+        conf.LibraryFiles.Add(@"[project.SourceRootPath]\Lib\TinyUsd\Release\tinyusdz_static.lib");
+      }
     }
   }
 
