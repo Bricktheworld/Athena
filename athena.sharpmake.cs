@@ -327,6 +327,8 @@ namespace Athena
       if (target.Optimization == Optimization.Debug)
       {
         conf.LibraryFiles.Add(@"[project.SourceRootPath]\Lib\TinyUsd\Debug\tinyusdz_static.lib");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\TinyUsd\Debug\tinyusdz_static.pdb");
+
         conf.LibraryFiles.Add(@"[project.SourceRootPath]\Lib\Debug\MaterialXCore.lib");
         conf.LibraryFiles.Add(@"[project.SourceRootPath]\Lib\Debug\MaterialXFormat.lib");
         conf.LibraryFiles.Add(@"[project.SourceRootPath]\Lib\Debug\MaterialXGenGlsl.lib");
@@ -469,10 +471,70 @@ namespace Athena
         conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_usdVolImaging.dll");
         conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_vt.dll");
         conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_work.dll");
+
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_ar.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_arch.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_cameraUtil.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_garch.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_geomUtil.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_gf.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_glf.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_hd.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_hdar.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_hdGp.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_hdMtlx.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_hdsi.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_hdSt.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_hdx.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_hf.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_hgi.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_hgiGL.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_hgiInterop.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_hio.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_js.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_kind.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_ndr.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_pcp.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_pegtl.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_plug.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_pxOsd.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_sdf.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_sdr.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_tf.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_trace.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_ts.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_usd.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_usdAppUtils.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_usdBakeMtlx.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_usdGeom.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_usdHydra.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_usdImaging.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_usdImagingGL.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_usdLux.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_usdMedia.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_usdMtlx.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_usdPhysics.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_usdProc.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_usdProcImaging.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_usdRender.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_usdRi.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_usdRiPxrImaging.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_usdSemantics.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_usdShade.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_usdSkel.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_usdSkelImaging.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_usdUI.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_usdUtils.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_usdVol.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_usdVolImaging.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_vt.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_work.pdb");
       }
       else if (target.Optimization == Optimization.Release)
       {
         conf.LibraryFiles.Add(@"[project.SourceRootPath]\Lib\TinyUsd\Release\tinyusdz_static.lib");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\TinyUsd\Release\tinyusdz_static.pdb");
+
         conf.LibraryFiles.Add(@"[project.SourceRootPath]\Lib\Release\MaterialXCore.lib");
         conf.LibraryFiles.Add(@"[project.SourceRootPath]\Lib\Release\MaterialXFormat.lib");
         conf.LibraryFiles.Add(@"[project.SourceRootPath]\Lib\Release\MaterialXGenGlsl.lib");
