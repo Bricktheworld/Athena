@@ -11,6 +11,11 @@ Features:
 
 [Video demo](https://www.youtube.com/watch?v=05GTN8YapZE)
 
+# Requirements
+- Git LFS
+- Visual Studio 2022
+- x64 capable machine on windows 10 or higher
+
 # Setup
 
 1. Run `setup.bat` from the root directory
