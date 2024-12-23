@@ -51,17 +51,17 @@ load_model(AllocHeap heap, const void* buffer, size_t size, ModelData* out_model
     return AssetLoadResult::kErrCorrupted;
   }
 
-  ModelAsset::ModelSubset* mesh_insts  = (ModelAsset::ModelSubset*)(buf + model_asset->model_subsets);
+  ModelAsset::ModelSubset* model_subsets  = (ModelAsset::ModelSubset*)(buf + model_asset->model_subsets);
 
   expected_size += sizeof(ModelAsset::ModelSubset) * model_asset->num_model_subsets;
   VALIDATE_ASSET_SIZE(size, expected_size);
 
-  out_model->mesh_insts = init_array<MeshInstData>(heap, model_asset->num_model_subsets);
+  out_model->model_subsets = init_array<ModelSubsetData>(heap, model_asset->num_model_subsets);
 
   for (u32 imesh_inst = 0; imesh_inst < model_asset->num_model_subsets; imesh_inst++)
   {
-    ModelAsset::ModelSubset* src = mesh_insts + imesh_inst;
-    MeshInstData* dst = array_add(&out_model->mesh_insts);
+    ModelAsset::ModelSubset* src = model_subsets + imesh_inst;
+    ModelSubsetData* dst = array_add(&out_model->model_subsets);
 
     u64 vertex_buffer_size = src->num_vertices * sizeof(VertexAsset);
     u64 index_buffer_size  = src->num_indices  * sizeof(u32);
@@ -83,10 +83,10 @@ load_model(AllocHeap heap, const void* buffer, size_t size, ModelData* out_model
 void
 dump_model_info(const ModelData& model)
 {
-  dbgln("Model: %lu mesh insts", model.mesh_insts.size);
-  for (u32 imesh_inst = 0; imesh_inst < model.mesh_insts.size; imesh_inst++)
+  dbgln("Model: %lu mesh insts", model.model_subsets.size);
+  for (u32 imesh_inst = 0; imesh_inst < model.model_subsets.size; imesh_inst++)
   {
-    const MeshInstData* mesh_inst = &model.mesh_insts[imesh_inst];
+    const ModelSubsetData* mesh_inst = &model.model_subsets[imesh_inst];
     dbgln(
       "\tMeshInst[%lu]: %lu vertices, %lu indices ",
       imesh_inst,

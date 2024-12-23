@@ -29,3 +29,4 @@ FOUNDATION_API void close_file(FileStream* file_stream);
 FOUNDATION_API check_return bool write_file(FileStream file_stream, const void* src, u64 size);
 FOUNDATION_API check_return bool read_file(FileStream file_stream, void* dst, u64 size);
 FOUNDATION_API u64 get_file_size(FileStream file_stream);
+FOUNDATION_API u32 get_parent_dir(const char* path, u32 len);

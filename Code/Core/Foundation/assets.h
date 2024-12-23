@@ -3,6 +3,7 @@
 #include "Core/Foundation/math.h"
 #include "Core/Foundation/hash.h"
 #include "Core/Foundation/filesystem.h"
+#include "Core/Foundation/colors.h"
 
 #include "Core/Foundation/Containers/array.h"
 
@@ -18,10 +19,14 @@ static_assert(sizeof(VertexAsset) == sizeof(f32) * 8);
 // Asset ID is a CRC32 hash of asset path...
 typedef u32 AssetId;
 
+static constexpr u32 kNullAssetId = 0x00000000;
+
+static constexpr u32 kMaxPathLength = 512;
+
 template <typename T>
 using AssetRef = AssetId;
 
-static constexpr const u32 kAssetMagicNumber = CRC32_STR("ATHENA_ASSET");
+static constexpr u32 kAssetMagicNumber = CRC32_STR("ATHENA_ASSET");
 
 // The path is relative to the project root directory, so should be something like
 // Assets/Source/model.fbx
@@ -71,7 +76,22 @@ FOUNDATION_API Result<FileStream, FileError> open_built_asset_file(AssetId asset
 
 enum struct TextureFormat : u32
 {
+  kRGBA8Unorm,
+  kRGB10A2Unorm,
+  kRGBA16Float,
 };
+
+inline const char*
+texture_format_to_str(TextureFormat format)
+{
+  switch(format)
+  {
+    case TextureFormat::kRGBA8Unorm:   return "RGBA8Unorm";
+    case TextureFormat::kRGB10A2Unorm: return "RGB10A2Unorm";
+    case TextureFormat::kRGBA16Float:  return "RGBA16Float";
+    default: UNREACHABLE;
+  }
+}
 
 enum struct ShaderType : u32
 {
@@ -85,7 +105,7 @@ enum struct AssetType : u32
   kModel,
   kTexture,
   kShader,
-  KMaterial,
+  kMaterial,
 
   kCount,
 
@@ -93,7 +113,7 @@ enum struct AssetType : u32
 };
 
 
-struct MeshInstData
+struct ModelSubsetData
 {
   Array<VertexAsset> vertices;
   Array<u32>         indices;
@@ -101,7 +121,7 @@ struct MeshInstData
 
 struct ModelData
 {
-  Array<MeshInstData> mesh_insts;
+  Array<ModelSubsetData> model_subsets;
 };
 
 enum struct AssetLoadResult : u32
@@ -133,11 +153,14 @@ ASSERT_SERIALIZABLE(AssetMetadata);
 
 struct TextureAsset
 {
-  AssetMetadata metadata;
-  TextureFormat format;
-  u32           __pad0__;
-  u64           size;
-  OffsetPtr<u8> data;
+  AssetMetadata  metadata;
+  TextureFormat  format;
+  ColorSpaceName color_space;
+  u32            width;
+  u32            height;
+  u32            compressed_size;
+  u32            uncompressed_size;
+  OffsetPtr<u8>  data;
 };
 ASSERT_SERIALIZABLE(TextureAsset);
 
@@ -166,7 +189,7 @@ struct MaterialAsset
 ASSERT_SERIALIZABLE(MaterialAsset);
 
 
-// Every model consists of multiple mesh instances (MeshInst) that each hold their own
+// Every model consists of multiple model subsets (ModelSubset) that each hold their own
 // material/vertex/index data. This is so that from DCC you can export a single "model"
 // that the engine will then de-construct into mesh instances that can be rendered separately.
 struct ModelAsset
@@ -189,7 +212,5 @@ struct ModelAsset
   AssetMetadata          metadata;
   u64                    num_model_subsets;
   OffsetPtr<ModelSubset> model_subsets;
-//  u64                 name_len;
-//  OffsetPtr<char>     name;
 };
 ASSERT_SERIALIZABLE(ModelAsset);

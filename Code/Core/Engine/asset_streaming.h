@@ -39,6 +39,35 @@ struct AssetGpuLoadRequest
   };
 };
 
+struct TextureDesc
+{
+  u32        width  = 0;
+  u32        height = 0;
+  GpuFormat  format = kGpuFormatUnknown;
+  GpuTexture gpu;
+};
+
+struct ModelDesc
+{
+};
+
+struct MaterialDesc
+{
+  u32 num_textures = 0;
+};
+
+struct AssetDesc
+{
+  AssetType type = AssetType::kModel;
+  union
+  {
+    ModelDesc    model;
+    TextureDesc  texture;
+    MaterialDesc material;
+    GpuShader    shader;
+  };
+};
+
 
 struct GpuStreamDevice
 {
@@ -55,6 +84,8 @@ enum AssetState
   kAssetStreaming,
   kAssetUninitialized,
   kAssetReady,
+  kAssetFailedToLoad,
+  kAssetFailedToInitialize,
 };
 
 struct AssetLoader
@@ -63,16 +94,16 @@ struct AssetLoader
   HashTable<AssetId, AssetState> asset_states;
 };
 
-enum AssetLoadResult
+enum GpuStreamResult
 {
-  kAssetLoadOk,
-  kAssetLoadFailedToOpenFile,
+  kGpuStreamOk,
+  kGpuStreamFailedToOpenFile,
 };
 
 void init_gpu_stream_device(void);
 void destroy_gpu_stream_device(void);
 void submit_gpu_stream_requests(void);
-AssetLoadResult request_gpu_stream_asset(const AssetGpuLoadRequest& request);
+GpuStreamResult request_gpu_stream_asset(const AssetGpuLoadRequest& request);
 
 void init_asset_loader(void);
 void load_asset(AssetId asset_id);

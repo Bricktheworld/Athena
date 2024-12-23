@@ -340,10 +340,10 @@ static RenderModel
 init_render_model(AllocHeap heap, const ModelData& model)
 {
   RenderModel ret = {0};
-  ret.mesh_insts = init_array<RenderMeshInst>(heap, model.mesh_insts.size);
-  for (u32 imesh_inst = 0; imesh_inst < model.mesh_insts.size; imesh_inst++)
+  ret.mesh_insts = init_array<RenderMeshInst>(heap, model.model_subsets.size);
+  for (u32 imesh_inst = 0; imesh_inst < model.model_subsets.size; imesh_inst++)
   {
-    const MeshInstData* src = &model.mesh_insts[imesh_inst];
+    const ModelSubsetData* src = &model.model_subsets[imesh_inst];
     RenderMeshInst* dst = array_add(&ret.mesh_insts);
 
     reset_linear_allocator(&g_UploadContext.cpu_upload_arena);

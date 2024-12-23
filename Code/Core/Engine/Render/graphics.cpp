@@ -1,9 +1,9 @@
 #include "Core/Foundation/context.h"
+#include "Core/Foundation/colors.h"
 
 #include "Core/Engine/memory.h"
 #include "Core/Engine/job_system.h"
 #include "Core/Engine/Render/graphics.h"
-#include "Core/Engine/Render/colors.h"
 #include "Core/Engine/Render/frame_time.h"
 
 #include "Core/Engine/Vendor/imgui/imgui.h"
@@ -207,7 +207,7 @@ inc_fence(GpuFence* fence)
 static FenceValue
 poll_fence_value(GpuFence* fence)
 {
-  fence->last_completed_value = max(fence->last_completed_value, fence->d3d12_fence->GetCompletedValue());
+  fence->last_completed_value = MAX(fence->last_completed_value, fence->d3d12_fence->GetCompletedValue());
   return fence->last_completed_value;
 }
 

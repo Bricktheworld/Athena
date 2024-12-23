@@ -214,6 +214,9 @@ application_entry(HINSTANCE instance, int show_code)
   init_graphics_device(window);
   defer { destroy_graphics_device(); };
 
+  init_gpu_stream_device();
+  defer { destroy_gpu_stream_device(); };
+
   init_asset_loader();
   defer { destroy_asset_loader(); };
 

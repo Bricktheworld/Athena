@@ -100,3 +100,18 @@ get_file_size(FileStream file_stream)
 
   return ret.QuadPart;
 }
+
+u32
+get_parent_dir(const char* path, u32 len)
+{
+  ASSERT_MSG_FATAL(len >= 1, "Path length must be greater than 0");
+  for (u32 i = len - 1; i > 0; i--)
+  {
+    if (path[i] == '/' || path[i] == '\\')
+    {
+      return i + 1;
+    }
+  }
+
+  return len;
+}
