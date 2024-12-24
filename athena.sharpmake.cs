@@ -488,6 +488,16 @@ namespace Athena
         conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_usdVolImaging.dll");
         conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_vt.dll");
         conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_work.dll");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\tbb.dll");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\tbbbind.dll");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\tbbbind_debug.dll");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\tbbmalloc.dll");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\tbbmalloc_debug.dll");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\tbbmalloc_proxy.dll");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\tbbmalloc_proxy_debug.dll");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\tbb_debug.dll");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\tbb_preview.dll");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\tbb_preview_debug.dll");
 
         conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_ar.pdb");
         conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_arch.pdb");
@@ -546,6 +556,16 @@ namespace Athena
         conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_usdVolImaging.pdb");
         conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_vt.pdb");
         conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\usd_work.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\tbb.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\tbbbind.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\tbbbind_debug.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\tbbmalloc.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\tbbmalloc_debug.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\tbbmalloc_proxy.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\tbbmalloc_proxy_debug.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\tbb_debug.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\tbb_preview.pdb");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\tbb_preview_debug.pdb");
       }
       else if (target.Optimization == Optimization.Release)
       {
