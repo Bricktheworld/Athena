@@ -11,12 +11,12 @@
 #pragma warning(disable:4305)
 #endif
 
-#include "pxr/base/tf/weakBase.h"
-#include "pxr/base/tf/weakPtr.h"
-#include "pxr/usd/usd/notice.h"
-#include "pxr/usd/usd/prim.h"
-#include "pxr/usd/usd/stage.h"
-#include "pxr/usd/usdGeom/xformable.h"
+#include <pxr/base/tf/weakBase.h>
+#include <pxr/base/tf/weakPtr.h>
+#include <pxr/usd/usd/notice.h>
+#include <pxr/usd/usd/prim.h>
+#include <pxr/usd/usd/stage.h>
+#include <pxr/usd/usdGeom/xformable.h>
 
 PXR_NAMESPACE_USING_DIRECTIVE
 

@@ -1,7 +1,7 @@
 using Sharpmake;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Collections.Generic;
 using System.Text.RegularExpressions;
 
 namespace Athena
@@ -39,6 +39,8 @@ namespace Athena
       conf.Options.Add(Options.Vc.Linker.CreateHotPatchableImage.Enable);
       conf.Options.Add(Options.Vc.Linker.EnableCOMDATFolding.DoNotRemoveRedundantCOMDATs);
       conf.Options.Add(Options.Vc.Linker.GenerateDebugInformation.Enable);
+      conf.Options.Add(Options.Vc.General.ExternalWarningLevel.Level0);
+      conf.Options.Add(Options.Vc.General.TreatAngleIncludeAsExternal.Enable);
       conf.Options.Add(
         new Options.Vc.Compiler.DisableSpecificWarnings(
           "4201", // Nonstandard extension used: nameless struct/union
