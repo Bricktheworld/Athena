@@ -1,4 +1,5 @@
-#include "Core/Foundation/types.h" 
+#include "Core/Foundation/types.h"
+#include "Core/Tools/AssetBuilder/model_importer.h"
 
 #include "tinyusdz.hh"
 #include "pprinter.hh"
@@ -15,10 +16,15 @@
 #include "pxr/base/tf/weakPtr.h"
 #include "pxr/usd/usd/notice.h"
 #include "pxr/usd/usd/prim.h"
+#include "pxr/usd/usd/primRange.h"
 #include "pxr/usd/usd/stage.h"
 #include "pxr/usd/usdGeom/xformable.h"
+#include "pxr/usd/usdGeom/xform.h"
+#include "pxr/usd/usdGeom/mesh.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
+
+
 
 class SceneProxy : public TfWeakBase         // in order to register for Tf events
 {
@@ -112,16 +118,102 @@ void SceneProxy::save_stage()
     stage->GetRootLayer()->Save();
 }
 
+bool load_single_model(std::string const& filePath, std::string const& relativePath)
+{
+  UsdStageRefPtr loadedStage = UsdStage::Open(filePath);
+
+  if (loadedStage)
+  {
+    for (const UsdPrim& p : loadedStage->Traverse())
+    {
+      if (p.IsA<UsdGeomMesh>()) // Check if we are loading in a model that has a transform node
+      {
+        UsdGeomMesh mesh = UsdGeomMesh(p);
+        /*
+        VtArray<int> faceVertexCounts;
+        if (mesh.GetFaceVertexCountsAttr().Get(&faceVertexCounts))
+        {
+          bool flag = false;
+          for (int x : faceVertexCounts)
+          {
+            if (x != 3)
+            {
+              flag = true;
+              break;
+            }
+          }
+          if (flag) // Mesh has a face that isn't a triangle, abort
+          {
+            printf("ERROR: Model isn't fully triangulated\n");
+            return false;
+          }
+        }
+        asset_builder::ImportedModel usd_model;
+        asset_builder::ImportedModelSubset usd_mesh;
+        usd_model.hash = path_to_asset_id(relativePath.c_str());
+        relativePath.copy(usd_model.path, relativePath.size());
+        usd_model.num_model_subsets = 1;
+        usd_model.model_subsets = &usd_mesh;
+
+        /*
+        VtArray<GfVec3f> points;
+        std::vector<VertexAsset> tempPoints;
+        if (mesh.GetPointsAttr().Get(&points))
+        {
+          usd_mesh.num_vertices = points.size();
+          for (const GfVec3f& point : points)
+          {
+            VertexAsset vert;
+            vert.position = Vec3(point[0], point[1], point[2]); // TODO fill in uv's/normals here, and duplicate verts
+            tempPoints.push_back(vert); // TODO duplicate verts to have uv's on a per face basis
+          }
+          usd_mesh.vertices = tempPoints.data();
+          printf("Mesh has %d points", points.size());
+        }
+        else
+        {
+          printf("ERROR: %s mesh is missing points from its USD file\n", relativePath);
+        }
+
+        VtArray<int> mesh_indices;
+        std::vector<u32> tempIndices;
+        if (mesh.GetFaceVertexIndicesAttr().Get(&mesh_indices))
+        {
+          usd_mesh.num_indices = mesh_indices.size();
+          for (const int& index : mesh_indices)
+          {
+            tempIndices.push_back(index);
+          }
+          usd_mesh.indices = tempIndices.data();
+        }
+        else
+        {
+          printf("ERROR: %s mesh is missing index buffer in its USD file\n", relativePath);
+        }
+        */
+        return true;
+      }
+    }
+    return true;
+  }
+  else
+  {
+    printf("ERROR: Model was not loaded\n");
+  }
+
+  return false;
+}
+
 
 // UsdBuilder.exe <input_path> <project_root_dir>
 int main(int argc, const char** argv)
 {
-  SceneProxy scene;
-  scene.create_new_stage("test.usda");
-  scene.save_stage();
+  //SceneProxy scene;
+  //scene.create_new_stage("test.usda");
+  //scene.save_stage();
 
-  SceneProxy scene2;
-  scene2.load_stage("test.usda");
+  //SceneProxy scene2;
+ // scene2.load_stage("test.usda");
 
   if (argc != 3)
   {
@@ -138,9 +230,15 @@ int main(int argc, const char** argv)
 
   std::string full_path    = project_root + "/" + input_path;
 
-  tinyusdz::Stage stage;
-  bool result = tinyusdz::LoadUSDAFromFile(full_path, &stage, nullptr, nullptr);
+  bool result = load_single_model(full_path, input_path);
 
+  //tinyusdz::Stage stage;
+  //bool result = tinyusdz::LoadUSDAFromFile(full_path, &stage, nullptr, nullptr);
+
+  // call write_model_to_asset(const char* project_root, const ImportedModel& model)
+  // ultimately create an ImportedModel
+  // 
+  
   printf("Successful %d\n", result);
 
   return 0;

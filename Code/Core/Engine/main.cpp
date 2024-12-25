@@ -246,6 +246,7 @@ application_entry(HINSTANCE instance, int show_code)
 
     AssetId sponza_model = ASSET_ID("Assets/Source/sponza/Sponza.gltf");
     auto sponza_built_file = open_built_asset_file(sponza_model);
+    // TODO test USD cube here // mfrieden
     ASSERT_MSG_FATAL(sponza_built_file, "Failed to load sponza file! Did you run the AssetBuilder? You should see file Assets/Built/0x%x.built", sponza_model);
     defer { close_file(&sponza_built_file.value()); };
 
