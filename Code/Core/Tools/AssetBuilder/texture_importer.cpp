@@ -41,7 +41,7 @@ asset_builder::import_texture(
     return false;
   }
 
-  u32 size = channels * width * height;
+  u32 size = 4 * width * height;
 
   out_imported_texture->hash              = asset_id;
   memcpy(out_imported_texture->path, path, strlen(path) + 1);
@@ -50,10 +50,9 @@ asset_builder::import_texture(
   out_imported_texture->height      = height;
   out_imported_texture->color_space = ColorSpaceName::kRec709;
   out_imported_texture->format      = TextureFormat::kRGBA8Unorm;
+  out_imported_texture->buf         = HEAP_ALLOC(u8, heap, size);
 
-  // TODO(bshihabi): Add texture compression (GDeflate?)
-  out_imported_texture->uncompressed_buf   = HEAP_ALLOC(u8, heap, size);
-  memcpy(out_imported_texture->uncompressed_buf, buf, size);
+  memcpy(out_imported_texture->buf, buf, size);
 
   stbi_image_free(buf);
 
@@ -148,7 +147,7 @@ asset_builder::write_texture_to_asset(
         buffer[offset + x * 4 + 3] = a;
       }
 #else
-      memcpy(buffer + offset, texture.uncompressed_buf + y * texture.width * 4, min_packed_row_pitch);
+      memcpy(buffer + offset, texture.buf + y * texture.width * 4, min_packed_row_pitch);
 #endif
       offset += dst_row_pitch_padded_bytes;
     }

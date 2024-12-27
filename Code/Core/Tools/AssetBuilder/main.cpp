@@ -66,7 +66,7 @@ build_asset(const char* model_path, const char* project_root)
     const asset_builder::ImportedMaterial* mat = imported_materials + imaterial;
     for (u32 itexture = 0; itexture < mat->num_textures; itexture++)
     {
-      reset_linear_allocator(&texture_allocator);
+      defer { reset_linear_allocator(&texture_allocator); };
       const char* texture_path = mat->texture_paths[itexture];
       if (texture_path[0] == 0)
       {
