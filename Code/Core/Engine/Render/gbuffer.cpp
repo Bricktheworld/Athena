@@ -1,11 +1,13 @@
 #include "Core/Foundation/math.h"
 
+#include "Core/Engine/asset_streaming.h"
 #include "Core/Engine/memory.h"
 #include "Core/Engine/Render/renderer.h"
 #include "Core/Engine/Render/gbuffer.h"
 #include "Core/Engine/Render/render_graph.h"
 
 #include "Core/Engine/Shaders/interlop.hlsli"
+
 
 GBuffer
 init_gbuffer(RgBuilder* builder)
@@ -69,13 +71,44 @@ render_handler_gbuffer_static(RenderContext* ctx, const void* data)
 
   ctx->ia_set_index_buffer(&g_UnifiedGeometryBuffer.index_buffer, sizeof(u32));
 
-  for (const RenderMeshInst& mesh_inst : g_Renderer.meshes)
+  for (const RenderModelSubset& subset : g_Renderer.meshes)
   {
-    ctx->set_graphics_pso(&mesh_inst.gbuffer_pso);
+    ASSERT_MSG_FATAL(subset.material != kNullAssetId, "Model subset has null material!");
+
+    auto material_res = get_material_asset(subset.material);
+    if (!material_res)
+    {
+      continue;
+    }
+
+    Texture2DPtr<float4> diffuse = {0};
+    {
+      AssetId asset = material_res.value()->textures[0];
+      auto res = get_srv_texture_asset(asset);
+      if (res)
+      {
+        diffuse = res.value();
+      }
+    }
+
+    Texture2DPtr<float4> normal = {0};
+    {
+      AssetId asset = material_res.value()->textures[1];
+      auto res = get_srv_texture_asset(asset);
+      if (res)
+      {
+        normal = res.value();
+      }
+    }
+
+    ctx->set_graphics_pso(&subset.gbuffer_pso);
     MaterialSrt srt;
     srt.transform = params->transform_buffer;
+    srt.diffuse   = diffuse;
+    srt.normal    = normal;
+    srt.gpu_id    = 0;
     ctx->graphics_bind_srt(srt);
-    ctx->draw_indexed_instanced(mesh_inst.index_count, 1, mesh_inst.index_buffer_offset, 0, 0);
+    ctx->draw_indexed_instanced(subset.index_count, 1, subset.index_buffer_offset, 0, 0);
   }
 }
 

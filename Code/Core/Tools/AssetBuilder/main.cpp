@@ -4,6 +4,11 @@
 #include "Core/Tools/AssetBuilder/model_importer.h"
 #include "Core/Tools/AssetBuilder/texture_importer.h"
 
+#include <d3d12.h>
+#include <dxgidebug.h>
+#include <dxgi1_6.h>
+#include <wrl.h>
+
 static AllocHeap g_InitHeap;
 static FreeHeap  g_OSHeap;
 
@@ -50,6 +55,12 @@ build_asset(const char* model_path, const char* project_root)
 
   u32 texture_allocator_size = MiB(512);
   LinearAllocator texture_allocator = init_linear_allocator(g_OSHeap, texture_allocator_size);
+
+  ID3D12Device* device = nullptr;
+  HASSERT(D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&device)));
+
+  defer { COM_RELEASE(device); };
+
   for (u32 imaterial = 0; imaterial < imported_material_count; imaterial++)
   {
     const asset_builder::ImportedMaterial* mat = imported_materials + imaterial;
@@ -71,7 +82,7 @@ build_asset(const char* model_path, const char* project_root)
         return false;
       }
 
-      res = asset_builder::write_texture_to_asset(project_root, imported_texture);
+      res = asset_builder::write_texture_to_asset(device, project_root, imported_texture);
       if (!res)
       {
         printf("Failed to write texture to asset!\n");

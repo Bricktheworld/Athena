@@ -9,7 +9,7 @@ struct DeferredPSOut
         float2 velocity          : SV_Target3;
 };
 
-ConstantBuffer<MaterialSrt> g_Resources : register(b0);
+ConstantBuffer<MaterialSrt> g_Srt : register(b0);
 
 float2 calculate_velocity(float4 old_pos, float4 new_pos)
 {
@@ -29,8 +29,32 @@ DeferredPSOut PS_BasicNormalGloss(BasicVSOut ps_in)
 {
   DeferredPSOut ret;
 
+  // Default value
+  float3 diffuse = 1.0f;
+  float  alpha   = 1.0f;
+  if (g_Srt.diffuse != 0)
+  {
+    Texture2D<float4> diffuse_tex = DEREF(g_Srt.diffuse);
+
+    diffuse = diffuse_tex.Sample(g_BilinearSampler, ps_in.uv).rgb;
+    alpha   = diffuse_tex.Sample(g_BilinearSampler, ps_in.uv).a;
+  }
+
+  float3 normal = ps_in.normal;
+  if (g_Srt.normal != 0)
+  {
+    Texture2D<float4> normal_tex = DEREF(g_Srt.normal);
+    normal = normal_tex.Sample(g_BilinearSampler, ps_in.uv).xyz;
+  }
+
+  if (alpha < 0.01f)
+  {
+    discard;
+  }
+
+
   ret.material_id       = 1;
-  ret.diffuse_metallic  = float4(1.0f, 1.0f, 1.0f, 0.5f);
+  ret.diffuse_metallic  = select(g_Srt.gpu_id, float4(ps_in.uv, 0.0f, 0.5f), float4(diffuse.rgb, 0.5f));
   ret.normal_roughness  = float4(ps_in.normal.xyz, 0.1f);
   ret.velocity          = calculate_velocity(ps_in.curr_pos, ps_in.prev_pos);
 

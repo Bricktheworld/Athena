@@ -204,19 +204,19 @@ inc_fence(GpuFence* fence)
   return ++fence->value;
 }
 
-static FenceValue
-poll_fence_value(GpuFence* fence)
+FenceValue
+poll_gpu_fence_value(GpuFence* fence)
 {
   fence->last_completed_value = MAX(fence->last_completed_value, fence->d3d12_fence->GetCompletedValue());
   return fence->last_completed_value;
 }
 
-static bool
-is_fence_complete(GpuFence* fence, FenceValue value)
+bool
+is_gpu_fence_complete(GpuFence* fence, FenceValue value)
 {
   if (value > fence->last_completed_value)
   {
-    poll_fence_value(fence);
+    poll_gpu_fence_value(fence);
   }
 
   return value <= fence->last_completed_value;
@@ -227,14 +227,14 @@ block_gpu_fence(GpuFence* fence, FenceValue value)
 {
   // If you hit this assertion, it's because only a single thread can wait on a fence at a time
   ASSERT(!fence->already_waiting);
-  if (is_fence_complete(fence, value))
+  if (is_gpu_fence_complete(fence, value))
     return;
 
   HASSERT(fence->d3d12_fence->SetEventOnCompletion(value, fence->cpu_event));
   fence->already_waiting = true;
 
   WaitForSingleObject(fence->cpu_event, (DWORD)-1);
-  poll_fence_value(fence);
+  poll_gpu_fence_value(fence);
   fence->already_waiting = false;
 }
 
@@ -1702,7 +1702,7 @@ set_descriptor_heaps(CmdList* cmd, const DescriptorPool* heaps, u32 num_heaps)
 }
 
 void
-set_descriptor_heaps(CmdList* cmd, Span<const DescriptorLinearAllocator*> heaps)
+set_descriptor_heaps(CmdList* cmd, Span<const DescriptorPool*> heaps)
 {
   ScratchAllocator scratch_arena = alloc_scratch_arena();
   defer { free_scratch_arena(&scratch_arena); };

@@ -117,11 +117,18 @@ struct ModelSubsetData
 {
   Array<VertexAsset> vertices;
   Array<u32>         indices;
+  AssetId            material;
 };
 
 struct ModelData
 {
   Array<ModelSubsetData> model_subsets;
+};
+
+struct MaterialData
+{
+  AssetId        shader;
+  Array<AssetId> textures;
 };
 
 enum struct AssetLoadResult : u32

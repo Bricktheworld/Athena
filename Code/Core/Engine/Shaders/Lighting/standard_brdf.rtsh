@@ -51,6 +51,8 @@ void ray_gen()
 
 
   uint   material_id  = gbuffer_material_ids    [launch_index];
+  float3 diffuse      = gbuffer_diffuse_metallic[launch_index].rgb;
+  float  metallic     = gbuffer_diffuse_metallic[launch_index].a;
   float3 normal       = gbuffer_normal_roughness[launch_index].xyz;
   float  depth        = gbuffer_depth           [launch_index];
 
@@ -95,7 +97,7 @@ void ray_gen()
 
   float3 irradiance      = direct_lighting + saturate(indirect);
 
-  float3 color           = payload.t < 0.0f ? float3(0.0f, 0.0f, 0.0f) : irradiance;
+  float3 color           = payload.t < 0.0f ? float3(0.0f, 0.0f, 0.0f) : diffuse * irradiance;
 
   render_target[launch_index] = float4(color, 1.0f);
 }

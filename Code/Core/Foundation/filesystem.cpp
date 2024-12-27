@@ -84,9 +84,15 @@ write_file(FileStream file_stream, const void* src, u64 size)
 }
 
 bool
-read_file(FileStream file_stream, void* dst, u64 size)
+read_file(FileStream file_stream, void* dst, u64 size, u64 offset)
 {
-  ASSERT_MSG_FATAL(size <= U32_MAX, "Reading from file with size %lu not supported currently due to 32-bit limit.", size);
+  ASSERT_MSG_FATAL(size <= U32_MAX,   "Reading from file with size %lu not supported currently due to 32-bit limit.", size);
+  ASSERT_MSG_FATAL(offset <= U32_MAX, "Seeking in files larger than U32_MAX (requested %lu) not implemented", offset);
+  if (SetFilePointer(file_stream.handle, (LONG)offset, NULL, FILE_BEGIN) == INVALID_SET_FILE_POINTER)
+  {
+    return false;
+  }
+
   return ReadFile(file_stream.handle, dst, (u32)size, NULL, NULL);
 }
 

@@ -70,6 +70,7 @@ load_model(AllocHeap heap, const void* buffer, size_t size, ModelData* out_model
 
     dst->vertices = init_array_uninitialized<VertexAsset>(heap, src->num_vertices);
     dst->indices  = init_array_uninitialized<u32>        (heap, src->num_indices);
+    dst->material = src->material;
 
     const u8* vertex_buffer = buf + src->vertices;
     const u8* index_buffer  = buf + src->indices;

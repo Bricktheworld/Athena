@@ -54,8 +54,8 @@ asset_builder::import_model(
     printf("Found %u lights in the scene\n", assimp_model->mNumLights);
   }
 
-  printf("%u mesh instances in model\n", assimp_model->mNumMeshes);
-  printf("%u materials in model\n",      assimp_model->mNumMaterials);
+  printf("%u subsets in model\n",   assimp_model->mNumMeshes);
+  printf("%u materials in model\n", assimp_model->mNumMaterials);
 
   u32               material_count = assimp_model->mNumMaterials;
   ImportedMaterial* materials      = HEAP_ALLOC(ImportedMaterial, heap, material_count);

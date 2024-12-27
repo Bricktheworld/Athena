@@ -240,6 +240,7 @@ application_entry(HINSTANCE instance, int show_code)
   Scene scene       = init_scene(g_InitHeap);
 
   SceneObject* sponza = nullptr;
+  kick_asset_load(ASSET_ID("Assets/Source/sponza/Sponza.gltf"));
   {
     ScratchAllocator scratch_arena = alloc_scratch_arena();
     defer { free_scratch_arena(&scratch_arena); };
@@ -253,7 +254,7 @@ application_entry(HINSTANCE instance, int show_code)
     u64 buf_size = get_file_size(sponza_built_file.value());
     u8* buf      = HEAP_ALLOC(u8, scratch_arena, buf_size);
 
-    ASSERT_MSG_FATAL(read_file(sponza_built_file.value(), buf, buf_size), "Failed to read sponza file into memory.");
+    ASSERT_MSG_FATAL(read_file(sponza_built_file.value(), buf, buf_size, 0), "Failed to read sponza file into memory.");
 
     ModelData model;
     AssetLoadResult res = load_model(scratch_arena, buf, buf_size, &model);
@@ -308,6 +309,8 @@ application_entry(HINSTANCE instance, int show_code)
     }
 
     reset_frame_heap();
+    process_asset_loads();
+    submit_gpu_stream_requests();
 
     if (g_MainWindow->needs_resize)
     {

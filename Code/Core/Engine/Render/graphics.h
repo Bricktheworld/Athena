@@ -192,9 +192,11 @@ struct GpuFence
   bool         already_waiting      = false;
 };
 
-GpuFence init_gpu_fence(void);
-void     destroy_gpu_fence(GpuFence* fence);
-void     block_gpu_fence(GpuFence* fence, FenceValue value);
+GpuFence   init_gpu_fence(void);
+void       destroy_gpu_fence(GpuFence* fence);
+bool       is_gpu_fence_complete(GpuFence* fence, FenceValue value);
+FenceValue poll_gpu_fence_value(GpuFence* fence);
+void       block_gpu_fence(GpuFence* fence, FenceValue value);
 
 enum CmdQueueType : u8
 {
@@ -659,7 +661,7 @@ void swap_chain_submit(SwapChain* swap_chain, const GpuDevice* device, const Gpu
 void swap_chain_resize(SwapChain* swap_chain, HWND window, GpuDevice* device);
 
 void set_descriptor_heaps(CmdList* cmd, const DescriptorPool* heaps, u32 num_heaps);
-void set_descriptor_heaps(CmdList* cmd, Span<const DescriptorLinearAllocator*> heaps);
+void set_descriptor_heaps(CmdList* cmd, Span<const DescriptorPool*> heaps);
 void set_graphics_root_signature(CmdList* cmd);
 void set_compute_root_signature(CmdList* cmd);
 

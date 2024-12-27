@@ -6,6 +6,8 @@
 #include "Core/Foundation/assets.h"
 #include "Core/Foundation/colors.h"
 
+struct ID3D12Device;
+
 namespace asset_builder
 {      
   struct ImportedTexture
@@ -15,12 +17,10 @@ namespace asset_builder
 
     u32            width;
     u32            height;
-    u32            compressed_size;
-    u32            uncompressed_size;
     ColorSpaceName color_space;
     TextureFormat  format;
 
-    u8*            compressed_buf;
+    u8*            uncompressed_buf;
   };
   
   
@@ -34,6 +34,7 @@ namespace asset_builder
   void dump_imported_texture(ImportedTexture texture);
 
   check_return bool write_texture_to_asset(
+    ID3D12Device* device,
     const char* project_root,
     const ImportedTexture& texture
   );
