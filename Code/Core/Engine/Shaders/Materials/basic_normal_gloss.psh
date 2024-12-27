@@ -54,7 +54,7 @@ DeferredPSOut PS_BasicNormalGloss(BasicVSOut ps_in)
 
 
   ret.material_id       = 1;
-  ret.diffuse_metallic  = select(g_Srt.gpu_id, float4(ps_in.uv, 0.0f, 0.5f), float4(diffuse.rgb, 0.5f));
+  ret.diffuse_metallic  = float4(diffuse.rgb, 0.5f);
   ret.normal_roughness  = float4(ps_in.normal.xyz, 0.1f);
   ret.velocity          = calculate_velocity(ps_in.curr_pos, ps_in.prev_pos);
 

@@ -20,7 +20,7 @@ namespace asset_builder
     ColorSpaceName color_space;
     TextureFormat  format;
 
-    u8*            uncompressed_buf;
+    u8*            buf;
   };
   
   
