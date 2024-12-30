@@ -191,7 +191,24 @@ struct Transform
 {
   Mat4 model;
   Mat4 model_inverse;
-//    Mat4 prev_model;
+  Mat4 prev_model;
+};
+
+struct SceneObjectGpu
+{
+  Mat4 model;
+  Mat4 model_inverse;
+  Mat4 prev_model;
+
+  u32  material_id;
+};
+
+struct MaterialGpu
+{
+  Texture2DPtr<float4> diffuse;
+  Texture2DPtr<float3> normal;
+  Texture2DPtr<float>  roughness;
+  Texture2DPtr<float>  metalness;
 };
 
 struct TransformBuffer
@@ -222,6 +239,7 @@ struct TextureCopySrt
 struct PostProcessingSrt
 {
   Texture2DPtr<float4> texture;
+  u32                  disable_hdr;
 };
 
 struct PointLight

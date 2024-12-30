@@ -19,7 +19,8 @@ render_handler_post_processing(RenderContext* ctx, const void* data)
   ctx->om_set_render_targets({params->dst}, None);
 
   PostProcessingSrt srt;
-  srt.texture = params->hdr_buffer;
+  srt.texture     = params->hdr_buffer;
+  srt.disable_hdr = g_Renderer.disable_hdr;
 
   ctx->graphics_bind_srt(srt);
   ctx->set_graphics_pso(&g_Renderer.post_processing_pipeline);

@@ -39,6 +39,8 @@ struct Window
 
 static Window* g_MainWindow = nullptr;
 
+static bool g_EnableFullscreen = false;
+
 
 
 
@@ -160,6 +162,7 @@ draw_debug(DirectionalLight* out_directional_light, Camera* out_camera)
   ImGui::InputFloat3("Camera Position", (f32*)&out_camera->world_pos);
 
   ImGui::Checkbox("Disable TAA", &g_Renderer.disable_taa);
+  ImGui::Checkbox("Disable HDR", &g_Renderer.disable_hdr);
 
   ImGui::End();
 
@@ -185,11 +188,7 @@ application_entry(HINSTANCE instance, int show_code)
 
   RECT window_rect = {0, 0, 1920, 1080};
 
-#ifndef FULLSCREEN
-  DWORD dw_style = WS_OVERLAPPEDWINDOW;
-#else
-  DWORD dw_style = WS_POPUP;
-#endif
+  DWORD dw_style = g_EnableFullscreen ? WS_POPUP : WS_OVERLAPPEDWINDOW;
 
   AdjustWindowRect(&window_rect, dw_style, 0);
 
@@ -407,6 +406,16 @@ WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, int show_code
 {
   UNREFERENCED_PARAMETER(cmdline);
   UNREFERENCED_PARAMETER(prev_instance);
+
+  u32    argc = __argc;
+  char** argv = __argv; // CommandLineToArgvW(cmdline, &argc);
+  for (u32 iopt = 1; iopt < argc; iopt++)
+  {
+    if (_stricmp(argv[iopt], "-fullscreen") == 0)
+    {
+      g_EnableFullscreen = true;
+    }
+  }
 
   set_current_thread_name(L"Athena Main");
 

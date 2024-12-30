@@ -100,6 +100,7 @@ struct Renderer
   Vec2   taa_jitter;
   bool   disable_taa     = false;
   bool   debug_gi_probes = false;
+  bool   disable_hdr     = false;
 
   DirectionalLight directional_light;
 

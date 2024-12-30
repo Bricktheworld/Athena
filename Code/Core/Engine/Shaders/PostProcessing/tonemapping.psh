@@ -70,7 +70,14 @@ float4 PS_ToneMapping(PSInput IN) : SV_TARGET
   float3 color = input.Sample(g_BilinearSampler, IN.uv).rgb;
 
   // TODO(bshihabi): Switch to SDR tone mapping if display doesn't support HDR
-  color = aces_rec2020_1000nits_odt(color);
+  if (g_Srt.disable_hdr)
+  {
+    color = aces_rec709_100nits_odt(color);
+  }
+  else
+  {
+    color = aces_rec2020_1000nits_odt(color);
+  }
 #if 0 
   if (IN.uv.x > 0.5)
   {
