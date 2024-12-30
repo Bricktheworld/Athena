@@ -1,9 +1,9 @@
 #include "Core/Foundation/context.h"
 
-thread_local Context tls_ctx = {0};
+thread_local Context g_Ctx = {0};
 
-#define CTX_IS_INITIALIZED (tls_ctx.scratch_allocator.start != 0x0)
-#define ASSERT_CTX_INIT() ASSERT(CTX_IS_INITIALIZED)
+#define CTX_IS_INITIALIZED (g_Ctx.scratch_allocator.start != 0x0)
+#define ASSERT_CTX_INIT() ASSERT_MSG_FATAL(CTX_IS_INITIALIZED, "Attempting to use scratch arena when context not initialized!")
 
 Context
 init_context(AllocHeap heap, FreeHeap overflow_heap)
@@ -11,14 +11,14 @@ init_context(AllocHeap heap, FreeHeap overflow_heap)
   UNREFERENCED_PARAMETER(overflow_heap);
   ASSERT(!CTX_IS_INITIALIZED);
 
-  static constexpr u64 kDefaultScratchSize = MiB(64); // KiB(16);
+  static constexpr u64 kDefaultScratchSize = KiB(64);
 
   Context ret = {0};
   ret.scratch_allocator = init_stack_allocator(HEAP_ALLOC_ALIGNED(heap, kDefaultScratchSize, 1), kDefaultScratchSize);
 
   if (!CTX_IS_INITIALIZED)
   {
-    tls_ctx = ret;
+    g_Ctx = ret;
   }
 
   return ret;
@@ -31,7 +31,7 @@ alloc_scratch_arena()
 
   ScratchAllocator ret = {0};
   ret.allocated = 0;
-  ret.backing_allocator = &tls_ctx.scratch_allocator;
+  ret.backing_allocator = &g_Ctx.scratch_allocator;
   ret.expected_start = ret.backing_allocator->pos;
 
   return ret;

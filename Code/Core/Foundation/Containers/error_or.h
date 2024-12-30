@@ -31,6 +31,7 @@ struct Err
 template <typename V, typename E>
 struct Result
 {
+  Result() = default;
   Result(const Ok<V>& v)
   {
     memmove(m_Ok, v.buffer, sizeof(V));
@@ -82,7 +83,7 @@ struct Result
 template <typename E>
 struct Result<void, E>
 {
-  Result() {}
+  Result() = default;
   Result(Ok<void> _) {}
   Result(const Err<E>& e)
   {

@@ -475,7 +475,7 @@ spawn_job_system_workers(MEMORY_ARENA_PARAM, JobSystem* job_system)
   for (u32 i = 0; i < worker_threads; i++)
   {
     MemoryArena thread_scratch_arena = sub_alloc_memory_arena(MEMORY_ARENA_FWD, DEFAULT_SCRATCH_SIZE);
-    Thread thread = create_thread(thread_scratch_arena, KiB(16), &job_worker, (void*)fiber_id, i);
+    Thread thread = init_thread(thread_scratch_arena, KiB(16), &job_worker, (void*)fiber_id, i);
     swprintf_s(name, 128, L"JobSystem Worker %d", i);
     set_thread_name(&thread, name);
 
@@ -487,7 +487,7 @@ spawn_job_system_workers(MEMORY_ARENA_PARAM, JobSystem* job_system)
   for (u32 i = 0; i < async_threads; i++)
   {
     MemoryArena thread_scratch_arena = sub_alloc_memory_arena(MEMORY_ARENA_FWD, KiB(4));
-    Thread thread = create_thread(thread_scratch_arena, KiB(16), &async_worker, (void*)fiber_id, async_core_index);
+    Thread thread = init_thread(thread_scratch_arena, KiB(16), &async_worker, (void*)fiber_id, async_core_index);
     swprintf_s(name, 128, L"JobSystem Async Worker %d", i);
     set_thread_name(&thread, name);
     fiber_id--;

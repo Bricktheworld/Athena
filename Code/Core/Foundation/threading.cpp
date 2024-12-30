@@ -1,14 +1,14 @@
 #include "Core/Foundation/threading.h"
-#include "Core/Foundation/memory.h"
 #include "Core/Foundation/context.h"
 
 #include "Core/Foundation/Containers/array.h"
 
 struct ThreadEntryProcParams
 {
-  AllocHeap heap = {0};
-  ThreadProc proc = nullptr;
-  void* user_param = nullptr;
+  AllocHeap  heap          = {0};
+  FreeHeap   overflow_heap = {0};
+  ThreadProc proc          = nullptr;
+  void*      user_param    = nullptr;
 };
 
 // Sets up a memory arena and other things before actually entering
@@ -16,10 +16,9 @@ static DWORD
 thread_entry_proc(LPVOID void_param)
 {
   ThreadEntryProcParams params = *reinterpret_cast<ThreadEntryProcParams*>(void_param);
-  // We no longer want anything inside of this memory arena,
-  // since it has all been copied out now.
 
-  // init_context(params.heap);
+  // Initialize scratch arena for the thread
+  init_context(params.heap, params.overflow_heap);
 
   u32 res = params.proc(params.user_param);
 
@@ -27,19 +26,21 @@ thread_entry_proc(LPVOID void_param)
 }
 
 Thread
-create_thread(
-  AllocHeap scratch_heap,
-  size_t stack_size,
+init_thread(
+  AllocHeap heap,
+  FreeHeap overflow_heap,
+  u64 stack_size,
   ThreadProc proc,
   void* param,
   u8 core_index
 ) {
-  ThreadEntryProcParams* params = HEAP_ALLOC(ThreadEntryProcParams, scratch_heap, 1);
-  params->heap = scratch_heap;
-  params->proc = proc;
-  params->user_param = param;
+  ThreadEntryProcParams* params = HEAP_ALLOC(ThreadEntryProcParams, heap, 1);
+  params->heap          = heap;
+  params->overflow_heap = overflow_heap;
+  params->proc          = proc;
+  params->user_param    = param;
 
-  ASSERT(core_index < 32);
+  ASSERT_MSG_FATAL(core_index < 32, "Core index %u is invalid. Core index must be < 32", core_index);
   Thread ret = {0};
   ret.handle = CreateThread(0, stack_size, &thread_entry_proc, params, 0, &ret.id);
   SetThreadAffinityMask(ret.handle, (1ULL << core_index));
@@ -163,6 +164,7 @@ spin_acquire(SpinLock* spin_lock)
   {
     if (InterlockedCompareExchange(&spin_lock->value, 1, 0) == 0)
       break;
+    _mm_pause();
   }
 }
 
@@ -173,6 +175,7 @@ try_spin_acquire(SpinLock* spin_lock, u64 max_cycles)
   {
     if (InterlockedCompareExchange(&spin_lock->value, 1, 0) == 0)
       return true;
+    _mm_pause();
   }
 
   return false;

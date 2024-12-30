@@ -213,9 +213,6 @@ application_entry(HINSTANCE instance, int show_code)
   init_graphics_device(window);
   defer { destroy_graphics_device(); };
 
-  init_gpu_stream_device();
-  defer { destroy_gpu_stream_device(); };
-
   init_asset_loader();
   defer { destroy_asset_loader(); };
 
@@ -239,28 +236,29 @@ application_entry(HINSTANCE instance, int show_code)
   Scene scene       = init_scene(g_InitHeap);
 
   SceneObject* sponza = nullptr;
-  kick_asset_load(ASSET_ID("Assets/Source/sponza/Sponza.gltf"));
   {
-    ScratchAllocator scratch_arena = alloc_scratch_arena();
-    defer { free_scratch_arena(&scratch_arena); };
+    OSAllocator allocator = init_os_allocator();
+    FreeHeap    heap      = (FreeHeap)allocator;
 
     AssetId sponza_model = ASSET_ID("Assets/Source/sponza/Sponza.gltf");
     auto sponza_built_file = open_built_asset_file(sponza_model);
     // TODO test USD cube here // mfrieden
-    ASSERT_MSG_FATAL(sponza_built_file, "Failed to load sponza file! Did you run the AssetBuilder? You should see file Assets/Built/0x%x.built", sponza_model);
+    ASSERT_MSG_FATAL(sponza_built_file, "Failed to load sponza file! Did you run the AssetBuilder? You should see file Assets/Built/0x%0x.built", sponza_model);
     defer { close_file(&sponza_built_file.value()); };
 
     u64 buf_size = get_file_size(sponza_built_file.value());
-    u8* buf      = HEAP_ALLOC(u8, scratch_arena, buf_size);
+    u8* buf      = HEAP_ALLOC(u8, heap, buf_size);
+    defer { HEAP_FREE(heap, buf); };
 
     ASSERT_MSG_FATAL(read_file(sponza_built_file.value(), buf, buf_size, 0), "Failed to read sponza file into memory.");
 
     ModelData model;
-    AssetLoadResult res = load_model(scratch_arena, buf, buf_size, &model);
+    AssetLoadResult res = load_model((AllocHeap)heap, buf, buf_size, &model);
     ASSERT(res == AssetLoadResult::kOk);
 
     sponza = add_scene_object(&scene, model, kVS_Basic, kPS_BasicNormalGloss);
   }
+  kick_asset_load(ASSET_ID("Assets/Source/sponza/Sponza.gltf"));
 
   build_acceleration_structures(g_GpuDevice);
 
@@ -308,8 +306,6 @@ application_entry(HINSTANCE instance, int show_code)
     }
 
     reset_frame_heap();
-    process_asset_loads();
-    submit_gpu_stream_requests();
 
     if (g_MainWindow->needs_resize)
     {

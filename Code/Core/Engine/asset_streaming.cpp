@@ -7,13 +7,27 @@
 #include "Core/Engine/Vendor/DirectStorage/dstorage.h"
 #include "Core/Engine/Vendor/DirectStorage/dstorageerr.h"
 
+struct AssetLoader
+{
+  SpinLocked<RingQueue<AssetId>>            requests;
+  SpinLocked<HashTable<AssetId, AssetDesc>> assets;
 
-AssetLoader*     g_AssetLoader     = nullptr;
-GpuStreamDevice* g_GpuStreamDevice = nullptr;
+
+  // TODO(bshihabi): We really probably need TLSF here
+  LinearAllocator                           allocator;
+
+  Thread                                    thread;
+  bool                                      kill;
+};
+
+static AssetLoader*     g_AssetLoader      = nullptr;
+static GpuStreamDevice* g_GpuStreamDevice  = nullptr;
 
 static constexpr u32 kStagingBufferMemory  = MiB(256);
+static constexpr u64 kAssetThreadStackSize = MiB(8);
+static constexpr u64 kAssetAllocatorSize   = MiB(32);
 
-void
+static void
 init_gpu_stream_device(void)
 {
   ASSERT_MSG_FATAL(g_GpuDevice != nullptr, "Gpu Device needs to be initialized first before the asset loader!");
@@ -45,7 +59,7 @@ init_gpu_stream_device(void)
   g_GpuStreamDevice->asset_completed_streams = init_ring_queue<AssetId>          (g_InitHeap, kMaxAssetLoadRequests);
 }
 
-void
+static void
 destroy_gpu_stream_device(void)
 {
   g_GpuStreamDevice->file_queue->Close();
@@ -57,7 +71,7 @@ destroy_gpu_stream_device(void)
   zero_memory(g_GpuStreamDevice, sizeof(GpuStreamDevice));
 }
 
-GpuStreamResult
+static GpuStreamResult
 request_gpu_stream_asset(const AssetGpuLoadRequest& request)
 {
   ASSERT_MSG_FATAL(g_AssetLoader != nullptr, "AssetLoader not initialized!");
@@ -120,7 +134,7 @@ request_gpu_stream_asset(const AssetGpuLoadRequest& request)
 }
 
 
-void
+static void
 submit_gpu_stream_requests(void)
 {
 #if 0
@@ -160,10 +174,25 @@ submit_gpu_stream_requests(void)
   g_GpuStreamDevice->file_queue->Submit();
 }
 
+static void process_asset_loads(void);
+
+static u32
+asset_loader_thread(void*)
+{
+  while (!g_AssetLoader->kill)
+  {
+    process_asset_loads();
+    submit_gpu_stream_requests();
+  }
+
+  return 0;
+}
 
 void
 init_asset_loader(void)
 {
+  init_gpu_stream_device();
+
   ASSERT_MSG_FATAL(g_GpuStreamDevice != nullptr, "Gpu Stream Device not initialized!");
   if (g_AssetLoader == nullptr)
   {
@@ -172,8 +201,47 @@ init_asset_loader(void)
 
   zero_memory(g_AssetLoader, sizeof(AssetLoader));
 
-  g_AssetLoader->requests = init_ring_queue<AssetId>(g_InitHeap, kMaxAssetLoadRequests);
-  g_AssetLoader->assets   = init_hash_table<AssetId, AssetDesc>(g_InitHeap, kMaxAssets);
+  g_AssetLoader->requests  = init_ring_queue<AssetId>(g_InitHeap, kMaxAssetLoadRequests);
+  g_AssetLoader->assets    = init_hash_table<AssetId, AssetDesc>(g_InitHeap, kMaxAssets);
+
+  g_AssetLoader->allocator = init_linear_allocator(HEAP_ALLOC_ALIGNED(g_InitHeap, kAssetAllocatorSize, alignof(u64)), kAssetAllocatorSize);
+  // TODO(bshihabi): This is pretty dumb. We should probably defer this to TLSF too
+  OSAllocator os_allocator = init_os_allocator();
+
+  g_AssetLoader->thread    = init_thread(
+    g_AssetLoader->allocator,
+    os_allocator,
+    kAssetThreadStackSize,
+    &asset_loader_thread,
+    nullptr,
+    7
+  );
+
+  set_thread_name(&g_AssetLoader->thread, L"Asset Streaming Thread");
+}
+
+static void
+kick_asset_load(HashTable<AssetId, AssetDesc>* assets, AssetId asset_id)
+{
+  if (asset_id == kNullAssetId)
+  {
+    return;
+  }
+
+  AssetDesc* desc = hash_table_insert(assets, asset_id);
+
+  // Load is already in progress
+  if (desc->state > kAssetUnloaded)
+  {
+    return;
+  }
+
+  desc->state = kAssetLoadRequested;
+
+  ACQUIRE(&g_AssetLoader->requests, auto* requests)
+  {
+    ring_queue_push(requests, asset_id);
+  };
 }
 
 void
@@ -183,16 +251,14 @@ kick_asset_load(AssetId asset_id)
   {
     return;
   }
-  AssetDesc* desc = hash_table_insert(&g_AssetLoader->assets, asset_id);
-
-  // Load is already in progress
-  if (desc->state > kAssetUnloaded)
+  ACQUIRE(&g_AssetLoader->assets, auto* assets)
   {
-    return;
-  }
-
-  desc->state = kAssetLoadRequested;
-  ring_queue_push(&g_AssetLoader->requests, asset_id);
+    kick_asset_load(assets, asset_id);
+  };
+  ACQUIRE(&g_AssetLoader->requests, auto* requests)
+  {
+    ring_queue_push(requests, asset_id);
+  };
 }
 
 void
@@ -208,263 +274,298 @@ process_asset_loads(void)
       continue;
     }
 
-    AssetDesc* desc = hash_table_find(&g_AssetLoader->assets, asset_id);
-    if (desc == nullptr)
+    ACQUIRE(&g_AssetLoader->assets, auto* assets)
     {
-      continue;
-    }
+      AssetDesc* desc = hash_table_find(assets, asset_id);
+      if (desc == nullptr)
+      {
+        return;
+      }
 
-    // TODO(bshihabi): We should also do initialization here if we need to
-    dbgln("Asset 0x%x Ready", asset_id);
+      // TODO(bshihabi): We should also do initialization here if we need to
+      dbgln("Asset 0x%x Ready", asset_id);
 
-    desc->state = kAssetReady;
+      desc->state = kAssetReady;
+    };
   }
 
-  while (!ring_queue_is_empty(g_AssetLoader->requests))
+  // This will exit when there are no more requests
+  for (;;)
   {
-    AssetId asset_id = 0;
-    ring_queue_pop(&g_AssetLoader->requests, &asset_id);
-    dbgln("Requested load for 0x%x", asset_id);
-
-    AssetDesc* desc = hash_table_find(&g_AssetLoader->assets, asset_id);
-    ASSERT_MSG_FATAL(desc        != nullptr,             "Asset loader is in a bad state!");
-    ASSERT_MSG_FATAL(desc->state == kAssetLoadRequested, "Asset loader is in a bad state!");
-
-    auto file = open_built_asset_file(asset_id);
-    if (!file)
+    AssetId asset_id = kNullAssetId;
+    ACQUIRE(&g_AssetLoader->requests, auto* requests)
     {
-      FileError err = file.error();
-      dbgln("Failed to load asset 0x%x: %s", asset_id, file_error_to_str(err));
-      desc->state = kAssetFailedToLoad;
-      continue;
-    }
-    defer { close_file(&file.value()); };
-
-    AssetMetadata metadata = {0};
-    bool read_result = read_file(file.value(), &metadata, sizeof(metadata), 0);
-    if (!read_result)
-    {
-      dbgln("Failed to read from asset file 0x%x", asset_id);
-      desc->state = kAssetFailedToLoad;
-      continue;
-    }
-
-    if (metadata.magic_number != kAssetMagicNumber)
-    {
-      dbgln("Asset 0x%x is corrupted (invalid magic number 0x%x)", asset_id, metadata.magic_number);
-      desc->state = kAssetFailedToLoad;
-      continue;
-    }
-
-    if (metadata.asset_hash != asset_id)
-    {
-      dbgln("Asset 0x%x is corrupted (metadata.asset_hash does not match!)", asset_id, metadata.asset_hash);
-      desc->state = kAssetFailedToLoad;
-      continue;
-    }
-
-    switch(metadata.asset_type)
-    {
-      case AssetType::kModel:
+      if (ring_queue_is_empty(*requests))
       {
-        desc->type = AssetType::kModel;
+        return;
+      }
+      ring_queue_pop(requests, &asset_id);
+    };
 
-        ModelAsset model_asset = {0};
-        model_asset.metadata = metadata;
-        read_result = read_file(file.value(), (u8*)&model_asset, sizeof(model_asset), 0);
-        if (!read_result)
-        {
-          dbgln("Failed to read from asset file 0x%x", asset_id);
-          desc->state = kAssetFailedToLoad;
-          continue;
-        }
+    if (asset_id == kNullAssetId)
+    {
+      break;
+    }
 
-        ScratchAllocator scratch = alloc_scratch_arena();
-        defer { free_scratch_arena(&scratch); };
+    ACQUIRE(&g_AssetLoader->assets, auto* assets)
+    {
+      dbgln("Requested load for 0x%x", asset_id);
 
-        ModelAsset::ModelSubset* subsets = HEAP_ALLOC(ModelAsset::ModelSubset, scratch, model_asset.num_model_subsets);
-        read_result = read_file(file.value(), subsets, sizeof(ModelAsset::ModelSubset) * model_asset.num_model_subsets, model_asset.model_subsets);
-        if (!read_result)
-        {
-          dbgln("Failed to read from asset file 0x%x", asset_id);
-          desc->state = kAssetFailedToLoad;
-          continue;
-        }
-
-        for (u32 isubset = 0; isubset < model_asset.num_model_subsets; isubset++)
-        {
-          kick_asset_load(subsets[isubset].material);
-        }
-
-      } break;
-      case AssetType::kTexture:
+      AssetDesc* desc = hash_table_find(assets, asset_id);
+      ASSERT_MSG_FATAL(desc        != nullptr,             "Asset loader is in a bad state!");
+      if (desc->state >= kAssetStreaming)
       {
-        desc->type = AssetType::kTexture;
+        return;
+      }
 
-        TextureAsset texture_asset = {0};
-        texture_asset.metadata = metadata;
+      auto file = open_built_asset_file(asset_id);
+      if (!file)
+      {
+        FileError err = file.error();
+        dbgln("Failed to load asset 0x%x: %s", asset_id, file_error_to_str(err));
+        desc->state = kAssetFailedToLoad;
+        return;
+      }
+      defer { close_file(&file.value()); };
 
+      AssetMetadata metadata = {0};
+      bool read_result = read_file(file.value(), &metadata, sizeof(metadata), 0);
+      if (!read_result)
+      {
+        dbgln("Failed to read from asset file 0x%x", asset_id);
+        desc->state = kAssetFailedToLoad;
+        return;
+      }
+
+      if (metadata.magic_number != kAssetMagicNumber)
+      {
+        dbgln("Asset 0x%x is corrupted (invalid magic number 0x%x)", asset_id, metadata.magic_number);
+        desc->state = kAssetFailedToLoad;
+        return;
+      }
+
+      if (metadata.asset_hash != asset_id)
+      {
+        dbgln("Asset 0x%x is corrupted (metadata.asset_hash does not match!)", asset_id, metadata.asset_hash);
+        desc->state = kAssetFailedToLoad;
+        return;
+      }
+
+      switch(metadata.asset_type)
+      {
+        case AssetType::kModel:
         {
-          read_result = read_file(file.value(), (u8*)&texture_asset, sizeof(texture_asset), 0);
-          defer { close_file(&file.value()); };
+          desc->type = AssetType::kModel;
+
+          ModelAsset model_asset = {0};
+          model_asset.metadata = metadata;
+          read_result = read_file(file.value(), (u8*)&model_asset, sizeof(model_asset), 0);
           if (!read_result)
           {
             dbgln("Failed to read from asset file 0x%x", asset_id);
             desc->state = kAssetFailedToLoad;
-            continue;
+            return;
           }
-        }
 
-        GpuTextureDesc gpu_desc = {0};
-        gpu_desc.width          = texture_asset.width;
-        gpu_desc.height         = texture_asset.height;
-        gpu_desc.array_size     = 1;
-        gpu_desc.initial_state  = D3D12_RESOURCE_STATE_COMMON;
-        gpu_desc.format         = kGpuFormatRGBA8Unorm;
+          ScratchAllocator scratch = alloc_scratch_arena();
+          defer { free_scratch_arena(&scratch); };
 
-        char name[512];
-        snprintf(name, sizeof(name), "Streamed Texture 0x%x", asset_id);
-        desc->texture.allocation = alloc_gpu_texture_no_heap(g_GpuDevice, gpu_desc, name);
-        desc->texture.descriptor = alloc_descriptor(g_DescriptorCbvSrvUavPool);
+          ModelAsset::ModelSubset* subsets = HEAP_ALLOC(ModelAsset::ModelSubset, scratch, model_asset.num_model_subsets);
+          read_result = read_file(file.value(), subsets, sizeof(ModelAsset::ModelSubset) * model_asset.num_model_subsets, model_asset.model_subsets);
+          if (!read_result)
+          {
+            dbgln("Failed to read from asset file 0x%x", asset_id);
+            desc->state = kAssetFailedToLoad;
+            return;
+          }
 
-        GpuTextureSrvDesc srv_desc = {0};
-        srv_desc.mip_levels        = 1;
-        srv_desc.most_detailed_mip = 0;
-        srv_desc.array_size        = 1;
-        srv_desc.format            = kGpuFormatRGBA8Unorm;
-        init_texture_srv(&desc->texture.descriptor, &desc->texture.allocation, srv_desc);
+          for (u32 isubset = 0; isubset < model_asset.num_model_subsets; isubset++)
+          {
+            kick_asset_load(assets, subsets[isubset].material);
+          }
 
-        AssetGpuLoadRequest request = {0};
-        request.asset_id          = asset_id;
-        request.type              = kAssetGpuLoadTypeTexture;
-        request.src_offset        = texture_asset.data;
-        request.compressed_size   = texture_asset.compressed_size;
-        request.uncompressed_size = texture_asset.uncompressed_size;
-        request.texture.dst       = &desc->texture.allocation;
-
-        GpuStreamResult result = request_gpu_stream_asset(request);
-        if (result == kGpuStreamFailedToOpenFile)
+        } break;
+        case AssetType::kTexture:
         {
-          dbgln("Failed to stream asset 0x%x (could not open file)", asset_id);
+          desc->type = AssetType::kTexture;
+
+          TextureAsset texture_asset = {0};
+          texture_asset.metadata = metadata;
+
+          {
+            read_result = read_file(file.value(), (u8*)&texture_asset, sizeof(texture_asset), 0);
+            defer { close_file(&file.value()); };
+            if (!read_result)
+            {
+              dbgln("Failed to read from asset file 0x%x", asset_id);
+              desc->state = kAssetFailedToLoad;
+              return;
+            }
+          }
+
+          GpuTextureDesc gpu_desc = {0};
+          gpu_desc.width          = texture_asset.width;
+          gpu_desc.height         = texture_asset.height;
+          gpu_desc.array_size     = 1;
+          gpu_desc.initial_state  = D3D12_RESOURCE_STATE_COMMON;
+          gpu_desc.format         = kGpuFormatRGBA8Unorm;
+
+          char name[512];
+          snprintf(name, sizeof(name), "Streamed Texture 0x%x", asset_id);
+          desc->texture.allocation = alloc_gpu_texture_no_heap(g_GpuDevice, gpu_desc, name);
+          desc->texture.descriptor = alloc_descriptor(g_DescriptorCbvSrvUavPool);
+
+          GpuTextureSrvDesc srv_desc = {0};
+          srv_desc.mip_levels        = 1;
+          srv_desc.most_detailed_mip = 0;
+          srv_desc.array_size        = 1;
+          srv_desc.format            = kGpuFormatRGBA8Unorm;
+          init_texture_srv(&desc->texture.descriptor, &desc->texture.allocation, srv_desc);
+
+          AssetGpuLoadRequest request = {0};
+          request.asset_id          = asset_id;
+          request.type              = kAssetGpuLoadTypeTexture;
+          request.src_offset        = texture_asset.data;
+          request.compressed_size   = texture_asset.compressed_size;
+          request.uncompressed_size = texture_asset.uncompressed_size;
+          request.texture.dst       = &desc->texture.allocation;
+
+          GpuStreamResult result = request_gpu_stream_asset(request);
+          if (result == kGpuStreamFailedToOpenFile)
+          {
+            dbgln("Failed to stream asset 0x%x (could not open file)", asset_id);
+            desc->state = kAssetFailedToLoad;
+
+            free_gpu_texture(&desc->texture.allocation);
+            return;
+          }
+
+          ASSERT_MSG_FATAL(result == kGpuStreamOk, "Unhandled GPU stream error!");
+          desc->state = kAssetStreaming;
+        } break;
+        case AssetType::kShader:
+        {
+          desc->type = AssetType::kShader;
+          // TODO(bshihabi): Implement
+          UNREACHABLE;
+        } break;
+        case AssetType::kMaterial:
+        {
+          desc->type = AssetType::kMaterial;
+
+          MaterialAsset material_asset = {0};
+          material_asset.metadata = metadata;
+          read_result = read_file(file.value(), (u8*)&material_asset, sizeof(material_asset), 0);
+          if (!read_result)
+          {
+            dbgln("Failed to read from asset file 0x%x", asset_id);
+            desc->state = kAssetFailedToLoad;
+            return;
+          }
+
+          desc->material.textures = init_array_zeroed<AssetId>(g_AssetLoader->allocator, material_asset.num_textures);
+
+          read_result = read_file(file.value(), desc->material.textures.memory, sizeof(AssetId) * material_asset.num_textures, material_asset.textures);
+          if (!read_result)
+          {
+            dbgln("Failed to read from asset file 0x%x", asset_id);
+            desc->state = kAssetFailedToLoad;
+            return;
+          }
+
+          for (u32 itexture = 0; itexture < material_asset.num_textures; itexture++)
+          {
+            kick_asset_load(assets, desc->material.textures[itexture]);
+          }
+          desc->state = kAssetReady;
+        } break;
+        default:
+        {
+          dbgln("Asset 0x%x is corrupted (invalid asset type 0x%x)", asset_id, metadata.asset_type);
           desc->state = kAssetFailedToLoad;
-
-          free_gpu_texture(&desc->texture.allocation);
-          continue;
-        }
-
-        ASSERT_MSG_FATAL(result == kGpuStreamOk, "Unhandled GPU stream error!");
-        desc->state = kAssetStreaming;
-      } break;
-      case AssetType::kShader:
-      {
-        desc->type = AssetType::kShader;
-        // TODO(bshihabi): Implement
-        UNREACHABLE;
-      } break;
-      case AssetType::kMaterial:
-      {
-        desc->type = AssetType::kMaterial;
-
-        MaterialAsset material_asset = {0};
-        material_asset.metadata = metadata;
-        read_result = read_file(file.value(), (u8*)&material_asset, sizeof(material_asset), 0);
-        if (!read_result)
-        {
-          dbgln("Failed to read from asset file 0x%x", asset_id);
-          desc->state = kAssetFailedToLoad;
-          continue;
-        }
-
-        desc->material.textures = init_array_zeroed<AssetId>(g_InitHeap, material_asset.num_textures);
-
-        read_result = read_file(file.value(), desc->material.textures.memory, sizeof(AssetId) * material_asset.num_textures, material_asset.textures);
-        if (!read_result)
-        {
-          dbgln("Failed to read from asset file 0x%x", asset_id);
-          desc->state = kAssetFailedToLoad;
-          continue;
-        }
-
-        for (u32 itexture = 0; itexture < material_asset.num_textures; itexture++)
-        {
-          kick_asset_load(desc->material.textures[itexture]);
-        }
-        desc->state = kAssetReady;
-      } break;
-      default:
-      {
-        dbgln("Asset 0x%x is corrupted (invalid asset type 0x%x)", asset_id, metadata.asset_type);
-        desc->state = kAssetFailedToLoad;
-        continue;
-      } break;
-    }
+          return;
+        } break;
+      }
+    };
   }
 }
 
 void
 destroy_asset_loader(void)
 {
+  g_AssetLoader->kill = true;
+  join_threads(&g_AssetLoader->thread, 1);
+  destroy_gpu_stream_device();
 }
 
 Result<const GpuTexture*, AssetState>
 get_gpu_texture_asset(AssetId asset_id)
 {
-  AssetDesc* desc = hash_table_find(&g_AssetLoader->assets, asset_id);
-  if (desc == nullptr)
+  return ACQUIRE(&g_AssetLoader->assets, auto* assets) -> Result<const GpuTexture*, AssetState>
   {
-    return Err(kAssetUnloaded);
-  }
+    AssetDesc* desc = hash_table_find(assets, asset_id);
+    if (desc == nullptr)
+    {
+      return Err(kAssetUnloaded);
+    }
 
-  if (desc->state >= kAssetFailedToLoad || desc->state < kAssetReady)
-  {
-    return Err(desc->state);
-  }
+    if (desc->state >= kAssetFailedToLoad || desc->state < kAssetReady)
+    {
+      return Err(desc->state);
+    }
 
-  ASSERT_MSG_FATAL(desc->type  == AssetType::kTexture, "Asset is not a texture!");
-  ASSERT_MSG_FATAL(desc->state == kAssetReady,         "Asset has not loaded yet!");
+    ASSERT_MSG_FATAL(desc->type  == AssetType::kTexture, "Asset is not a texture!");
+    ASSERT_MSG_FATAL(desc->state == kAssetReady,         "Asset has not loaded yet!");
 
-  return Ok((const GpuTexture*)&desc->texture.allocation);
+    return Ok((const GpuTexture*)&desc->texture.allocation);
+  };
 }
 
 Result<Texture2DPtr<float4>, AssetState>
 get_srv_texture_asset(AssetId asset_id)
 {
-  AssetDesc* desc = hash_table_find(&g_AssetLoader->assets, asset_id);
-  if (desc == nullptr)
+  return ACQUIRE(&g_AssetLoader->assets, auto* assets) -> Result<Texture2DPtr<float4>, AssetState>
   {
-    return Err(kAssetUnloaded);
-  }
+    AssetDesc* desc = hash_table_find(assets, asset_id);
+    if (desc == nullptr)
+    {
+      return Err(kAssetUnloaded);
+    }
 
-  if (desc->state >= kAssetFailedToLoad || desc->state < kAssetReady)
-  {
-    return Err(desc->state);
-  }
+    if (desc->state >= kAssetFailedToLoad || desc->state < kAssetReady)
+    {
+      return Err(desc->state);
+    }
 
-  ASSERT_MSG_FATAL(desc->type  == AssetType::kTexture, "Asset is not a texture!");
-  ASSERT_MSG_FATAL(desc->state == kAssetReady,         "Asset has not loaded yet!");
+    ASSERT_MSG_FATAL(desc->type  == AssetType::kTexture, "Asset is not a texture!");
+    ASSERT_MSG_FATAL(desc->state == kAssetReady,         "Asset has not loaded yet!");
 
-  Texture2DPtr<float4> ptr;
-  ptr.m_Index = desc->texture.descriptor.index;
+    Texture2DPtr<float4> ptr;
+    ptr.m_Index = desc->texture.descriptor.index;
 
-  return Ok(ptr);
+    return Ok(ptr);
+  };
 }
 
 Result<const MaterialData*, AssetState>
 get_material_asset(AssetId asset_id)
 {
-  AssetDesc* desc = hash_table_find(&g_AssetLoader->assets, asset_id);
-  if (desc == nullptr)
+  return ACQUIRE(&g_AssetLoader->assets, auto* assets) -> Result<const MaterialData*, AssetState>
   {
-    return Err(kAssetUnloaded);
-  }
+    AssetDesc* desc = hash_table_find(assets, asset_id);
+    if (desc == nullptr)
+    {
+      return Err(kAssetUnloaded);
+    }
 
-  if (desc->state >= kAssetFailedToLoad || desc->state < kAssetReady)
-  {
-    return Err(desc->state);
-  }
+    if (desc->state >= kAssetFailedToLoad || desc->state < kAssetReady)
+    {
+      return Err(desc->state);
+    }
 
-  ASSERT_MSG_FATAL(desc->type == AssetType::kMaterial,  "Asset is not a texture!");
-  ASSERT_MSG_FATAL(desc->state == kAssetReady,          "Asset has not loaded yet!");
+    ASSERT_MSG_FATAL(desc->type == AssetType::kMaterial,  "Asset is not a texture!");
+    ASSERT_MSG_FATAL(desc->state == kAssetReady,          "Asset has not loaded yet!");
 
-  return Ok((const MaterialData*)&desc->material);
+    return Ok((const MaterialData*)&desc->material);
+  };
 }

@@ -51,7 +51,7 @@ open_file(const char* path)
   HANDLE handle = CreateFileA(
     path,
     GENERIC_WRITE | GENERIC_READ,
-    0,
+    FILE_SHARE_READ,
     NULL,
     OPEN_EXISTING,
     FILE_ATTRIBUTE_NORMAL,

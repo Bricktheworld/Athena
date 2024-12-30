@@ -1,6 +1,8 @@
 #pragma once
-#include "Core/Engine/Render/graphics.h"
 #include "Core/Foundation/assets.h"
+#include "Core/Foundation/threading.h"
+
+#include "Core/Engine/Render/graphics.h"
 
 struct AssetLoader;
 struct GpuStreamDevice;
@@ -8,9 +10,6 @@ struct IDStorageFactory;
 struct IDStorageQueue2;
 struct IDStorageFile;
 struct IDStorageStatusArray;
-
-extern AssetLoader*     g_AssetLoader;
-extern GpuStreamDevice* g_GpuStreamDevice;
 
 static constexpr u32 kMaxAssetLoadRequests = 0x1000;
 static constexpr u32 kMaxAssets            = 0x2000;
@@ -92,11 +91,6 @@ struct GpuStreamDevice
 };
 
 
-struct AssetLoader
-{
-  RingQueue<AssetId>            requests;
-  HashTable<AssetId, AssetDesc> assets;
-};
 
 enum GpuStreamResult
 {
@@ -104,14 +98,8 @@ enum GpuStreamResult
   kGpuStreamFailedToOpenFile,
 };
 
-void init_gpu_stream_device(void);
-void destroy_gpu_stream_device(void);
-void submit_gpu_stream_requests(void);
-GpuStreamResult request_gpu_stream_asset(const AssetGpuLoadRequest& request);
-
 void init_asset_loader(void);
 void kick_asset_load(AssetId asset_id);
-void process_asset_loads(void);
 void destroy_asset_loader(void);
 
 Result<const GpuTexture*,    AssetState> get_gpu_texture_asset(AssetId asset_id);

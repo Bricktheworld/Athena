@@ -153,7 +153,7 @@ init_renderer(
   *g_DescriptorCbvSrvUavPool  = init_descriptor_pool(g_InitHeap, device, 2048, kDescriptorHeapTypeCbvSrvUav);
 
   const uint32_t kGraphMemory = MiB(32);
-  g_Renderer.graph_allocator  = init_linear_allocator(HEAP_ALLOC_ALIGNED(g_InitHeap, kGraphMemory, alignof(uint64_t)), kGraphMemory);
+  g_Renderer.graph_allocator  = init_linear_allocator(HEAP_ALLOC_ALIGNED(g_InitHeap, kGraphMemory, alignof(u64)), kGraphMemory);
 
   init_renderer_dependency_graph(swap_chain, kRgDestroyAll);
   init_renderer_psos(device, swap_chain);

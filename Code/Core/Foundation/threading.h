@@ -10,13 +10,28 @@ struct Thread
   DWORD id = 0;
 };
 
-FOUNDATION_API Thread create_thread(
-  AllocHeap scratch_heap,
-  size_t stack_size,
+FOUNDATION_API Thread init_thread(
+  AllocHeap heap,
+  FreeHeap overflow_heap,
+  u64 stack_size,
   ThreadProc proc,
   void* param,
   u8 core_index
 );
+
+template <typename T>
+inline Thread init_thread(
+  AllocHeap heap,
+  FreeHeap overflow_heap,
+  u64 stack_size,
+  ThreadProc proc,
+  const T& param,
+  u8 core_index
+) {
+  void* p = HEAP_ALLOC(T, heap, 1);
+  memcpy(p, &param, sizeof(T));
+  return init_thread(heap, overflow_heap, stack_size, proc, p, core_index);
+}
 FOUNDATION_API void destroy_thread(Thread* thread);
 FOUNDATION_API u32 get_num_physical_cores();
 FOUNDATION_API void set_thread_name(const Thread* thread, const wchar_t* name);
