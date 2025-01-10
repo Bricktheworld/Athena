@@ -45,13 +45,13 @@ const GpuShader* get_engine_shader(u32 index);
 
 struct RenderModelSubset
 {
-  GraphicsPSO gbuffer_pso;
-  u32 index_buffer_offset = 0;
-  u32 index_count         = 0;
-  EngineShaderIndex vertex_shader   = kVS_Basic;
-  EngineShaderIndex material_shader = kPS_BasicNormalGloss;
+  GraphicsPSO       gbuffer_pso;
+  u32               index_buffer_offset = 0;
+  u32               index_count         = 0;
+  EngineShaderIndex vertex_shader       = kVS_Basic;
+  EngineShaderIndex material_shader     = kPS_BasicNormalGloss;
 
-  AssetId           material        = kNullAssetId;
+  AssetId           material            = kNullAssetId;
 };
 
 enum ResolutionScale

@@ -1,4 +1,5 @@
 #include "Core/Engine/memory.h"
+#include "Core/Engine/asset_streaming.h"
 
 #include "Core/Engine/Render/misc.h"
 #include "Core/Engine/Render/renderer.h"
@@ -68,16 +69,21 @@ render_handler_frame_init(RenderContext* ctx, const void* data)
   ctx->set_compute_root_shader_resource_view(kAccelerationStructureSlot,  &g_UnifiedGeometryBuffer.bvh.top_bvh);
 }
 
-void
+FrameResources
 init_frame_init_pass(AllocHeap heap, RgBuilder* builder)
 {
   FrameInitParams* params = HEAP_ALLOC(FrameInitParams, g_InitHeap, 1);
   zero_memory(params, sizeof(FrameInitParams));
 
-  RgHandle<GpuBuffer> scene_buffer = rg_create_upload_buffer(builder, "Viewport Buffer", sizeof(Viewport));
+  FrameResources ret;
+
+  ret.scene_buffer    = rg_create_upload_buffer(builder, "Viewport Buffer", kGpuHeapSysRAMCpuToGpu, sizeof(Viewport));
+  ret.material_buffer = rg_create_upload_buffer(builder, "Material Buffer", kGpuHeapVRAMCpuToGpu,   sizeof(MaterialGpu) * kMaxSceneObjs, sizeof(MaterialGpu));
 
   RgPassBuilder*      pass         = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "Frame Init", params, &render_handler_frame_init, true);
-  params->scene_buffer             = RgConstantBuffer<Viewport>(pass, scene_buffer);
+  params->scene_buffer             = RgConstantBuffer<Viewport>(pass, ret.scene_buffer);
+
+  return ret;
 }
 
 struct ImGuiParams

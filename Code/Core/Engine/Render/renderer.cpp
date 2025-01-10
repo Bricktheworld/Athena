@@ -266,7 +266,7 @@ init_global_upload_context(const GpuDevice* device)
   GpuBufferDesc staging_desc = {0};
   staging_desc.size = MiB(32);
 
-  g_UploadContext.staging_buffer = alloc_gpu_buffer_no_heap(device, staging_desc, kGpuHeapCpuToGpu, "Staging Buffer");
+  g_UploadContext.staging_buffer = alloc_gpu_buffer_no_heap(device, staging_desc, kGpuHeapSysRAMCpuToGpu, "Staging Buffer");
   g_UploadContext.staging_offset = 0;
   g_UploadContext.cmd_list_allocator = init_cmd_list_allocator(g_InitHeap, device, &device->copy_queue, 16);
   g_UploadContext.cmd_list = alloc_cmd_list(&g_UploadContext.cmd_list_allocator);

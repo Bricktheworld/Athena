@@ -41,21 +41,21 @@ struct Option<T*>
 template <typename T>
 T& unwrap(Option<T>& optional)
 {
-  ASSERT(optional);
+  ASSERT_MSG_FATAL(optional, "Attempting to unwrap optional that contains nothing!");
   return optional.value;
 }
 
 template <typename T>
 T unwrap(Option<T>&& optional)
 {
-  ASSERT(optional);
+  ASSERT_MSG_FATAL(optional, "Attempting to unwrap optional that contains nothing!");
   return optional.value;
 }
 
 template <typename T>
 T unwrap(const Option<T>& optional)
 {
-  ASSERT(optional);
+  ASSERT_MSG_FATAL(optional, "Attempting to unwrap optional that contains nothing!");
   return optional.value;
 }
 

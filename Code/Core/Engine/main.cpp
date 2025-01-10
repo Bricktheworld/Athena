@@ -25,9 +25,6 @@
 
 #include "Core/Vendor/LivePP/API/x64/LPP_API_x64_CPP.h"
 
-extern "C" { __declspec(dllexport) extern const UINT D3D12SDKVersion = 610;}
-extern "C" { __declspec(dllexport) extern const char* D3D12SDKPath = "."; }
-
 extern IMGUI_IMPL_API LRESULT
 ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 

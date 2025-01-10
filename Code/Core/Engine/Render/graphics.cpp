@@ -6,18 +6,21 @@
 #include "Core/Engine/Render/graphics.h"
 #include "Core/Engine/Render/frame_time.h"
 
+#include "Core/Vendor/D3D12/d3dx12.h"
+
 #include "Core/Engine/Vendor/imgui/imgui.h"
 #include "Core/Engine/Vendor/imgui/imgui_impl_win32.h"
 #include "Core/Engine/Vendor/imgui/imgui_impl_dx12.h"
 
-
-#include "Core/Vendor/d3dx12.h"
 #include <d3dcompiler.h>
+
 #pragma comment(lib, "d3d12.lib")
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "dxguid.lib")
 #pragma comment(lib, "d3dcompiler.lib")
 
+extern "C" { __declspec(dllexport) extern const UINT D3D12SDKVersion = 614;}
+extern "C" { __declspec(dllexport) extern const char* D3D12SDKPath = "."; }
 
 #if defined(DEBUG)
 #define DEBUG_LAYER
@@ -410,8 +413,10 @@ get_d3d12_heap_location(GpuHeapLocation type)
   {
     case kGpuHeapGpuOnly:
       return D3D12_HEAP_TYPE_DEFAULT;
-    case kGpuHeapCpuToGpu:
+    case kGpuHeapSysRAMCpuToGpu:
       return D3D12_HEAP_TYPE_UPLOAD;
+    case kGpuHeapVRAMCpuToGpu:
+      return D3D12_HEAP_TYPE_GPU_UPLOAD;
     default:
       UNREACHABLE;
   }
@@ -488,6 +493,10 @@ init_graphics_device(HWND window)
   IDXGIAdapter1* adapter; 
   init_d3d12_device(window, factory, &adapter, &g_GpuDevice->d3d12);
   defer { COM_RELEASE(adapter); };
+
+  //D3D12_FEATURE_DATA_D3D12_OPTIONS16 options{};
+  //bool gpu_upload_heap_supported = false;
+  //if (SUCCEEDED(g_GpuDevice->d3d12->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS16, )))
 
   g_GpuDevice->graphics_queue = init_cmd_queue(g_GpuDevice, kCmdQueueTypeGraphics);
 
@@ -710,13 +719,13 @@ GpuBuffer
 alloc_gpu_buffer_no_heap(
   const GpuDevice* device,
   GpuBufferDesc desc,
-  GpuHeapLocation type,
+  GpuHeapLocation location,
   const char* name
 ) {
   GpuBuffer ret = {0};
   ret.desc = desc;
 
-  D3D12_HEAP_PROPERTIES heap_props = CD3DX12_HEAP_PROPERTIES(get_d3d12_heap_location(type));
+  D3D12_HEAP_PROPERTIES heap_props = CD3DX12_HEAP_PROPERTIES(get_d3d12_heap_location(location));
   auto resource_desc = CD3DX12_RESOURCE_DESC::Buffer(desc.size, desc.flags);
 
   HASSERT(
@@ -734,11 +743,12 @@ alloc_gpu_buffer_no_heap(
   mbstowcs_s(nullptr, wname, name, 1024);
   ret.d3d12_buffer->SetName(wname);
   ret.gpu_addr = ret.d3d12_buffer->GetGPUVirtualAddress();
-  if (type == kGpuHeapCpuToGpu)
+  if (location == kGpuHeapSysRAMCpuToGpu || location == kGpuHeapVRAMCpuToGpu)
   {
     void* mapped = nullptr;
     ret.d3d12_buffer->Map(0, nullptr, &mapped);
     ret.mapped = mapped;
+    ASSERT_MSG_FATAL(mapped != nullptr, "Failed to map GPU buffer!");
   }
 
   return ret;
@@ -784,11 +794,12 @@ alloc_gpu_buffer(
   ret.d3d12_buffer->SetName(wname);
 
   ret.gpu_addr = ret.d3d12_buffer->GetGPUVirtualAddress();
-  if (allocation.location == kGpuHeapCpuToGpu)
+  if (allocation.location == kGpuHeapSysRAMCpuToGpu || allocation.location == kGpuHeapVRAMCpuToGpu)
   {
     void* mapped = nullptr;
     ret.d3d12_buffer->Map(0, nullptr, &mapped);
     ret.mapped = mapped;
+    ASSERT_MSG_FATAL(mapped != nullptr, "Failed to map GPU buffer!");
   }
 
   return ret;
@@ -1331,7 +1342,7 @@ init_acceleration_structure(
   ret.instance_desc_buffer = alloc_gpu_buffer_no_heap(
     device,
     {.size = ALIGN_POW2(sizeof(instance_desc), D3D12_RAYTRACING_INSTANCE_DESCS_BYTE_ALIGNMENT)},
-    kGpuHeapCpuToGpu,
+    kGpuHeapSysRAMCpuToGpu,
     "Instance Desc"
   );
   memcpy(unwrap(ret.instance_desc_buffer.mapped), &instance_desc, sizeof(instance_desc));
@@ -1470,7 +1481,7 @@ init_shader_table(const GpuDevice* device, RayTracingPSO pipeline, const char* n
 
   GpuBufferDesc desc = {0};
   desc.size = buffer_size;
-  ret.buffer = alloc_gpu_buffer_no_heap(device, desc, kGpuHeapCpuToGpu, name);
+  ret.buffer = alloc_gpu_buffer_no_heap(device, desc, kGpuHeapSysRAMCpuToGpu, name);
 
   u8* dst = (u8*)unwrap(ret.buffer.mapped);
   // TODO(Brandon): Don't hard-code these names

@@ -4,12 +4,12 @@
 
 #include "Core/Tools/AssetBuilder/Vendor/StbImage/stb_image.h"
 
-#include <d3d12.h>
+#include "Core/Vendor/D3D12/d3d12.h"
 #include <dxgidebug.h>
 #include <dxgi1_6.h>
 #include <wrl.h>
 
-#include "Core/Vendor/d3dx12.h"
+#include "Core/Vendor/D3D12/d3d12.h"
 #pragma comment(lib, "d3d12.lib")
 
 static constexpr u32 kTextureAssetVersion = 1;

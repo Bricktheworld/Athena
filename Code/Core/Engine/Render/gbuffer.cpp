@@ -102,6 +102,7 @@ render_handler_gbuffer_static(RenderContext* ctx, const void* data)
     }
 
     ctx->set_graphics_pso(&subset.gbuffer_pso);
+
     MaterialSrt srt;
     srt.transform = params->transform_buffer;
     srt.diffuse   = diffuse;
@@ -118,7 +119,7 @@ init_gbuffer_static(AllocHeap heap, RgBuilder* builder, GBuffer* gbuffer)
   GBufferStaticParams* params   = HEAP_ALLOC(GBufferStaticParams, g_InitHeap, 1);
   zero_memory(params, sizeof(GBufferStaticParams));
 
-  RgHandle<GpuBuffer> transform = rg_create_upload_buffer(builder, "Transform Buffer", sizeof(Transform));
+  RgHandle<GpuBuffer> transform = rg_create_upload_buffer(builder, "Transform Buffer", kGpuHeapSysRAMCpuToGpu, sizeof(Transform));
 
   RgPassBuilder*      pass      = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "GBuffer Static", params, &render_handler_gbuffer_static);
 

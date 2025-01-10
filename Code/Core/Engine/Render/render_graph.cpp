@@ -1,9 +1,10 @@
 #include "Core/Foundation/context.h"
-#include "Core/Vendor/d3dx12.h"
 
 #include "Core/Engine/memory.h"
 #include "Core/Engine/Render/render_graph.h"
 #include "Core/Engine/Render/renderer.h"
+
+#include "Core/Vendor/D3D12/d3dx12.h"
 
 #include "Core/Engine/Vendor/imgui/imgui_impl_dx12.h"
 
@@ -298,7 +299,8 @@ init_physical_resources(
   const RgBuilder& builder,
   const GpuDevice* device,
   GpuLinearAllocator* local_heap,
-  GpuLinearAllocator* upload_heaps,
+  GpuLinearAllocator* sysram_upload_heaps,
+  GpuLinearAllocator* vram_upload_heaps,
   GpuLinearAllocator* temporal_heaps,
   u32 buffer_count,
   u32 texture_count
@@ -391,7 +393,14 @@ init_physical_resources(
 
       if (resource_desc->temporal_lifetime > 0 && resource_desc->temporal_lifetime < kInfiniteLifetime)
       {
-        GpuLinearAllocator* allocator = resource_desc->buffer_desc.heap_type == kGpuHeapGpuOnly ? temporal_heaps : upload_heaps;
+        GpuLinearAllocator* allocator = nullptr;
+        switch(resource_desc->buffer_desc.heap_location)
+        {
+          case kGpuHeapGpuOnly:        allocator = temporal_heaps;      break;
+          case kGpuHeapSysRAMCpuToGpu: allocator = sysram_upload_heaps; break;
+          case kGpuHeapVRAMCpuToGpu:   allocator = vram_upload_heaps;   break;
+          default: UNREACHABLE;
+        }
 
         ASSERT(resource_desc->temporal_lifetime <= kMaxTemporalLifetime);
         for (u32 iframe = 0; iframe <= resource_desc->temporal_lifetime; iframe++)
@@ -845,7 +854,12 @@ compile_render_graph(AllocHeap heap, const RgBuilder& builder, RenderGraphDestro
     g_RenderGraph->local_heap        = init_gpu_linear_allocator(MiB(700), kGpuHeapGpuOnly);
     for (u32 i = 0; i < kBackBufferCount; i++)
     {
-      g_RenderGraph->upload_heaps[i] = init_gpu_linear_allocator(MiB(4), kGpuHeapCpuToGpu);
+      g_RenderGraph->sysram_upload_heaps[i] = init_gpu_linear_allocator(MiB(4), kGpuHeapSysRAMCpuToGpu);
+    }
+
+    for (u32 i = 0; i < kBackBufferCount; i++)
+    {
+      g_RenderGraph->vram_upload_heaps[i] = init_gpu_linear_allocator(MiB(16), kGpuHeapVRAMCpuToGpu);
     }
 
     g_RenderGraph->temporal_heaps = init_array<GpuLinearAllocator>(heap, kMaxTemporalLifetime);
@@ -883,7 +897,8 @@ compile_render_graph(AllocHeap heap, const RgBuilder& builder, RenderGraphDestro
       builder,
       g_GpuDevice,
       &g_RenderGraph->local_heap,
-      g_RenderGraph->upload_heaps,
+      g_RenderGraph->sysram_upload_heaps,
+      g_RenderGraph->vram_upload_heaps,
       g_RenderGraph->temporal_heaps.memory,
       buffer_count,
       texture_count
@@ -928,7 +943,7 @@ destroy_render_graph(RenderGraphDestroyFlags flags)
   if (flags & kRgDestroyResourceHeaps)
   {
     destroy_gpu_linear_allocator(&g_RenderGraph->local_heap);
-    for (GpuLinearAllocator& upload_heap : g_RenderGraph->upload_heaps)
+    for (GpuLinearAllocator& upload_heap : g_RenderGraph->sysram_upload_heaps)
     {
       destroy_gpu_linear_allocator(&upload_heap);
     }
@@ -941,7 +956,7 @@ destroy_render_graph(RenderGraphDestroyFlags flags)
   else
   {
     reset_gpu_linear_allocator(&g_RenderGraph->local_heap);
-    for (GpuLinearAllocator& upload_heap : g_RenderGraph->upload_heaps)
+    for (GpuLinearAllocator& upload_heap : g_RenderGraph->sysram_upload_heaps)
     {
       reset_gpu_linear_allocator(&upload_heap);
     }
@@ -1096,9 +1111,9 @@ execute_render_graph(const GpuTexture* back_buffer)
     for (RenderPassId pass_id : level.render_passes)
     {
       RG_DBGLN("%s", g_RenderGraph->render_passes[pass_id].name);
+      set_descriptor_heaps(&cmd_buffer, {g_DescriptorCbvSrvUavPool});
       set_graphics_root_signature(&cmd_buffer);
       set_compute_root_signature(&cmd_buffer);
-      set_descriptor_heaps(&cmd_buffer, {g_DescriptorCbvSrvUavPool});
 
       g_HandlerId = pass_id;
       const RenderPass& pass = g_RenderGraph->render_passes[pass_id];
@@ -1251,6 +1266,7 @@ RgHandle<GpuBuffer>
 rg_create_upload_buffer(
   RgBuilder* builder,
   const char* name,
+  GpuHeapLocation location,
   u32 size,
   u32 stride
 ) {
@@ -1266,12 +1282,10 @@ rg_create_upload_buffer(
   desc->type                          = resource_handle.type;
   desc->temporal_lifetime             = resource_handle.temporal_lifetime;
   desc->buffer_desc.size              = size;
-  if (stride == 0)
-  {
-    ASSERT(size <= U32_MAX);
-  }
   desc->buffer_desc.stride            = stride == 0 ? size : stride;
-  desc->buffer_desc.heap_type         = kGpuHeapCpuToGpu;
+
+  ASSERT_MSG_FATAL(location == kGpuHeapSysRAMCpuToGpu || location == kGpuHeapVRAMCpuToGpu, "Attempting to create a render graph upload buffer that isn't actually located in an upload heap. This is probably not what you intended to do. Use either kGpuHeapSysRAMCpuToGpu or kGpuHeapVRAMCpuToGpu for the location.");
+  desc->buffer_desc.heap_location     = location;
 
   RgHandle<GpuBuffer> ret = {resource_handle.id, resource_handle.version, resource_handle.temporal_lifetime};
   return ret;
@@ -1299,7 +1313,7 @@ rg_create_buffer_ex(
   desc->temporal_lifetime             = resource_handle.temporal_lifetime;
   desc->buffer_desc.size              = size;
   desc->buffer_desc.stride            = stride;
-  desc->buffer_desc.heap_type         = kGpuHeapGpuOnly;
+  desc->buffer_desc.heap_location     = kGpuHeapGpuOnly;
 
   RgHandle<GpuBuffer> ret = {resource_handle.id, resource_handle.version, resource_handle.temporal_lifetime};
   return ret;
@@ -1907,7 +1921,7 @@ RenderContext::write_cpu_upload_buffer(RgCpuUploadBuffer dst, const void* src, u
 void
 RenderContext::write_cpu_upload_buffer(const GpuBuffer* dst, const void* src, u64 size)
 {
-  ASSERT(size <= dst->desc.size);
+  ASSERT_MSG_FATAL(size <= dst->desc.size, "Buffer overwrite detected from CPU to upload GPU buffer. Attempted to write 0x%llx bytes into buffer with only 0x%llx bytes", size, dst->desc.size);
 
   void* ptr = unwrap(dst->mapped);
   memcpy(ptr, src, size);

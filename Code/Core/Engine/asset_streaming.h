@@ -14,6 +14,10 @@ struct IDStorageStatusArray;
 static constexpr u32 kMaxAssetLoadRequests = 0x1000;
 static constexpr u32 kMaxAssets            = 0x2000;
 
+
+static constexpr u32 kMaxMaterials = 0x100;
+static constexpr u32 kMaxSceneObjs = 0x1000;
+
 enum AssetGpuLoadType
 {
   kAssetGpuLoadTypeBuffer,

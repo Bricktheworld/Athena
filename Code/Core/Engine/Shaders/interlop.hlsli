@@ -225,6 +225,12 @@ struct MaterialSrt
   u32 gpu_id;
 };
 
+struct MaterialUploadCmd
+{
+  MaterialGpu material;
+  u32         mat_gpu_id;
+};
+
 struct FullscreenSrt
 {
   Texture2DPtr<float4> texture;

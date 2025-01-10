@@ -55,7 +55,7 @@ struct TransientResourceDesc
     {
       u32         size;
       u32         stride;
-      GpuHeapLocation heap_type;
+      GpuHeapLocation heap_location;
     } buffer_desc;
   };
   const char*  name              = nullptr;
@@ -233,7 +233,8 @@ struct RenderGraph
   Array<RgDependencyLevel>               dependency_levels;
 
   GpuLinearAllocator                     local_heap;
-  GpuLinearAllocator                     upload_heaps[kBackBufferCount];
+  GpuLinearAllocator                     sysram_upload_heaps[kBackBufferCount];
+  GpuLinearAllocator                     vram_upload_heaps  [kBackBufferCount];
   Array<GpuLinearAllocator>              temporal_heaps;
 
   RgDescriptorHeap                       descriptor_heap;
@@ -421,6 +422,7 @@ RgHandle<GpuBuffer> rg_create_buffer(
 RgHandle<GpuBuffer> rg_create_upload_buffer(
   RgBuilder* builder,
   const char* name,
+  GpuHeapLocation location,
   u32 size,
   u32 stride = 0
 );

@@ -118,7 +118,7 @@ init_ddgi(AllocHeap heap, RgBuilder* builder)
   desc.probe_max_ray_distance = 20.0f;
   desc.probe_max_ray_distance = 20.0f;
 
-  RgHandle<GpuBuffer>  vol_desc_buffer = rg_create_upload_buffer(builder, "DDGI Vol Desc", sizeof(DDGIVolDesc));
+  RgHandle<GpuBuffer>  vol_desc_buffer = rg_create_upload_buffer(builder, "DDGI Vol Desc", kGpuHeapSysRAMCpuToGpu, sizeof(DDGIVolDesc));
   RgHandle<GpuTexture> probe_ray_data  = rg_create_texture_array(
     builder,
     "Probe Ray Data",

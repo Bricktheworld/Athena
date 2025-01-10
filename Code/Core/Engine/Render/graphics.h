@@ -9,7 +9,7 @@
 
 #include "Core/Engine/Shaders/interlop.hlsli"
 
-#include <d3d12.h>
+#include "Core/Vendor/D3D12/d3d12.h"
 #include <dxgidebug.h>
 #include <dxgi1_6.h>
 #include <wrl.h>
@@ -275,8 +275,15 @@ enum GpuHeapLocation : u8
 {
   // GPU only
   kGpuHeapGpuOnly,
-  // CPU to GPU
-  kGpuHeapCpuToGpu,
+
+  // CPU to GPU living in SysRAM (CPU RAM)
+  // This is also referred to as SysRAM upload
+  kGpuHeapSysRAMCpuToGpu,
+
+  // CPU to GPU living in VRAM
+  // This is also referred to as VRAM upload
+  // (Only supported on systems with ReBAR)
+  kGpuHeapVRAMCpuToGpu,
 };
 
 enum GpuHeapType : u8
@@ -410,7 +417,7 @@ struct GpuBuffer
 GpuBuffer alloc_gpu_buffer_no_heap(
   const GpuDevice* device,
   GpuBufferDesc desc,
-  GpuHeapLocation type,
+  GpuHeapLocation location,
   const char* name
 );
 void free_gpu_buffer(GpuBuffer* buffer);

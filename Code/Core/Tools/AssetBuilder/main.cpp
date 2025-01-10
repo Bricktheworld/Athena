@@ -4,7 +4,7 @@
 #include "Core/Tools/AssetBuilder/model_importer.h"
 #include "Core/Tools/AssetBuilder/texture_importer.h"
 
-#include <d3d12.h>
+#include "Core/Vendor/D3D12/d3d12.h"
 #include <dxgidebug.h>
 #include <dxgi1_6.h>
 #include <wrl.h>
