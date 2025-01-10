@@ -391,7 +391,7 @@ init_physical_resources(
 
       if (resource_desc->temporal_lifetime > 0 && resource_desc->temporal_lifetime < kInfiniteLifetime)
       {
-        GpuLinearAllocator* allocator = resource_desc->buffer_desc.heap_type == kGpuHeapTypeLocal ? temporal_heaps : upload_heaps;
+        GpuLinearAllocator* allocator = resource_desc->buffer_desc.heap_type == kGpuHeapGpuOnly ? temporal_heaps : upload_heaps;
 
         ASSERT(resource_desc->temporal_lifetime <= kMaxTemporalLifetime);
         for (u32 iframe = 0; iframe <= resource_desc->temporal_lifetime; iframe++)
@@ -399,14 +399,14 @@ init_physical_resources(
           key.temporal_frame = iframe;
           GpuBuffer* dst     = hash_table_insert(&physical_buffers, key);
     
-          *dst               = alloc_gpu_buffer(device, allocator + iframe, desc, resource_desc->name);
+          *dst               = alloc_gpu_buffer(device, allocator[iframe], desc, resource_desc->name);
         }
       }
       else
       {
         key.temporal_frame = 0;
         GpuBuffer*    dst  = hash_table_insert(&physical_buffers, key);
-        *dst               = alloc_gpu_buffer(device, local_heap, desc, resource_desc->name);
+        *dst               = alloc_gpu_buffer(device, *local_heap, desc, resource_desc->name);
       }
     }
     else if (resource.type == kResourceTypeTexture)
@@ -437,7 +437,7 @@ init_physical_resources(
           key.temporal_frame = iframe;
           GpuTexture* dst    = hash_table_insert(&physical_textures, key);
     
-          *dst               = alloc_gpu_texture(device, temporal_heaps + iframe, desc, resource_desc->name);
+          *dst               = alloc_gpu_texture(device, temporal_heaps[iframe], desc, resource_desc->name);
         }
       }
       else
@@ -445,7 +445,7 @@ init_physical_resources(
         key.temporal_frame = 0;
         GpuTexture* dst    = hash_table_insert(&physical_textures, key);
   
-        *dst               = alloc_gpu_texture(device, local_heap, desc, resource_desc->name);
+        *dst               = alloc_gpu_texture(device, *local_heap, desc, resource_desc->name);
       }
     } else { UNREACHABLE; }
   }
@@ -842,17 +842,17 @@ compile_render_graph(AllocHeap heap, const RgBuilder& builder, RenderGraphDestro
 
   if (flags & kRgDestroyResourceHeaps)
   {
-    g_RenderGraph->local_heap        = init_gpu_linear_allocator(g_GpuDevice, MiB(700), kGpuHeapTypeLocal);
+    g_RenderGraph->local_heap        = init_gpu_linear_allocator(MiB(700), kGpuHeapGpuOnly);
     for (u32 i = 0; i < kBackBufferCount; i++)
     {
-      g_RenderGraph->upload_heaps[i] = init_gpu_linear_allocator(g_GpuDevice, MiB(4), kGpuHeapTypeUpload);
+      g_RenderGraph->upload_heaps[i] = init_gpu_linear_allocator(MiB(4), kGpuHeapCpuToGpu);
     }
 
     g_RenderGraph->temporal_heaps = init_array<GpuLinearAllocator>(heap, kMaxTemporalLifetime);
     for (u8 i = 0; i < kMaxTemporalLifetime; i++)
     {
       GpuLinearAllocator* dst = array_add(&g_RenderGraph->temporal_heaps);
-      *dst                    = init_gpu_linear_allocator(g_GpuDevice, MiB(128), kGpuHeapTypeLocal);
+      *dst                    = init_gpu_linear_allocator(MiB(128), kGpuHeapGpuOnly);
     }
   }
 
@@ -1241,7 +1241,7 @@ RgHandle<GpuBuffer>
 rg_create_buffer(
   RgBuilder* builder,
   const char* name,
-  u64 size,
+  u32 size,
   u32 stride
 ) {
   return rg_create_buffer_ex(builder, name, size, stride, 0);
@@ -1251,7 +1251,7 @@ RgHandle<GpuBuffer>
 rg_create_upload_buffer(
   RgBuilder* builder,
   const char* name,
-  u64 size,
+  u32 size,
   u32 stride
 ) {
   ResourceHandle resource_handle      = {0};
@@ -1270,8 +1270,8 @@ rg_create_upload_buffer(
   {
     ASSERT(size <= U32_MAX);
   }
-  desc->buffer_desc.stride            = stride == 0 ? (u32)size : stride;
-  desc->buffer_desc.heap_type         = kGpuHeapTypeUpload;
+  desc->buffer_desc.stride            = stride == 0 ? size : stride;
+  desc->buffer_desc.heap_type         = kGpuHeapCpuToGpu;
 
   RgHandle<GpuBuffer> ret = {resource_handle.id, resource_handle.version, resource_handle.temporal_lifetime};
   return ret;
@@ -1281,7 +1281,7 @@ RgHandle<GpuBuffer>
 rg_create_buffer_ex(
   RgBuilder* builder,
   const char* name,
-  u64 size,
+  u32 size,
   u32 stride,
   u8 temporal_lifetime
 ) {
@@ -1299,7 +1299,7 @@ rg_create_buffer_ex(
   desc->temporal_lifetime             = resource_handle.temporal_lifetime;
   desc->buffer_desc.size              = size;
   desc->buffer_desc.stride            = stride;
-  desc->buffer_desc.heap_type         = kGpuHeapTypeLocal;
+  desc->buffer_desc.heap_type         = kGpuHeapGpuOnly;
 
   RgHandle<GpuBuffer> ret = {resource_handle.id, resource_handle.version, resource_handle.temporal_lifetime};
   return ret;

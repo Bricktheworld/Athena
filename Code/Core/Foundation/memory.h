@@ -218,6 +218,32 @@ struct OSAllocator
 FOUNDATION_API OSAllocator init_os_allocator   ();
 FOUNDATION_API void        destroy_os_allocator(OSAllocator* allocator);
 
+struct TlsfAllocator
+{
+  struct BinNode
+  {
+    u64 offset         = 0;
+    u64 size           = 0;
+
+    u32 bin_prev       = 0;
+    u32 bin_next       = 0;
+    u32 neighbor_next  = 0;
+    u32 neighbor_prev  = 0;
+  };
+
+  u64      size        = 0;
+  void*    memory      = 0;
+
+  u32      max_allocs  = 0;
+  BinNode* nodes       = nullptr;
+  u32*     free_stack  = nullptr;
+  u32      free_offset = 0;
+};
+
+FOUNDATION_API TlsfAllocator init_tlsf_allocator(AllocHeap heap, void* memory, u64 size);
+FOUNDATION_API void* tlsf_alloc(void* tlsf_allocator, u64 size, u32 alignment);
+FOUNDATION_API void* tlsf_free (void* tlsf_allocator, void* ptr);
+
 #if 0
 struct MultiLevelPoolAllocator
 {

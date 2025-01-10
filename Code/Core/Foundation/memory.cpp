@@ -256,4 +256,14 @@ init_os_allocator()
 void destroy_os_allocator(OSAllocator* self) 
 {
   UNREFERENCED_PARAMETER(self);
+
 }
+
+// TODO(bshihabi): Finish this method
+#if 0
+TlsfAllocator
+init_tlsf_allocator(AllocHeap heap, void* memory, u64 size)
+{
+  TlsfAllocator ret = {0};
+}
+#endif

@@ -271,41 +271,67 @@ void destroy_graphics_device();
 
 void wait_for_gpu_device_idle(GpuDevice* device);
 
-enum GpuHeapType : u8
+enum GpuHeapLocation : u8
 {
   // GPU only
-  kGpuHeapTypeLocal,
+  kGpuHeapGpuOnly,
   // CPU to GPU
-  kGpuHeapTypeUpload,
-
-  kGpuHeapTypeCount,
+  kGpuHeapCpuToGpu,
 };
 
-struct GpuResourceHeap
+enum GpuHeapType : u8
 {
-  ID3D12Heap* d3d12_heap = nullptr;
-  u64         size       = 0;
-  GpuHeapType type       = kGpuHeapTypeLocal;
+  kGpuAllocHeap,
+  kGpuFreeHeap,
 };
 
-GpuResourceHeap init_gpu_resource_heap(
-  const GpuDevice* device,
-  u64 size,
-  GpuHeapType type
-);
-void destroy_gpu_resource_heap(GpuResourceHeap* heap);
+struct GpuAllocation
+{
+  u32             size       = 0;
+  u32             offset     = 0;
+  ID3D12Heap*     d3d12_heap = nullptr;
 
+  // Optional metadata (usually an ID or offset of the allocation so that we can free)
+  u32             metadata   = 0;
+  GpuHeapLocation location   = kGpuHeapGpuOnly;
+};
+
+struct GpuAllocHeap
+{
+  GpuAllocation (*alloc_fn)(void* allocator, u32 size, u32 alignment)    = nullptr;
+  void* allocator = nullptr;
+};
+
+struct GpuFreeHeap
+{
+  GpuAllocation (*alloc_fn)(void* allocator, u32 size, u32 alignment)    = nullptr;
+  void          (*free_fn) (void* allocator, const GpuAllocation& alloc) = nullptr;
+  void* allocator = nullptr;
+};
+
+#define GPU_HEAP_ALLOC(heap, size, alignment)( (heap).alloc_fn ((heap).allocator, (size), (alignment)) )
+#define GPU_HEAP_FREE(heap,  alloc)( (heap).free_fn((heap).allocator, (GpuAllocation)alloc) )
+
+
+GpuAllocation gpu_linear_alloc(void* allocator, u32 size, u32 alignment);
 struct GpuLinearAllocator
 {
-  GpuResourceHeap heap;
-  u64             pos = 0;
+  ID3D12Heap*     d3d12_heap = nullptr;
+  u32             size       = 0;
+  u32             pos        = 0;
+  GpuHeapLocation location   = kGpuHeapGpuOnly;
+
+  operator GpuAllocHeap()
+  {
+    GpuAllocHeap ret = {0};
+    ret.alloc_fn     = &gpu_linear_alloc;
+    ret.allocator    = this;
+    return ret;
+  }
 };
 
-GpuLinearAllocator init_gpu_linear_allocator(
-  const GpuDevice* device,
-  u64 size,
-  GpuHeapType type
-);
+
+GpuLinearAllocator init_gpu_linear_allocator(u32 size, GpuHeapLocation location);
 void destroy_gpu_linear_allocator(GpuLinearAllocator* allocator);
 
 inline void
@@ -313,6 +339,7 @@ reset_gpu_linear_allocator(GpuLinearAllocator* allocator)
 {
   allocator->pos = 0;
 }
+
 
 
 struct GpuTextureDesc
@@ -352,7 +379,7 @@ void free_gpu_texture(GpuTexture* texture);
 
 GpuTexture alloc_gpu_texture(
   const GpuDevice* device,
-  GpuLinearAllocator* allocator,
+  GpuAllocHeap heap,
   GpuTextureDesc desc,
   const char* name
 );
@@ -367,7 +394,7 @@ bool is_depth_format(GpuFormat format);
 
 struct GpuBufferDesc
 {
-  u64                   size          = 0;
+  u32                   size          = 0;
   D3D12_RESOURCE_FLAGS  flags         = D3D12_RESOURCE_FLAG_NONE;
   D3D12_RESOURCE_STATES initial_state = D3D12_RESOURCE_STATE_COMMON;
 };
@@ -383,14 +410,14 @@ struct GpuBuffer
 GpuBuffer alloc_gpu_buffer_no_heap(
   const GpuDevice* device,
   GpuBufferDesc desc,
-  GpuHeapType type,
+  GpuHeapLocation type,
   const char* name
 );
 void free_gpu_buffer(GpuBuffer* buffer);
 
 GpuBuffer alloc_gpu_buffer(
   const GpuDevice* device,
-  GpuLinearAllocator* allocator,
+  GpuAllocHeap heap,
   GpuBufferDesc desc,
   const char* name
 );
@@ -487,7 +514,7 @@ struct GpuDescriptor
 };
 
 GpuDescriptor alloc_descriptor(DescriptorPool* pool);
-void       free_descriptor(DescriptorPool* heap, GpuDescriptor* descriptor);
+void          free_descriptor(DescriptorPool* heap, GpuDescriptor* descriptor);
 
 GpuDescriptor alloc_descriptor(DescriptorLinearAllocator* allocator);
 
@@ -562,7 +589,7 @@ struct GpuShader
   ID3DBlob* d3d12_shader = nullptr;
 };
 
-GpuShader load_shader_from_file(const GpuDevice* device, const wchar_t* path);
+GpuShader load_shader_from_file  (const GpuDevice* device, const wchar_t* path);
 GpuShader load_shader_from_memory(const GpuDevice* device, const u8* src, size_t size);
 void destroy_shader(GpuShader* shader);
 

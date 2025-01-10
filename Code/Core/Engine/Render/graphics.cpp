@@ -404,59 +404,67 @@ submit_cmd_lists(CmdListAllocator* allocator, Span<CmdList> lists, Option<GpuFen
 
 
 static D3D12_HEAP_TYPE
-get_d3d12_heap_type(GpuHeapType type)
+get_d3d12_heap_location(GpuHeapLocation type)
 {
   switch(type)
   {
-    case kGpuHeapTypeLocal:
+    case kGpuHeapGpuOnly:
       return D3D12_HEAP_TYPE_DEFAULT;
-    case kGpuHeapTypeUpload:
+    case kGpuHeapCpuToGpu:
       return D3D12_HEAP_TYPE_UPLOAD;
     default:
       UNREACHABLE;
   }
 }
 
-GpuResourceHeap
-init_gpu_resource_heap(const GpuDevice* device, u64 size, GpuHeapType type)
+GpuLinearAllocator
+init_gpu_linear_allocator(u32 size, GpuHeapLocation location)
 {
+  GpuLinearAllocator ret = {0};
+  ret.pos = 0;
   D3D12_HEAP_DESC desc = {0};
   desc.SizeInBytes = size;
-  desc.Properties = CD3DX12_HEAP_PROPERTIES(get_d3d12_heap_type(type));
+  desc.Properties  = CD3DX12_HEAP_PROPERTIES(get_d3d12_heap_location(location));
 
   // TODO(Brandon): If we ever do MSAA textures then this needs to change.
   desc.Alignment = KiB(64);
-  desc.Flags = D3D12_HEAP_FLAG_NONE;
+  desc.Flags     = D3D12_HEAP_FLAG_NONE;
 
-  GpuResourceHeap ret = {0};
-  ret.size = size;
-  ret.type = type;
+  ret.size       = size;
+  ret.location   = location;
 
-  HASSERT(device->d3d12->CreateHeap(&desc, IID_PPV_ARGS(&ret.d3d12_heap)));
+  HASSERT(g_GpuDevice->d3d12->CreateHeap(&desc, IID_PPV_ARGS(&ret.d3d12_heap)));
 
-  return ret;
-}
-
-void
-destroy_gpu_resource_heap(GpuResourceHeap* heap)
-{
-  COM_RELEASE(heap->d3d12_heap);
-  zero_memory(heap, sizeof(GpuResourceHeap));
-}
-
-GpuLinearAllocator
-init_gpu_linear_allocator(const GpuDevice* device, u64 size, GpuHeapType type)
-{
-  GpuLinearAllocator ret = {0};
-  ret.heap = init_gpu_resource_heap(device, size, type);
-  ret.pos = 0;
   return ret;
 }
 
 void
 destroy_gpu_linear_allocator(GpuLinearAllocator* allocator)
 {
-  destroy_gpu_resource_heap(&allocator->heap);
+  COM_RELEASE(allocator->d3d12_heap);
+  zero_memory(allocator, sizeof(GpuLinearAllocator));
+}
+
+GpuAllocation
+gpu_linear_alloc(void* allocator, u32 size, u32 alignment)
+{
+  GpuLinearAllocator* self    = (GpuLinearAllocator*)allocator;
+  u32                 offset  = ALIGN_POW2(self->pos, alignment);
+  u32                 new_pos = offset + size;
+
+  ASSERT_MSG_FATAL(new_pos <= self->size, "GPU linear allocator ran out of memory! Attempted to allocate 0x%x bytes, 0x%x bytes available", size, self->size - self->pos);
+
+  self->pos = new_pos;
+
+
+  GpuAllocation ret = {0};
+  ret.size          = size;
+  ret.offset        = offset;
+  ret.d3d12_heap    = self->d3d12_heap;
+  ret.metadata      = 0;
+  ret.location      = self->location;
+
+  return ret;
 }
 
 void
@@ -567,7 +575,7 @@ alloc_gpu_texture_no_heap(const GpuDevice* device, GpuTextureDesc desc, const ch
   GpuTexture ret = {0};
   ret.desc = desc;
 
-  D3D12_HEAP_PROPERTIES heap_props = CD3DX12_HEAP_PROPERTIES(get_d3d12_heap_type(kGpuHeapTypeLocal));
+  D3D12_HEAP_PROPERTIES heap_props = CD3DX12_HEAP_PROPERTIES(get_d3d12_heap_location(kGpuHeapGpuOnly));
   D3D12_RESOURCE_DESC resource_desc;
   resource_desc.Dimension          = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
   resource_desc.Format             = gpu_format_to_d3d12(desc.format);
@@ -611,7 +619,6 @@ alloc_gpu_texture_no_heap(const GpuDevice* device, GpuTextureDesc desc, const ch
     )
   );
 
-//    ret.d3d12_image->SetName(name);
   wchar_t wname[1024];
   mbstowcs_s(nullptr, wname, name, 1024);
   ret.d3d12_texture->SetName(wname);
@@ -645,10 +652,11 @@ d3d12_resource_desc(GpuTextureDesc desc)
   return resource_desc;
 }
 
+
 GpuTexture
 alloc_gpu_texture(
   const GpuDevice* device,
-  GpuLinearAllocator* allocator,
+  GpuAllocHeap heap,
   GpuTextureDesc desc,
   const char* name
 ) {
@@ -659,8 +667,7 @@ alloc_gpu_texture(
 
   D3D12_RESOURCE_ALLOCATION_INFO info = device->d3d12->GetResourceAllocationInfo(0, 1, &resource_desc);
 
-  u64 new_pos = ALIGN_POW2(allocator->pos, info.Alignment) + info.SizeInBytes;
-  ASSERT(new_pos <= allocator->heap.size);
+  GpuAllocation allocation = GPU_HEAP_ALLOC(heap, (u32)info.SizeInBytes, (u32)info.Alignment);
 
   D3D12_CLEAR_VALUE clear_value;
   D3D12_CLEAR_VALUE* p_clear_value   = nullptr;
@@ -681,11 +688,10 @@ alloc_gpu_texture(
     p_clear_value                    = &clear_value;
   }
 
-  u64 allocation_offset = ALIGN_POW2(allocator->pos, info.Alignment);
   HASSERT(
     device->d3d12->CreatePlacedResource(
-      allocator->heap.d3d12_heap,
-      allocation_offset,
+      allocation.d3d12_heap,
+      allocation.offset,
       &resource_desc,
       desc.initial_state,
       p_clear_value,
@@ -697,8 +703,6 @@ alloc_gpu_texture(
   mbstowcs_s(nullptr, wname, name, 1024);
   ret.d3d12_texture->SetName(wname);
 
-  allocator->pos = new_pos;
-
   return ret;
 }
 
@@ -706,13 +710,13 @@ GpuBuffer
 alloc_gpu_buffer_no_heap(
   const GpuDevice* device,
   GpuBufferDesc desc,
-  GpuHeapType type,
+  GpuHeapLocation type,
   const char* name
 ) {
   GpuBuffer ret = {0};
   ret.desc = desc;
 
-  D3D12_HEAP_PROPERTIES heap_props = CD3DX12_HEAP_PROPERTIES(get_d3d12_heap_type(type));
+  D3D12_HEAP_PROPERTIES heap_props = CD3DX12_HEAP_PROPERTIES(get_d3d12_heap_location(type));
   auto resource_desc = CD3DX12_RESOURCE_DESC::Buffer(desc.size, desc.flags);
 
   HASSERT(
@@ -730,7 +734,7 @@ alloc_gpu_buffer_no_heap(
   mbstowcs_s(nullptr, wname, name, 1024);
   ret.d3d12_buffer->SetName(wname);
   ret.gpu_addr = ret.d3d12_buffer->GetGPUVirtualAddress();
-  if (type == kGpuHeapTypeUpload)
+  if (type == kGpuHeapCpuToGpu)
   {
     void* mapped = nullptr;
     ret.d3d12_buffer->Map(0, nullptr, &mapped);
@@ -750,18 +754,14 @@ free_gpu_buffer(GpuBuffer* buffer)
 GpuBuffer
 alloc_gpu_buffer(
   const GpuDevice* device,
-  GpuLinearAllocator* allocator,
+  GpuAllocHeap heap,
   GpuBufferDesc desc,
   const char* name
 ) {
   // NOTE(Brandon): For simplicity's sake of CBVs, I just align all the sizes to 256.
   desc.size = ALIGN_POW2(desc.size, 256);
 
-  u64 aligned_pos = ALIGN_POW2(allocator->pos, KiB(64));
-  ASSERT(allocator->pos <= allocator->heap.size);
-  allocator->pos = aligned_pos;
-  u64 new_pos = allocator->pos + desc.size;
-  ASSERT(new_pos <= allocator->heap.size);
+  GpuAllocation allocation = GPU_HEAP_ALLOC(heap, desc.size, (u32)KiB(64));
 
   GpuBuffer ret = {0};
   ret.desc = desc;
@@ -770,8 +770,8 @@ alloc_gpu_buffer(
 
   HASSERT(
     device->d3d12->CreatePlacedResource(
-      allocator->heap.d3d12_heap,
-      allocator->pos,
+      allocation.d3d12_heap,
+      allocation.offset,
       &resource_desc,
       desc.initial_state,
       nullptr,
@@ -784,14 +784,12 @@ alloc_gpu_buffer(
   ret.d3d12_buffer->SetName(wname);
 
   ret.gpu_addr = ret.d3d12_buffer->GetGPUVirtualAddress();
-  if (allocator->heap.type == kGpuHeapTypeUpload)
+  if (allocation.location == kGpuHeapCpuToGpu)
   {
     void* mapped = nullptr;
     ret.d3d12_buffer->Map(0, nullptr, &mapped);
     ret.mapped = mapped;
   }
-
-  allocator->pos = new_pos;
 
   return ret;
 }
@@ -1313,11 +1311,11 @@ init_acceleration_structure(
   ret.bottom_bvh = alloc_gpu_buffer_no_heap(
     device,
     {
-      .size = bottom_level_prebuild_info.ResultDataMaxSizeInBytes,
+      .size = (u32)bottom_level_prebuild_info.ResultDataMaxSizeInBytes,
       .flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
       .initial_state = D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE
     },
-    kGpuHeapTypeLocal,
+    kGpuHeapGpuOnly,
     "Bottom BVH Buffer"
   );
 
@@ -1333,7 +1331,7 @@ init_acceleration_structure(
   ret.instance_desc_buffer = alloc_gpu_buffer_no_heap(
     device,
     {.size = ALIGN_POW2(sizeof(instance_desc), D3D12_RAYTRACING_INSTANCE_DESCS_BYTE_ALIGNMENT)},
-    kGpuHeapTypeUpload,
+    kGpuHeapCpuToGpu,
     "Instance Desc"
   );
   memcpy(unwrap(ret.instance_desc_buffer.mapped), &instance_desc, sizeof(instance_desc));
@@ -1355,31 +1353,31 @@ init_acceleration_structure(
   ret.top_bvh = alloc_gpu_buffer_no_heap(
     device,
     {
-      .size = top_level_prebuild_info.ResultDataMaxSizeInBytes,
+      .size = (u32)top_level_prebuild_info.ResultDataMaxSizeInBytes,
       .flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
       .initial_state = D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE
     },
-    kGpuHeapTypeLocal,
+    kGpuHeapGpuOnly,
     "Top BVH Buffer"
   );
 
   GpuBuffer top_level_scratch = alloc_gpu_buffer_no_heap(
     device,
     {
-      .size = top_level_prebuild_info.ScratchDataSizeInBytes,
+      .size = (u32)top_level_prebuild_info.ScratchDataSizeInBytes,
       .flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS
     },
-    kGpuHeapTypeLocal,
+    kGpuHeapGpuOnly,
     "BVH Scratch Buffer"
   );
 
   GpuBuffer bottom_level_scratch = alloc_gpu_buffer_no_heap(
     device,
     {
-      .size = bottom_level_prebuild_info.ScratchDataSizeInBytes,
+      .size = (u32)bottom_level_prebuild_info.ScratchDataSizeInBytes,
       .flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS
     },
-    kGpuHeapTypeLocal,
+    kGpuHeapGpuOnly,
     "BVH Scratch Buffer"
   );
 
@@ -1472,7 +1470,7 @@ init_shader_table(const GpuDevice* device, RayTracingPSO pipeline, const char* n
 
   GpuBufferDesc desc = {0};
   desc.size = buffer_size;
-  ret.buffer = alloc_gpu_buffer_no_heap(device, desc, kGpuHeapTypeUpload, name);
+  ret.buffer = alloc_gpu_buffer_no_heap(device, desc, kGpuHeapCpuToGpu, name);
 
   u8* dst = (u8*)unwrap(ret.buffer.mapped);
   // TODO(Brandon): Don't hard-code these names
