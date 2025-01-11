@@ -1071,7 +1071,6 @@ execute_render_graph(const GpuTexture* back_buffer)
 
   // Initialize all of the back buffer descriptors
   init_rtv(&g_RenderGraph->back_buffer_rtv, back_buffer);
-  // init_dsv(&g_RenderGraph->back_buffer_dsv, back_buffer);
 
   CmdList       cmd_buffer = alloc_cmd_list(&g_RenderGraph->cmd_allocator);
   RenderContext ctx        = {0};

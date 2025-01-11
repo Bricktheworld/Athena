@@ -437,7 +437,7 @@ struct GpuBvh
 };
 
 // TODO(Brandon): We eventually will want to have this not take uber buffers but instead be more fine-grained...
-GpuBvh init_acceleration_structure(
+GpuBvh init_gpu_bvh(
   GpuDevice* device,
   const GpuBuffer& vertex_uber_buffer,
   u32 vertex_count,

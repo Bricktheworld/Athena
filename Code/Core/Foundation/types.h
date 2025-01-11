@@ -152,6 +152,9 @@ swap(T* a, T* b)
 
 #define check_return [[nodiscard]]
 
+// This is just a useful semantic I use
+#define THREAD_SAFE
+
 #define ASSERT_SERIALIZABLE(T) static_assert(__has_unique_object_representations(T))
 
 #define PACK_STRUCT_BEGIN() __pragma(pack(push, 1))

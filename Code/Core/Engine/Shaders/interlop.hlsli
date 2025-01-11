@@ -194,7 +194,7 @@ struct Transform
   Mat4 prev_model;
 };
 
-struct SceneObjectGpu
+struct SceneObjGpu
 {
   Mat4 model;
   Mat4 model_inverse;
@@ -211,12 +211,6 @@ struct MaterialGpu
   Texture2DPtr<float>  metalness;
 };
 
-struct TransformBuffer
-{
-  // The array 2 is just so that the compiler thinks that it's an array
-  Transform transforms[2];
-};
-
 struct MaterialSrt
 {
   ConstantBufferPtr<Transform> transform;
@@ -229,6 +223,14 @@ struct MaterialUploadCmd
 {
   MaterialGpu material;
   u32         mat_gpu_id;
+};
+
+struct MaterialUploadSrt
+{
+  StructuredBufferPtr<MaterialUploadCmd> material_uploads;
+  u32                                    count;
+
+  RWStructuredBufferPtr<MaterialGpu>     material_gpu_buffer;
 };
 
 struct FullscreenSrt

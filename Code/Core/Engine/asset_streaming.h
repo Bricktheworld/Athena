@@ -2,6 +2,8 @@
 #include "Core/Foundation/assets.h"
 #include "Core/Foundation/threading.h"
 
+#include "Core/Engine/constants.h"
+
 #include "Core/Engine/Render/graphics.h"
 
 struct AssetLoader;
@@ -12,11 +14,6 @@ struct IDStorageFile;
 struct IDStorageStatusArray;
 
 static constexpr u32 kMaxAssetLoadRequests = 0x1000;
-static constexpr u32 kMaxAssets            = 0x2000;
-
-
-static constexpr u32 kMaxMaterials = 0x100;
-static constexpr u32 kMaxSceneObjs = 0x1000;
 
 enum AssetGpuLoadType
 {
@@ -102,10 +99,10 @@ enum GpuStreamResult
   kGpuStreamFailedToOpenFile,
 };
 
-void init_asset_loader(void);
-void kick_asset_load(AssetId asset_id);
-void destroy_asset_loader(void);
+            void init_asset_loader(void);
+THREAD_SAFE void kick_asset_load(AssetId asset_id);
+            void destroy_asset_loader(void);
 
-Result<const GpuTexture*,    AssetState> get_gpu_texture_asset(AssetId asset_id);
-Result<Texture2DPtr<float4>, AssetState> get_srv_texture_asset(AssetId asset_id);
-Result<const MaterialData*,  AssetState> get_material_asset   (AssetId asset_id);
+THREAD_SAFE Result<const GpuTexture*,    AssetState> get_gpu_texture_asset(AssetId asset_id);
+THREAD_SAFE Result<Texture2DPtr<float4>, AssetState> get_srv_texture_asset(AssetId asset_id);
+THREAD_SAFE Result<const MaterialData*,  AssetState> get_material_asset   (AssetId asset_id);

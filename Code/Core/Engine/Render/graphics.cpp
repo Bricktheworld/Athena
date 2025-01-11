@@ -1281,7 +1281,7 @@ destroy_compute_pipeline(ComputePSO* pipeline)
 }
 
 GpuBvh
-init_acceleration_structure(
+init_gpu_bvh(
   GpuDevice* device,
   const GpuBuffer& vertex_uber_buffer,
   u32 vertex_count,

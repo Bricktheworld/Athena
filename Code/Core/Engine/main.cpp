@@ -8,6 +8,7 @@
 #include "Core/Engine/memory.h"
 #include "Core/Engine/job_system.h"
 #include "Core/Engine/asset_streaming.h"
+#include "Core/Engine/material_manager.h"
 
 #include "Core/Engine/Render/graphics.h"
 #include "Core/Engine/Render/renderer.h"
@@ -212,6 +213,9 @@ application_entry(HINSTANCE instance, int show_code)
 
   init_asset_loader();
   defer { destroy_asset_loader(); };
+
+  init_material_manager();
+  defer { destroy_material_manager(); };
 
   g_MainWindow = HEAP_ALLOC(Window, g_InitHeap, 1);
 

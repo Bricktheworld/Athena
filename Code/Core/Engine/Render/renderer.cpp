@@ -189,7 +189,7 @@ destroy_renderer()
 void
 build_acceleration_structures(GpuDevice* device)
 {
-  g_UnifiedGeometryBuffer.bvh = init_acceleration_structure(
+  g_UnifiedGeometryBuffer.bvh = init_gpu_bvh(
     device,
     g_UnifiedGeometryBuffer.vertex_buffer,
     g_UnifiedGeometryBuffer.vertex_buffer_offset,
