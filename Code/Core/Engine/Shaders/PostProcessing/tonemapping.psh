@@ -7,7 +7,7 @@ struct PSInput
   float2 uv       : TEXCOORD0;
 };
 
-ConstantBuffer<PostProcessingSrt> g_Srt : register(b0);
+ConstantBuffer<ToneMappingSrt> g_Srt : register(b0);
 
 // https://knarkowicz.wordpress.com/2016/01/06/aces-filmic-tone-mapping-curve/
 float3 aces_rec709_100nits_odt(float3 x)

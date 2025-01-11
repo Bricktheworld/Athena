@@ -32,6 +32,21 @@ uint2 get_dilated_texel(int2 texel)
   return closest_texel_pos;
 }
 
+float luma_rec709(float3 color)
+{
+  return 0.2126f * color.r + 0.7152f * color.g + 0.0722f * color.b;
+}
+
+float3 luma_weight_color_rec709(float3 color)
+{
+  return color / (1.0f + luma_rec709(color));
+}
+
+float3 inverse_luma_weight_color_rec709(float3 color)
+{
+  return color / (1.0f - luma_rec709(color));
+}
+
 void tap_curr_buffer(
   int2 texel_offset,
   float2 uv,
@@ -42,7 +57,7 @@ void tap_curr_buffer(
   Texture2D<float4> curr_buffer = DEREF(g_Srt.curr_hdr);
 
   float2 uv_offset = float2(texel_offset) / dimensions;
-  float3 color     = curr_buffer.Sample(g_BilinearSampler, uv + uv_offset).rgb;
+  float3 color     = luma_weight_color_rec709(curr_buffer.Sample(g_BilinearSampler, uv + uv_offset).rgb);
   min_color        = min(min_color, color);
   max_color        = max(max_color, color);
 }
@@ -171,11 +186,12 @@ void CS_TAA( uint3 thread_id : SV_DispatchThreadID )
   float  acceleration          = length(prev_velocity - curr_velocity);
   float  velocity_disocclusion = saturate((acceleration - 0.001f) * 10.0f);
 
-  float3 prev_color            = sample_texture_catmull_rom(prev_buffer, reproj_uv).rgb;
-  float3 curr_color            = curr_buffer[thread_id.xy].rgb;
+  float3 prev_color            = luma_weight_color_rec709(sample_texture_catmull_rom(prev_buffer, reproj_uv).rgb);
+  float3 curr_color            = luma_weight_color_rec709(curr_buffer[thread_id.xy].rgb);
   // NOTE(bshihabi): I see almost no difference between this and just regular clamping...
   prev_color                   = clip_aabb(curr_color, prev_color, min_color, max_color);
   float3 accumulation          = float3(0.9f * prev_color + 0.1f * curr_color);
 
-  taa_buffer[thread_id.xy]     = float4(lerp(accumulation, curr_color, velocity_disocclusion), 1.0f);
+  float3 resolve               = lerp(accumulation, curr_color, velocity_disocclusion);
+  taa_buffer[thread_id.xy]     = float4(inverse_luma_weight_color_rec709(resolve), 1.0f);
 }

@@ -109,7 +109,7 @@ struct Renderer
 
   ComputePSO    taa_pso;
 
-  GraphicsPSO   post_processing_pipeline;
+  GraphicsPSO   tonemapping_pso;
   RayTracingPSO standard_brdf_pso;
   ShaderTable   standard_brdf_st;
 

@@ -78,14 +78,14 @@ init_renderer_dependency_graph(
   RgHandle<GpuTexture> hdr_buffer  = init_hdr_buffer(&builder);
   init_lighting(scratch_arena, &builder, gbuffer, ddgi, &hdr_buffer);
 
-  RgHandle<GpuTexture> post_buffer = init_post_processing(scratch_arena, &builder, hdr_buffer);
-
   RgHandle<GpuTexture> taa_buffer  = init_taa_buffer(&builder);
-  init_taa(scratch_arena, &builder, post_buffer, gbuffer, &taa_buffer);
+  init_taa(scratch_arena, &builder, hdr_buffer, gbuffer, &taa_buffer);
 
-  init_imgui_pass(scratch_arena, &builder, &taa_buffer);
+  RgHandle<GpuTexture> tonemapped_buffer = init_tonemapping(scratch_arena, &builder, taa_buffer);
 
-  init_back_buffer_blit(scratch_arena, &builder, taa_buffer);
+  init_imgui_pass(scratch_arena, &builder, &tonemapped_buffer);
+
+  init_back_buffer_blit(scratch_arena, &builder, tonemapped_buffer);
 
   compile_render_graph(g_InitHeap, builder, flags);
 }
@@ -103,7 +103,7 @@ init_renderer_psos(
     .pixel_shader  = get_engine_shader(kPS_ToneMapping),
     .rtv_formats   = Span{kGpuFormatRGBA16Float},
   };
-  g_Renderer.post_processing_pipeline = init_graphics_pipeline(device, post_pipeline_desc, "Post Processing");
+  g_Renderer.tonemapping_pso = init_graphics_pipeline(device, post_pipeline_desc, "Post Processing");
 
   GraphicsPipelineDesc fullscreen_pipeline_desc =
   {
@@ -131,7 +131,7 @@ destroy_renderer_psos()
   destroy_graphics_pipeline(&g_Renderer.vbuffer_pso);
   destroy_compute_pipeline(&g_Renderer.debug_vbuffer_pso);
   destroy_compute_pipeline(&g_Renderer.taa_pso);
-  destroy_graphics_pipeline(&g_Renderer.post_processing_pipeline);
+  destroy_graphics_pipeline(&g_Renderer.tonemapping_pso);
   destroy_ray_tracing_pipeline(&g_Renderer.standard_brdf_pso);
   destroy_shader_table(&g_Renderer.standard_brdf_st);
   destroy_compute_pipeline(&g_Renderer.texture_copy_pso);

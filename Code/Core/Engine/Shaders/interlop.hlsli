@@ -244,7 +244,7 @@ struct TextureCopySrt
   RWTexture2DPtr<float4> dst;
 };
 
-struct PostProcessingSrt
+struct ToneMappingSrt
 {
   Texture2DPtr<float4> texture;
   u32                  disable_hdr;
