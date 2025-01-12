@@ -287,6 +287,10 @@ namespace Athena
       conf.LibraryFiles.Add(@"[project.SourceRootPath]\Lib\dstorage.lib");
       conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\dstorage.dll");
       conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\dstoragecore.dll");
+
+      conf.LibraryFiles.Add(@"[project.SourceRootPath]\Lib\WinPixEventRuntime.lib");
+      conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\WinPixEventRuntime.dll");
+
       conf.Options.Add(Options.Vc.Linker.SubSystem.Windows);
     }
   }
