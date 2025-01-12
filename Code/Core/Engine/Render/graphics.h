@@ -10,7 +10,10 @@
 #include "Core/Engine/Shaders/interlop.hlsli"
 
 #include "Core/Vendor/D3D12/d3d12.h"
+
+#define PROFILE
 #include "Core/Engine/Vendor/PIX/pix3.h"
+#undef PROFILE
 
 #include <dxgidebug.h>
 #include <dxgi1_6.h>
@@ -713,5 +716,5 @@ void imgui_end_frame();
 void imgui_render(CmdList* cmd);
 
 #define U32_COLOR(r, g, b) (0xff000000u | ((u32)r << 16) | ((u32)g << 8) | (u32)b)
-#define GPU_SCOPED_EVENT(color, fmt, ...) PIXBeginEvent(color, fmt, ##__VA_ARGS__); defer { PIXEndEvent(); }
+#define GPU_SCOPED_EVENT(color, cmdlist, fmt, ...) PIXBeginEvent(cmdlist.d3d12_list, color, fmt, ##__VA_ARGS__); defer { PIXEndEvent(cmdlist.d3d12_list); }
 

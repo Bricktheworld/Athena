@@ -1065,7 +1065,6 @@ get_d3d12_resource_barrier(const RenderGraph* graph, const RgResourceBarrier& ba
 void 
 execute_render_graph(const GpuTexture* back_buffer, const RenderSettings& settings)
 {
-  GPU_SCOPED_EVENT(PIX_COLOR_DEFAULT, "Frame %lu", g_FrameId);
   // NOTE(Brandon): This is honestly kinda dangerous, since we're just straight up copying the back buffer struct instead
   // of the pointer to the GpuImage which is what I really want... maybe there's a nicer way of doing this?
   *hash_table_insert(&g_RenderGraph->texture_map, {g_RenderGraph->back_buffer.id, 0}) = *back_buffer;
@@ -1079,13 +1078,18 @@ execute_render_graph(const GpuTexture* back_buffer, const RenderSettings& settin
   ctx.m_Width              = g_RenderGraph->width;
   ctx.m_Height             = g_RenderGraph->height;
 
+  GPU_SCOPED_EVENT(PIX_COLOR_DEFAULT, cmd_buffer, "Frame %lu", g_FrameId);
+
   // Main render loop
   for (u32 ilevel = 0; ilevel < g_RenderGraph->dependency_levels.size; ilevel++)
   {
+    GPU_SCOPED_EVENT(PIX_COLOR_DEFAULT, cmd_buffer, "Dependency Level %u", ilevel);
+
     RG_DBGLN("Level %u", ilevel);
     const RgDependencyLevel& level = g_RenderGraph->dependency_levels[ilevel];
     if (level.barriers.size > 0)
     {
+      GPU_SCOPED_EVENT(PIX_COLOR_DEFAULT, cmd_buffer, "Resource Barriers");
       ScratchAllocator scratch_arena = alloc_scratch_arena();
       defer { free_scratch_arena(&scratch_arena); };
 
@@ -1117,7 +1121,7 @@ execute_render_graph(const GpuTexture* back_buffer, const RenderSettings& settin
 
       g_HandlerId = pass_id;
       const RenderPass& pass = g_RenderGraph->render_passes[pass_id];
-      GPU_SCOPED_EVENT(PIX_COLOR_DEFAULT, "%s", pass.name);
+      GPU_SCOPED_EVENT(PIX_COLOR_DEFAULT, cmd_buffer, "%s", pass.name);
       (*pass.handler)(&ctx, settings, pass.data);
 
       set_descriptor_heaps(&cmd_buffer, {g_DescriptorCbvSrvUavPool});
