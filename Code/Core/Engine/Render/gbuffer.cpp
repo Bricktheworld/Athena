@@ -33,7 +33,7 @@ struct GBufferStaticParams
 };
 
 static void
-render_handler_gbuffer_static(RenderContext* ctx, const void* data)
+render_handler_gbuffer_static(RenderContext* ctx, const RenderSettings&, const void* data)
 {
   GBufferStaticParams* params = (GBufferStaticParams*)data;
 

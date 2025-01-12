@@ -20,7 +20,7 @@ struct LightingParams
 };
 
 static void
-render_handler_lighting(RenderContext* ctx, const void* data)
+render_handler_lighting(RenderContext* ctx, const RenderSettings&, const void* data)
 {
   const LightingParams* params = (const LightingParams*)data;
 

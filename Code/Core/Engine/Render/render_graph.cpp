@@ -1063,8 +1063,9 @@ get_d3d12_resource_barrier(const RenderGraph* graph, const RgResourceBarrier& ba
 }
 
 void 
-execute_render_graph(const GpuTexture* back_buffer)
+execute_render_graph(const GpuTexture* back_buffer, const RenderSettings& settings)
 {
+  GPU_SCOPED_EVENT(PIX_COLOR_DEFAULT, "Frame %lu", g_FrameId);
   // NOTE(Brandon): This is honestly kinda dangerous, since we're just straight up copying the back buffer struct instead
   // of the pointer to the GpuImage which is what I really want... maybe there's a nicer way of doing this?
   *hash_table_insert(&g_RenderGraph->texture_map, {g_RenderGraph->back_buffer.id, 0}) = *back_buffer;
@@ -1116,7 +1117,8 @@ execute_render_graph(const GpuTexture* back_buffer)
 
       g_HandlerId = pass_id;
       const RenderPass& pass = g_RenderGraph->render_passes[pass_id];
-      (*pass.handler)(&ctx, pass.data);
+      GPU_SCOPED_EVENT(PIX_COLOR_DEFAULT, "%s", pass.name);
+      (*pass.handler)(&ctx, settings, pass.data);
 
       set_descriptor_heaps(&cmd_buffer, {g_DescriptorCbvSrvUavPool});
     }

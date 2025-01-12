@@ -1793,4 +1793,3 @@ imgui_render(CmdList* cmd)
 {
   ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), cmd->d3d12_list);
 }
-

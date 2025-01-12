@@ -81,7 +81,9 @@ init_renderer_dependency_graph(
   RgHandle<GpuTexture> taa_buffer  = init_taa_buffer(&builder);
   init_taa(scratch_arena, &builder, hdr_buffer, gbuffer, &taa_buffer);
 
-  RgHandle<GpuTexture> tonemapped_buffer = init_tonemapping(scratch_arena, &builder, taa_buffer);
+  RgHandle<GpuTexture> dof_buffer = init_depth_of_field(scratch_arena, &builder, gbuffer.depth, taa_buffer);
+
+  RgHandle<GpuTexture> tonemapped_buffer = init_tonemapping(scratch_arena, &builder, dof_buffer);
 
   init_imgui_pass(scratch_arena, &builder, &tonemapped_buffer);
 
@@ -95,16 +97,6 @@ init_renderer_psos(
   const GpuDevice* device,
   const SwapChain* swap_chain
 ) {
-  g_Renderer.taa_pso = init_compute_pipeline(device, get_engine_shader(kCS_TAA), "TAA");
-
-  GraphicsPipelineDesc post_pipeline_desc = 
-  {
-    .vertex_shader = get_engine_shader(kVS_Fullscreen),
-    .pixel_shader  = get_engine_shader(kPS_ToneMapping),
-    .rtv_formats   = Span{kGpuFormatRGBA16Float},
-  };
-  g_Renderer.tonemapping_pso = init_graphics_pipeline(device, post_pipeline_desc, "Post Processing");
-
   GraphicsPipelineDesc fullscreen_pipeline_desc =
   {
     .vertex_shader = get_engine_shader(kVS_Fullscreen),
@@ -128,10 +120,6 @@ init_renderer_psos(
 static void
 destroy_renderer_psos()
 {
-  destroy_graphics_pipeline(&g_Renderer.vbuffer_pso);
-  destroy_compute_pipeline(&g_Renderer.debug_vbuffer_pso);
-  destroy_compute_pipeline(&g_Renderer.taa_pso);
-  destroy_graphics_pipeline(&g_Renderer.tonemapping_pso);
   destroy_ray_tracing_pipeline(&g_Renderer.standard_brdf_pso);
   destroy_shader_table(&g_Renderer.standard_brdf_st);
   destroy_compute_pipeline(&g_Renderer.texture_copy_pso);
@@ -161,6 +149,12 @@ init_renderer(
 
   g_Renderer.imgui_descriptor_heap = init_descriptor_linear_allocator(device, 1, kDescriptorHeapTypeCbvSrvUav);
   init_imgui_ctx(device, kGpuFormatRGBA16Float, window, &g_Renderer.imgui_descriptor_heap);
+
+  g_Renderer.settings.aperture    = 5.6f;
+  g_Renderer.settings.focal_dist  = 64.0f;
+  g_Renderer.settings.focal_range = 20.0f;
+  g_Renderer.settings.dof_blur_radius  = 0.125f;
+  g_Renderer.settings.dof_sample_count = 40;
 }
 
 void

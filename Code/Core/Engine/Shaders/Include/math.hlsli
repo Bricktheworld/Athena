@@ -2,8 +2,10 @@
 #define __MATH__
 #include "../root_signature.hlsli"
 
-static const float  kPI  = 3.14159265359;
-static const float  k2PI = 6.2831853071795864f;
+static const float kPI  = 3.14159265359;
+static const float k2PI = 6.2831853071795864f;
+
+static const float kGoldenAngle = 2.4f;
 
 float4 quaternion_conjugate(float4 q)
 {

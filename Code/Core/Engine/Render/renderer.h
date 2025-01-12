@@ -70,13 +70,6 @@ static const GpuFormat kGBufferRenderTargetFormats[] =
   kGpuFormatRG32Float,   // RG -> Velocity
 };
 
-struct RenderOptions
-{
-  f32 aperture = 5.6f;
-  f32 focal_dist = 3.0f;
-  f32 focal_range = 20.0f;
-};
-
 struct Camera
 {
   Vec3 world_pos = Vec3(0, 0, -1);
@@ -86,6 +79,16 @@ struct Camera
 
 struct RenderSettings
 {
+  f32  aperture;
+  f32  focal_dist;
+  f32  focal_range;
+
+  f32  dof_blur_radius  = 0.2f;
+  u32  dof_sample_count = 128;
+
+  bool disable_taa        = false;
+  bool debug_gi_probes    = false;
+  bool disable_hdr        = false;
 };
 
 struct Renderer
@@ -98,18 +101,11 @@ struct Renderer
   Camera prev_camera;
   Camera camera;
   Vec2   taa_jitter;
-  bool   disable_taa     = false;
-  bool   debug_gi_probes = false;
-  bool   disable_hdr     = false;
+
+  RenderSettings settings;
 
   DirectionalLight directional_light;
 
-  GraphicsPSO   vbuffer_pso;
-  ComputePSO    debug_vbuffer_pso;
-
-  ComputePSO    taa_pso;
-
-  GraphicsPSO   tonemapping_pso;
   RayTracingPSO standard_brdf_pso;
   ShaderTable   standard_brdf_st;
 
@@ -136,17 +132,6 @@ void destroy_renderer();
 
 void begin_renderer_recording();
 void submit_mesh(RenderModelSubset mesh);
-
-void execute_render(
-  const GpuDevice* device,
-  SwapChain* swap_chain,
-  Camera* camera,
-  const GpuBuffer& vertex_buffer,
-  const GpuBuffer& index_buffer,
-  const GpuBvh& bvh,
-  const RenderOptions& render_options,
-  const DirectionalLight& directional_light
-);
 
 enum SceneObjectFlags : u8
 {

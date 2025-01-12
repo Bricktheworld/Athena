@@ -12,7 +12,7 @@ struct BlitParams
 };
 
 static void
-render_handler_back_buffer_blit(RenderContext* ctx, const void* data)
+render_handler_back_buffer_blit(RenderContext* ctx, const RenderSettings&, const void* data)
 {
   BlitParams* params = (BlitParams*)data;
 

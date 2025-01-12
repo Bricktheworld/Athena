@@ -8,22 +8,24 @@
 
 struct TemporalAAParams
 {
-  RgTexture2D<float4>  prev_hdr;
-  RgTexture2D<float4>  curr_hdr;
-  RgTexture2D<float2>  prev_velocity;
-  RgTexture2D<float2>  curr_velocity;
+  RgTexture2D<float4>   prev_hdr;
+  RgTexture2D<float4>   curr_hdr;
+  RgTexture2D<float2>   prev_velocity;
+  RgTexture2D<float2>   curr_velocity;
 
-  RgTexture2D<float>  gbuffer_depth;
+  RgTexture2D<float>    gbuffer_depth;
 
   RgRWTexture2D<float4> taa;
+
+  ComputePSO            pso;
 };
 
 static void
-render_handler_taa(RenderContext* ctx, const void* data)
+render_handler_taa(RenderContext* ctx, const RenderSettings& settings, const void* data)
 {
   TemporalAAParams* params = (TemporalAAParams*)data;
 
-  if (!g_Renderer.disable_taa)
+  if (!settings.disable_taa)
   {
     TemporalAASrt srt;
     srt.prev_hdr      = params->prev_hdr;
@@ -35,7 +37,7 @@ render_handler_taa(RenderContext* ctx, const void* data)
     srt.taa           = params->taa;
     ctx->compute_bind_srt(srt);
 
-    ctx->set_compute_pso(&g_Renderer.taa_pso);
+    ctx->set_compute_pso(&params->pso);
     ctx->dispatch(ctx->m_Width / 8, ctx->m_Height / 8, 1);
   }
   else
@@ -70,4 +72,5 @@ init_taa(AllocHeap heap, RgBuilder* builder, RgHandle<GpuTexture> hdr_lit, const
   params->gbuffer_depth = RgTexture2D<float>(pass, gbuffer.depth);
 
   params->taa           = RgRWTexture2D<float4>(pass, taa_buffer);
+  params->pso           = init_compute_pipeline(g_GpuDevice, get_engine_shader(kCS_TAA), "TAA");
 }

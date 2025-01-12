@@ -14,7 +14,7 @@ struct ProbeTraceParams
 };
 
 static void
-render_handler_probe_trace(RenderContext* ctx, const void* data)
+render_handler_probe_trace(RenderContext* ctx, const RenderSettings&, const void* data)
 {
   ProbeTraceParams* params = (ProbeTraceParams*)data;
   params->vol_desc.probe_ray_rotation = generate_random_rotation();
@@ -65,7 +65,7 @@ struct ProbeBlendParams
 };
 
 static void
-render_handler_probe_blend(RenderContext* ctx, const void* data)
+render_handler_probe_blend(RenderContext* ctx, const RenderSettings&, const void* data)
 {
   ProbeBlendParams* params = (ProbeBlendParams*)data;
 

@@ -147,9 +147,6 @@ draw_debug(DirectionalLight* out_directional_light, Camera* out_camera)
   }
 
 
-  ImGui::DragFloat("Aperture", &out_render_options->aperture, 0.0f, 50.0f);
-  ImGui::DragFloat("Focal Distance", &out_render_options->focal_dist, 0.0f, 1000.0f);
-  ImGui::DragFloat("Focal Range", &out_render_options->focal_range, 0.0f, 100.0f);
 #endif
   ImGui::ShowDemoWindow();
 
@@ -159,8 +156,19 @@ draw_debug(DirectionalLight* out_directional_light, Camera* out_camera)
 
   ImGui::InputFloat3("Camera Position", (f32*)&out_camera->world_pos);
 
-  ImGui::Checkbox("Disable TAA", &g_Renderer.disable_taa);
-  ImGui::Checkbox("Disable HDR", &g_Renderer.disable_hdr);
+  ImGui::Checkbox("Disable TAA", &g_Renderer.settings.disable_taa);
+  ImGui::Checkbox("Disable HDR", &g_Renderer.settings.disable_hdr);
+
+  ImGui::DragFloat("Aperture", &g_Renderer.settings.aperture, 0.01f, 0.0f, 50.0f);
+
+  static f32 focal_distance = g_Renderer.settings.focal_dist;
+  ImGui::DragFloat("Focal Distance", &focal_distance, 0.01f, 0.0f, 1000.0f);
+  g_Renderer.settings.focal_dist = 0.9f * g_Renderer.settings.focal_dist + 0.1f * focal_distance;
+
+  ImGui::DragFloat("Focal Range", &g_Renderer.settings.focal_range, 0.01f, 0.0f, 100.0f);
+
+  ImGui::DragInt("DoF Sample Count", (s32*)&g_Renderer.settings.dof_sample_count, 1.0f, 0, 256);
+  ImGui::DragFloat("DoF Blur Radius", &g_Renderer.settings.dof_blur_radius, 0.01f, 0.0f, 2.0f);
 
   ImGui::End();
 
@@ -267,8 +275,6 @@ application_entry(HINSTANCE instance, int show_code)
   DirectX::Mouse d3d12_mouse;
   d3d12_mouse.SetWindow(window);
 
-  RenderOptions render_options;
-
   lpp::LppSynchronizedAgent lpp_agent = lpp::LppCreateSynchronizedAgent(nullptr, L"Code/Core/Vendor/LivePP");
 
   bool lpp_is_valid = lpp::LppIsValidSynchronizedAgent(&lpp_agent);
@@ -280,6 +286,10 @@ application_entry(HINSTANCE instance, int show_code)
   {
     lpp_agent.EnableModule(lpp::LppGetCurrentModulePath(), lpp::LPP_MODULES_OPTION_ALL_IMPORT_MODULES, nullptr, nullptr);
   }
+
+  scene.camera.world_pos = Vec3(8.28f, 4.866f, 0.685f);
+  scene.camera.pitch     = -0.203f;
+  scene.camera.yaw       = -1.61f;
 
   bool done = false;
   while (!done)
@@ -387,7 +397,7 @@ application_entry(HINSTANCE instance, int show_code)
     begin_renderer_recording();
     submit_scene(scene);
 
-    execute_render_graph(back_buffer);
+    execute_render_graph(back_buffer, g_Renderer.settings);
     swap_chain_submit(&g_MainWindow->swap_chain, g_GpuDevice, back_buffer);
   }
 
@@ -395,7 +405,6 @@ application_entry(HINSTANCE instance, int show_code)
 
 
   wait_for_gpu_device_idle(g_GpuDevice);
-//  kill_job_system(job_system);
 }
 
 int APIENTRY

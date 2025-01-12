@@ -43,7 +43,7 @@ Mat4 view_from_camera(Camera* camera)
 }
 
 static void
-render_handler_frame_init(RenderContext* ctx, const void* data)
+render_handler_frame_init(RenderContext* ctx, const RenderSettings& settings, const void* data)
 {
   FrameInitParams* params = (FrameInitParams*)data;
 
@@ -57,7 +57,7 @@ render_handler_frame_init(RenderContext* ctx, const void* data)
   main_viewport.inverse_view_proj = inverse_mat4(main_viewport.view_proj);
   main_viewport.camera_world_pos  = g_Renderer.camera.world_pos;
   main_viewport.directional_light = g_Renderer.directional_light;
-  main_viewport.taa_jitter        = !g_Renderer.disable_taa ? g_Renderer.taa_jitter : Vec2(0.0f, 0.0f);
+  main_viewport.taa_jitter        = !settings.disable_taa ? g_Renderer.taa_jitter : Vec2(0.0f, 0.0f);
 
   ctx->write_cpu_upload_buffer(params->viewport_buffer, &main_viewport, sizeof(main_viewport));
 
@@ -118,7 +118,7 @@ struct ImGuiParams
 };
 
 void
-render_handler_imgui(RenderContext* ctx, const void* data)
+render_handler_imgui(RenderContext* ctx, const RenderSettings&, const void* data)
 {
   ImGuiParams* params = (ImGuiParams*)data;
 

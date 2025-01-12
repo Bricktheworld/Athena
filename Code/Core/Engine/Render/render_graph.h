@@ -11,6 +11,7 @@
 struct RenderGraph;
 struct RenderContext;
 struct RgBuilder;
+struct RenderSettings;
 
 typedef u32 RenderPassId;
 
@@ -96,7 +97,7 @@ struct RgHandle
   operator ResourceHandle() const { return { id, version, kResourceType<T>, temporal_lifetime, 0 }; }
 };
 
-typedef void (RenderHandler)(RenderContext* render_context, const void* data);
+typedef void (RenderHandler)(RenderContext* render_context, const RenderSettings& settings, const void* data);
 
 struct RgPassBuilder
 {
@@ -159,7 +160,7 @@ struct RgBuilder
 #define QTR_RES_HEIGHT(builder) ((builder)->height / 4)
 
 #define FULL_RES(builder) FULL_RES_WIDTH(builder), FULL_RES_HEIGHT(builder)
-#define HALF_RES(builder) HALF_RES_WIDTH(buidler), HALF_RES_HEIGHT(builder)
+#define HALF_RES(builder) HALF_RES_WIDTH(builder), HALF_RES_HEIGHT(builder)
 #define QTR_RES(builder) QTR_RES_WIDTH(builder), QTR_RES_HEIGHT(builder)
 
 struct RenderPass
@@ -274,7 +275,7 @@ enum RenderGraphDestroyFlags : u32
 RgBuilder init_rg_builder(AllocHeap heap, u32 width, u32 height);
 void      compile_render_graph(AllocHeap heap, const RgBuilder& builder, RenderGraphDestroyFlags flags = kRgDestroyAll);
 void      destroy_render_graph(RenderGraphDestroyFlags flags = kRgDestroyAll);
-void      execute_render_graph(const GpuTexture* back_buffer);
+void      execute_render_graph(const GpuTexture* back_buffer, const RenderSettings& settings);
 
 u8 rg_get_temporal_frame(u32 frame_id, u32 temporal_lifetime, s8 offset);
 template <typename T>

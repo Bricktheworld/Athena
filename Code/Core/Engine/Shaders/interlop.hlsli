@@ -258,11 +258,12 @@ struct PointLight
   f32  intensity;
 };
 
+#define kDoFResolutionScale 1
+
 struct DofCocSrt
 {
-  Texture2DPtr<float4>   color_buffer;
   Texture2DPtr<float>    depth_buffer;
-  RWTexture2DPtr<float2> render_target;
+  RWTexture2DPtr<float2> coc_buffer;
 
   f32 z_near;
   f32 aperture;
@@ -273,49 +274,32 @@ struct DofCocSrt
 struct DofCoCDilateSrt
 {
   Texture2DPtr<float2>   coc_buffer;
-  RWTexture2DPtr<float2> render_target;
+  RWTexture2DPtr<float2> coc_dilate_buffer;
 };
 
-struct DofBlurHorizSrt
+struct DoFBokehBlurSrt
 {
-  Texture2DPtr<float4>   color_buffer;
-  Texture2DPtr<float2>   coc_buffer;
+  Texture2DPtr<float>    depth_buffer;
+  Texture2DPtr<float2>   coc_dilate_buffer;
+  Texture2DPtr<float4>   hdr_buffer;
 
-  RWTexture2DPtr<float4> red_near_target;
-  RWTexture2DPtr<float4> green_near_target;
-  RWTexture2DPtr<float4> blue_near_target;
+  RWTexture2DPtr<float4> blurred;
 
-  RWTexture2DPtr<float4> red_far_target;
-  RWTexture2DPtr<float4> green_far_target;
-  RWTexture2DPtr<float4> blue_far_target;
+  f32                    z_near;
+  f32                    blur_radius;
+  u32                    sample_count;
 };
 
-struct DofBlurVertSrt
+struct DoFCompositeSrt
 {
-  Texture2DPtr<float2>   coc_buffer;
+  Texture2DPtr<float2>   coc_dilate_buffer;
 
-  Texture2DPtr<float4>   red_near_buffer;
-  Texture2DPtr<float4>   green_near_buffer;
-  Texture2DPtr<float4>   blue_near_buffer;
+  Texture2DPtr<float4>   hdr_buffer;
+  Texture2DPtr<float4>   near_blur_buffer;
 
-  Texture2DPtr<float4>   red_far_buffer;
-  Texture2DPtr<float4>   green_far_buffer;
-  Texture2DPtr<float4>   blue_far_buffer;
-
-  RWTexture2DPtr<float3> blurred_near_target;
-  RWTexture2DPtr<float3> blurred_far_target;
+  RWTexture2DPtr<float4> render_target;
 };
 
-struct DofCompositeSrt
-{
-  Texture2DPtr<float2>   coc_buffer;
-
-  Texture2DPtr<float4>   color_buffer;
-  Texture2DPtr<float3>   near_buffer;
-  Texture2DPtr<float3>   far_buffer;
-
-  RWTexture2DPtr<float3> render_target;
-};
 
 #define kProbeNumIrradianceInteriorTexels 14
 #define kProbeNumIrradianceTexels 16
