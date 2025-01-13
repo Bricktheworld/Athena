@@ -1078,71 +1078,73 @@ execute_render_graph(const GpuTexture* back_buffer, const RenderSettings& settin
   ctx.m_Width              = g_RenderGraph->width;
   ctx.m_Height             = g_RenderGraph->height;
 
-  GPU_SCOPED_EVENT(PIX_COLOR_DEFAULT, cmd_buffer, "Frame %lu", g_FrameId);
-
-  // Main render loop
-  for (u32 ilevel = 0; ilevel < g_RenderGraph->dependency_levels.size; ilevel++)
   {
-    GPU_SCOPED_EVENT(PIX_COLOR_DEFAULT, cmd_buffer, "Dependency Level %u", ilevel);
+    GPU_SCOPED_EVENT(PIX_COLOR_DEFAULT, cmd_buffer, "Frame %lu", g_FrameId);
 
-    RG_DBGLN("Level %u", ilevel);
-    const RgDependencyLevel& level = g_RenderGraph->dependency_levels[ilevel];
-    if (level.barriers.size > 0)
+    // Main render loop
+    for (u32 ilevel = 0; ilevel < g_RenderGraph->dependency_levels.size; ilevel++)
     {
-      GPU_SCOPED_EVENT(PIX_COLOR_DEFAULT, cmd_buffer, "Resource Barriers");
+      GPU_SCOPED_EVENT(PIX_COLOR_DEFAULT, cmd_buffer, "Dependency Level %u", ilevel);
+
+      RG_DBGLN("Level %u", ilevel);
+      const RgDependencyLevel& level = g_RenderGraph->dependency_levels[ilevel];
+      if (level.barriers.size > 0)
+      {
+        GPU_SCOPED_EVENT(PIX_COLOR_DEFAULT, cmd_buffer, "Resource Barriers");
+        ScratchAllocator scratch_arena = alloc_scratch_arena();
+        defer { free_scratch_arena(&scratch_arena); };
+
+        Array d3d12_barriers = init_array<CD3DX12_RESOURCE_BARRIER>(scratch_arena, level.barriers.size);
+  
+        for (const RgResourceBarrier& barrier : level.barriers)
+        {
+          CD3DX12_RESOURCE_BARRIER* dst = array_add(&d3d12_barriers);
+          get_d3d12_resource_barrier(g_RenderGraph, barrier, dst);
+        }
+
+
+  #if defined(RENDER_GRAPH_VERBOSE)
+        for (auto& barrier : d3d12_barriers)
+        {
+          cmd_buffer.d3d12_list->ResourceBarrier(1, &barrier);
+        }
+  #else
+        cmd_buffer.d3d12_list->ResourceBarrier((u32)d3d12_barriers.size, d3d12_barriers.memory);
+  #endif
+      }
+
+      for (RenderPassId pass_id : level.render_passes)
+      {
+        RG_DBGLN("%s", g_RenderGraph->render_passes[pass_id].name);
+        set_descriptor_heaps(&cmd_buffer, {g_DescriptorCbvSrvUavPool});
+        set_graphics_root_signature(&cmd_buffer);
+        set_compute_root_signature(&cmd_buffer);
+
+        g_HandlerId = pass_id;
+        const RenderPass& pass = g_RenderGraph->render_passes[pass_id];
+        GPU_SCOPED_EVENT(PIX_COLOR_DEFAULT, cmd_buffer, "%s", pass.name);
+        (*pass.handler)(&ctx, settings, pass.data);
+
+        set_descriptor_heaps(&cmd_buffer, {g_DescriptorCbvSrvUavPool});
+      }
+    }
+
+    // Execute all of the exit barriers
+    if (g_RenderGraph->exit_barriers.size > 0)
+    {
       ScratchAllocator scratch_arena = alloc_scratch_arena();
       defer { free_scratch_arena(&scratch_arena); };
 
-      Array d3d12_barriers = init_array<CD3DX12_RESOURCE_BARRIER>(scratch_arena, level.barriers.size);
-  
-      for (const RgResourceBarrier& barrier : level.barriers)
+      Array d3d12_barriers = init_array<CD3DX12_RESOURCE_BARRIER>(scratch_arena, g_RenderGraph->exit_barriers.size);
+
+      for (const RgResourceBarrier& barrier : g_RenderGraph->exit_barriers)
       {
         CD3DX12_RESOURCE_BARRIER* dst = array_add(&d3d12_barriers);
         get_d3d12_resource_barrier(g_RenderGraph, barrier, dst);
       }
 
-
-#if defined(RENDER_GRAPH_VERBOSE)
-      for (auto& barrier : d3d12_barriers)
-      {
-        cmd_buffer.d3d12_list->ResourceBarrier(1, &barrier);
-      }
-#else
       cmd_buffer.d3d12_list->ResourceBarrier((u32)d3d12_barriers.size, d3d12_barriers.memory);
-#endif
     }
-
-    for (RenderPassId pass_id : level.render_passes)
-    {
-      RG_DBGLN("%s", g_RenderGraph->render_passes[pass_id].name);
-      set_descriptor_heaps(&cmd_buffer, {g_DescriptorCbvSrvUavPool});
-      set_graphics_root_signature(&cmd_buffer);
-      set_compute_root_signature(&cmd_buffer);
-
-      g_HandlerId = pass_id;
-      const RenderPass& pass = g_RenderGraph->render_passes[pass_id];
-      GPU_SCOPED_EVENT(PIX_COLOR_DEFAULT, cmd_buffer, "%s", pass.name);
-      (*pass.handler)(&ctx, settings, pass.data);
-
-      set_descriptor_heaps(&cmd_buffer, {g_DescriptorCbvSrvUavPool});
-    }
-  }
-
-  // Execute all of the exit barriers
-  if (g_RenderGraph->exit_barriers.size > 0)
-  {
-    ScratchAllocator scratch_arena = alloc_scratch_arena();
-    defer { free_scratch_arena(&scratch_arena); };
-
-    Array d3d12_barriers = init_array<CD3DX12_RESOURCE_BARRIER>(scratch_arena, g_RenderGraph->exit_barriers.size);
-
-    for (const RgResourceBarrier& barrier : g_RenderGraph->exit_barriers)
-    {
-      CD3DX12_RESOURCE_BARRIER* dst = array_add(&d3d12_barriers);
-      get_d3d12_resource_barrier(g_RenderGraph, barrier, dst);
-    }
-
-    cmd_buffer.d3d12_list->ResourceBarrier((u32)d3d12_barriers.size, d3d12_barriers.memory);
   }
 
   submit_cmd_lists(&g_RenderGraph->cmd_allocator, {cmd_buffer});
