@@ -6,10 +6,3 @@ RgHandle<GpuTexture> init_tonemapping(
   RgBuilder* builder,
   RgHandle<GpuTexture> hdr_buffer
 );
-
-RgHandle<GpuTexture> init_depth_of_field(
-  AllocHeap heap,
-  RgBuilder* builder,
-  RgHandle<GpuTexture> depth_buffer,
-  RgHandle<GpuTexture> taa_buffer
-);

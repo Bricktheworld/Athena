@@ -92,15 +92,15 @@ void CS_DoFBokehBlur(uint2 thread_id : SV_DispatchThreadID)
     sample_dir            = mul(kGoldenRotation, sample_dir);
     float2 sample_uv      = clamp(uv + sample_dir * full_res_uv_step * radius, 0.0f, 1.0f);
 
-    // Sample the color/depth at this location
+    // Sample the color/depth/CoC at this location
     float3 sample_color   = hdr_buffer.Sample(g_BilinearSampler, sample_uv).rgb;
     float  sample_depth   = z_near / depth_buffer.Sample(g_BilinearSampler, sample_uv);
-
     float  sample_coc     = coc_buffer.Sample(g_BilinearSampler, sample_uv);
 
-
+    // We're going to weight the sample we just got based on its CoC
     float  sample_weight  = sample_coc / kMaxCoC * blur_radius;
     float  center_weight  = coc        / kMaxCoC * blur_radius;
+    
     if (sample_depth > depth)
     {
       sample_weight       = clamp(sample_weight, 0.0f, center_weight);
