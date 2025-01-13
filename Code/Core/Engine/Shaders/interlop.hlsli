@@ -262,8 +262,8 @@ struct PointLight
 
 struct DofCocSrt
 {
-  Texture2DPtr<float>    depth_buffer;
-  RWTexture2DPtr<float2> coc_buffer;
+  Texture2DPtr<float>   depth_buffer;
+  RWTexture2DPtr<float> coc_buffer;
 
   f32 z_near;
   f32 aperture;
@@ -271,19 +271,13 @@ struct DofCocSrt
   f32 focal_range;
 };
 
-struct DofCoCDilateSrt
-{
-  Texture2DPtr<float2>   coc_buffer;
-  RWTexture2DPtr<float2> coc_dilate_buffer;
-};
-
 struct DoFBokehBlurSrt
 {
   Texture2DPtr<float>    depth_buffer;
-  Texture2DPtr<float2>   coc_dilate_buffer;
+  Texture2DPtr<float>    coc_buffer;
   Texture2DPtr<float4>   hdr_buffer;
 
-  RWTexture2DPtr<float4> blurred;
+  RWTexture2DPtr<float4> blur_buffer;
 
   f32                    z_near;
   f32                    blur_radius;
@@ -292,10 +286,10 @@ struct DoFBokehBlurSrt
 
 struct DoFCompositeSrt
 {
-  Texture2DPtr<float2>   coc_dilate_buffer;
+  Texture2DPtr<float>    coc_buffer;
 
   Texture2DPtr<float4>   hdr_buffer;
-  Texture2DPtr<float4>   near_blur_buffer;
+  Texture2DPtr<float4>   blur_buffer;
 
   RWTexture2DPtr<float4> render_target;
 };

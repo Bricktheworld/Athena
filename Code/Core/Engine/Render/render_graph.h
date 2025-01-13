@@ -162,6 +162,7 @@ struct RgBuilder
 #define FULL_RES(builder) FULL_RES_WIDTH(builder), FULL_RES_HEIGHT(builder)
 #define HALF_RES(builder) HALF_RES_WIDTH(builder), HALF_RES_HEIGHT(builder)
 #define QTR_RES(builder) QTR_RES_WIDTH(builder), QTR_RES_HEIGHT(builder)
+#define VAR_RES(builder, scale) ((builder)->width / (scale)), ((builder)->height / (scale))
 
 struct RenderPass
 {

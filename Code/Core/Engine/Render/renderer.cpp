@@ -151,10 +151,10 @@ init_renderer(
   init_imgui_ctx(device, kGpuFormatRGBA16Float, window, &g_Renderer.imgui_descriptor_heap);
 
   g_Renderer.settings.aperture    = 5.6f;
-  g_Renderer.settings.focal_dist  = 64.0f;
-  g_Renderer.settings.focal_range = 20.0f;
-  g_Renderer.settings.dof_blur_radius  = 0.125f;
-  g_Renderer.settings.dof_sample_count = 40;
+  g_Renderer.settings.focal_dist  = 8.0f;
+  g_Renderer.settings.focal_range = 3.0f;
+  g_Renderer.settings.dof_blur_radius  = 15.0f;
+  g_Renderer.settings.dof_sample_count = 64;
 }
 
 void

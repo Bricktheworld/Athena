@@ -85,11 +85,15 @@ void ray_gen()
 
 
   // Direct lighting and shadowing
-	float  shadow_atten = saturate(light_visibility(directional_light.direction.xyz,
-                                                  payload.ws_pos,
-                                                  payload.normal,
-                                                  1e27f,
-                                                  0.001f));
+	float  shadow_atten = saturate(
+    light_visibility(
+      directional_light.direction.xyz,
+      payload.ws_pos,
+      payload.normal,
+      1e27f,
+      0.001f
+    )
+  );
   float3 direct_diffuse_lighting = evaluate_lambertian(1.0f) *
                                    evaluate_directional_radiance(directional_light.diffuse.rgb, directional_light.intensity) * 
                                    evaluate_cos_theta(directional_light.direction.xyz, payload.normal) * 

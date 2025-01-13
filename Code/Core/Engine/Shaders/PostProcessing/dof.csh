@@ -4,9 +4,9 @@
 
 static const int kKernelRadius = 8;
 
-static const int kDilateSize = 2;
+static const int kDilateSize = 3;
 
-static const float kMaxCoC = 4.0;
+static const float kMaxCoC = 10.0f;
 
 ConstantBuffer<DofCocSrt> g_CoCSrt : register(b0);
 
@@ -14,9 +14,9 @@ ConstantBuffer<DofCocSrt> g_CoCSrt : register(b0);
 [numthreads(8, 8, 1)]
 void CS_DoFCoC( uint2 thread_id : SV_DispatchThreadID )
 {
-  Texture2D<float>    depth_buffer = DEREF(g_CoCSrt.depth_buffer);
+  Texture2D<float>   depth_buffer = DEREF(g_CoCSrt.depth_buffer);
 
-  RWTexture2D<float2> coc_buffer   = DEREF(g_CoCSrt.coc_buffer);
+  RWTexture2D<float> coc_buffer   = DEREF(g_CoCSrt.coc_buffer);
 
   float2 resolution;
   depth_buffer.GetDimensions(resolution.x, resolution.y);
@@ -36,34 +36,7 @@ void CS_DoFCoC( uint2 thread_id : SV_DispatchThreadID )
 
   float coc = (1.0f - focal_dist / z) * 0.7f * aperture;
 
-  coc_buffer[thread_id.xy] = float2(clamp(-coc, 0.0f, kMaxCoC), clamp(coc, 0.0f, kMaxCoC));
-}
-
-ConstantBuffer<DofCoCDilateSrt> g_CoCDilateSrt : register(b0);
-
-[RootSignature(BINDLESS_ROOT_SIGNATURE)]
-[numthreads(8, 8, 1)]
-void CS_DoFCoCDilate(uint2 thread_id : SV_DispatchThreadID)
-{
-  Texture2D<float2>   coc_buffer        = DEREF(g_CoCDilateSrt.coc_buffer);
-  RWTexture2D<float2> coc_dilate_buffer = DEREF(g_CoCDilateSrt.coc_dilate_buffer);
-
-  float2 resolution;
-  coc_dilate_buffer.GetDimensions(resolution.x, resolution.y);
-
-  float max_near_coc = 0.0;
-  for (int x = -kDilateSize; x <= kDilateSize; x++)
-  {
-    for (int y = -kDilateSize; y <= kDilateSize; y++)
-    {
-      int2 sample      = thread_id + int2(x, y);
-      sample           = clamp(sample, 0, int2(resolution));
-      float sample_coc = coc_buffer[(uint2)sample].x;
-      max_near_coc     = max(max_near_coc, sample_coc);
-    }
-  }
-
-  coc_dilate_buffer[thread_id] = float2(max_near_coc, coc_buffer[thread_id].y);
+  coc_buffer[thread_id] = min(abs(coc), kMaxCoC);
 }
 
 ConstantBuffer<DoFBokehBlurSrt> g_BokehBlurSrt : register(b0);
@@ -72,15 +45,15 @@ ConstantBuffer<DoFBokehBlurSrt> g_BokehBlurSrt : register(b0);
 [numthreads(8, 8, 1)]
 void CS_DoFBokehBlur(uint2 thread_id : SV_DispatchThreadID)
 {
-  Texture2D<float>    depth_buffer      = DEREF(g_BokehBlurSrt.depth_buffer);
-  Texture2D<float2>   coc_dilate_buffer = DEREF(g_BokehBlurSrt.coc_dilate_buffer);
-  Texture2D<float4>   hdr_buffer        = DEREF(g_BokehBlurSrt.hdr_buffer);
-  RWTexture2D<float4> blurred           = DEREF(g_BokehBlurSrt.blurred);
+  Texture2D<float>    depth_buffer = DEREF(g_BokehBlurSrt.depth_buffer);
+  Texture2D<float>    coc_buffer   = DEREF(g_BokehBlurSrt.coc_buffer);
+  Texture2D<float4>   hdr_buffer   = DEREF(g_BokehBlurSrt.hdr_buffer);
+  RWTexture2D<float4> blur_buffer  = DEREF(g_BokehBlurSrt.blur_buffer);
 
   float z_near = g_BokehBlurSrt.z_near;
 
   float2 half_res;
-  blurred.GetDimensions(half_res.x, half_res.y);
+  blur_buffer.GetDimensions(half_res.x, half_res.y);
 
   float2 uv = float2(thread_id.xy) / half_res;
 
@@ -98,40 +71,49 @@ void CS_DoFBokehBlur(uint2 thread_id : SV_DispatchThreadID)
     -sin(kGoldenAngle), cos(kGoldenAngle),
   };
 
-  float near_coc     = max(coc_dilate_buffer[thread_id].r, 0.0f) / 1.5f;
-  // float depth        = z_near / depth_buffer.Sample(full_res_uv);
+  float coc         = max(coc_buffer[thread_id], 0.0f);
 
-  float r = 1.0f;
+  float depth       = z_near / depth_buffer.Sample(g_BilinearSampler, full_res_uv);
+
+  float radius_step = (blur_radius * blur_radius) / (2.0f * sample_count);
+
+  float radius      = radius_step;
 
   float3 accum  = hdr_buffer[thread_id * kDoFResolutionScale].rgb;
-  float3 weight = pow(accum, 4.0f);
-  accum *= weight;
+  float3 total = 1.0f;
+  accum *= total;
 
-  float2 sample_dir = float2(0.0f, blur_radius * near_coc * 0.01f / sqrt((float)sample_count));
-
+  float2 sample_dir       = float2(1.0f, 0.0f);
+  float2 full_res_uv_step = 1.0f / full_res;
 
   for (uint i = 0; i < sample_count; i++)
   {
-    r += 1.0f / r;
-    sample_dir = mul(kGoldenRotation, sample_dir);
+    // Sample in a sunflower pattern using the golden ratio (creates a disk sampling kernel)
+    sample_dir            = mul(kGoldenRotation, sample_dir);
+    float2 sample_uv      = clamp(uv + sample_dir * full_res_uv_step * radius, 0.0f, 1.0f);
 
-    float2 sample_uv     = uv + (r - 1.0f) * sample_dir;
+    // Sample the color/depth at this location
+    float3 sample_color   = hdr_buffer.Sample(g_BilinearSampler, sample_uv).rgb;
+    float  sample_depth   = z_near / depth_buffer.Sample(g_BilinearSampler, sample_uv);
 
-    float3 sample_color  = hdr_buffer.Sample(g_BilinearSampler, sample_uv).rgb;
-    float3 sample_bokeh  = pow(sample_color, 4.0f);
+    float  sample_coc     = coc_buffer.Sample(g_BilinearSampler, sample_uv);
 
-    float  sample_dist     = length(sample_uv - uv);
-    float  near_sample_coc = coc_dilate_buffer.Sample(g_BilinearSampler, sample_uv).r;
-    float  sample_weight   = sample_dist < near_sample_coc ? 1.0f - (sample_dist / blur_radius) : 0.0f;
-    accum  += sample_weight * sample_color * sample_bokeh;
-    weight += sample_weight * sample_bokeh;
+
+    float  sample_weight  = sample_coc / kMaxCoC * blur_radius;
+    float  center_weight  = coc        / kMaxCoC * blur_radius;
+    if (sample_depth > depth)
+    {
+      sample_weight       = clamp(sample_weight, 0.0f, center_weight);
+    }
+
+    float m = smoothstep(radius - radius_step, radius + radius_step, sample_weight);
+    accum += lerp(accum / total, sample_color, m);
+    total += 1.0f;
+
+    radius += radius_step / radius;
   }
 
-#if 0
-  float4 unblurred = hdr_buffer.Sample(g_BilinearSampler, full_res_uv + 1.0f);
-  blurred[thread_id] = near_coc < 0.01f ? unblurred : lerp(unblurred, float4(accum / weight, 1.0f), near_coc);
-#endif
-  blurred[thread_id] = float4(accum / weight, 1.0f);
+  blur_buffer[thread_id] = float4(accum / total, 1.0f);
 }
 
 
@@ -141,12 +123,12 @@ ConstantBuffer<DoFCompositeSrt> g_CompositeSrt : register(b0);
 [numthreads(8, 8, 1)]
 void CS_DoFComposite(uint2 thread_id : SV_DispatchThreadID)
 {
-  Texture2D<float4>   hdr_buffer       = DEREF(g_CompositeSrt.hdr_buffer);
+  Texture2D<float4>   hdr_buffer    = DEREF(g_CompositeSrt.hdr_buffer);
             
-  Texture2D<float2>   coc_buffer       = DEREF(g_CompositeSrt.coc_dilate_buffer);
-  Texture2D<float4>   near_blur_buffer = DEREF(g_CompositeSrt.near_blur_buffer);
+  Texture2D<float>    coc_buffer    = DEREF(g_CompositeSrt.coc_buffer);
+  Texture2D<float4>   blur_buffer   = DEREF(g_CompositeSrt.blur_buffer);
 
-  RWTexture2D<float4> render_target    = DEREF(g_CompositeSrt.render_target);
+  RWTexture2D<float4> render_target = DEREF(g_CompositeSrt.render_target);
 
   float2 full_res;
   render_target.GetDimensions(full_res.x, full_res.y);
@@ -156,11 +138,11 @@ void CS_DoFComposite(uint2 thread_id : SV_DispatchThreadID)
   // NOTE(Brandon): The color buffer is expected to be the same dimensions as the render target
   float3 unblurred = hdr_buffer[thread_id].rgb;
 
-  float2 coc       = coc_buffer[thread_id / kDoFResolutionScale];
+  float  coc       = coc_buffer[thread_id / kDoFResolutionScale];
 
-#if 1
+#if 0
   float2 half_res;
-  near_blur_buffer.GetDimensions(half_res.x, half_res.y);
+  blur_buffer.GetDimensions(half_res.x, half_res.y);
 
   float2 uv_step_half = 1.0f / half_res;
   float2 near_uv0   = uv - uv_step_half / 2.0f;
@@ -168,22 +150,16 @@ void CS_DoFComposite(uint2 thread_id : SV_DispatchThreadID)
   float2 near_uv2   = float2(near_uv0.x,                  near_uv0.y + uv_step_half.y);
   float2 near_uv3   = float2(near_uv0.x + uv_step_half.x, near_uv0.y + uv_step_half.y);
 
-  float3 near = 0.0f;
-  near       += near_blur_buffer.Sample(g_BilinearSampler, near_uv0).rgb;
-  near       += near_blur_buffer.Sample(g_BilinearSampler, near_uv1).rgb;
-  near       += near_blur_buffer.Sample(g_BilinearSampler, near_uv2).rgb;
-  near       += near_blur_buffer.Sample(g_BilinearSampler, near_uv3).rgb;
+  float3 blurred = 0.0f;
+  blurred       += blur_buffer.Sample(g_BilinearSampler, near_uv0).rgb;
+  blurred       += blur_buffer.Sample(g_BilinearSampler, near_uv1).rgb;
+  blurred       += blur_buffer.Sample(g_BilinearSampler, near_uv2).rgb;
+  blurred       += blur_buffer.Sample(g_BilinearSampler, near_uv3).rgb;
 
-  near /= 4.0f;
+  blurred /= 4.0f;
 #endif
 
-  float3 near_unfiltered = near_blur_buffer.Sample(g_BilinearSampler, uv).rgb;
+  float3 blurred = blur_buffer.Sample(g_BilinearSampler, uv).rgb;
 
-  if (uv.x > 0.5f)
-  {
-    near = near_unfiltered;
-  }
-
-  // float3 far_blend = lerp(unblurred, far, clamp(coc.y, 0.0h, 1.0h));
-  render_target[thread_id] = float4(lerp(unblurred, near, clamp(coc.x, 0.0f, 1.0f)), 1.0f);
+  render_target[thread_id] = float4(blurred, 1.0f); // float4(lerp(far_blend, blurred, clamp(coc.x, 0.0f, 1.0f)), 1.0f);
 }
