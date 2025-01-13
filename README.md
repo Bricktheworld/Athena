@@ -9,7 +9,7 @@ Features:
 
 [![Image](/Documentation/realtime_gi.gif)](https://www.youtube.com/watch?v=05GTN8YapZE)
 
-[Video demo](https://www.youtube.com/watch?v=05GTN8YapZE)
+[Video demo](https://www.youtube.com/watch?v=6I0wsOAcF3E)
 
 # Requirements
 - Git LFS
