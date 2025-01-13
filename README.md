@@ -6,6 +6,11 @@ Features:
 - Render-graph architecture with automatic resource barriers and transient allocations
 - Shader model 6.6 bindless rendering
 - Real-time ray-traced global illumination using irradiance probes
+- Temporal Anti-Aliasing
+- Depth of field bokeh blur
+- Deferred Shading
+- Multi-threaded asset streaming
+- Direct Storage streaming of assets to GPU memory
 
 [![Image](/Documentation/realtime_gi.gif)](https://www.youtube.com/watch?v=05GTN8YapZE)
 
