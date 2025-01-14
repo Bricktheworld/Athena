@@ -28,6 +28,10 @@ using AssetRef = AssetId;
 
 static constexpr u32 kAssetMagicNumber = CRC32_STR("ATHENA_ASSET");
 
+static constexpr u32 kModelAssetVersion    = 2;
+static constexpr u32 kTextureAssetVersion  = 2;
+static constexpr u32 kMaterialAssetVersion = 2;
+
 // The path is relative to the project root directory, so should be something like
 // Assets/Source/model.fbx
 // The asset ID is case insensitive

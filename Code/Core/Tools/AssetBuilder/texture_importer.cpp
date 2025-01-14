@@ -10,8 +10,6 @@
 #include "Core/Vendor/D3D12/d3d12.h"
 #pragma comment(lib, "d3d12.lib")
 
-static constexpr u32 kTextureAssetVersion = 1;
-
 bool
 asset_builder::import_texture(
   AllocHeap heap,

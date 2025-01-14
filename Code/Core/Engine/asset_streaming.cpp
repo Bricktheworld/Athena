@@ -355,6 +355,8 @@ process_asset_loads(void)
       {
         case AssetType::kModel:
         {
+          ASSERT_MSG_FATAL(metadata.version == kModelAssetVersion, "Model built version does not match! Make sure you run the builder on the assets to make sure that the versions match.");
+
           desc->type = AssetType::kModel;
 
           ModelAsset model_asset = {0};
@@ -366,6 +368,7 @@ process_asset_loads(void)
             desc->state = kAssetFailedToLoad;
             return;
           }
+
 
           ScratchAllocator scratch = alloc_scratch_arena();
           defer { free_scratch_arena(&scratch); };
@@ -387,6 +390,7 @@ process_asset_loads(void)
         } break;
         case AssetType::kTexture:
         {
+          ASSERT_MSG_FATAL(metadata.version == kTextureAssetVersion, "Texture built version does not match! Make sure you run the builder on the assets to make sure that the versions match.");
           desc->type = AssetType::kTexture;
 
           TextureAsset texture_asset = {0};
@@ -451,6 +455,7 @@ process_asset_loads(void)
         } break;
         case AssetType::kMaterial:
         {
+          ASSERT_MSG_FATAL(metadata.version == kMaterialAssetVersion, "Material built version does not match! Make sure you run the builder on the assets to make sure that the versions match.");
           desc->type = AssetType::kMaterial;
 
           MaterialAsset material_asset = {0};

@@ -2,8 +2,6 @@
 
 #include "Core/Tools/AssetBuilder/material_importer.h"
 
-static constexpr u32 kMaterialAssetVersion = 1;
-
 void
 asset_builder::dump_imported_material(ImportedMaterial material)
 {

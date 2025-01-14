@@ -4,8 +4,6 @@
 #include "Core/Tools/AssetBuilder/Vendor/assimp/scene.h"
 #include "Core/Tools/AssetBuilder/Vendor/assimp/postprocess.h"
 
-static constexpr u32 kModelAssetVersion = 1;
-
 check_return bool
 asset_builder::import_model(
   AllocHeap heap,
