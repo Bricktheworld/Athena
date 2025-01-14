@@ -101,8 +101,8 @@ init_frame_init_pass(AllocHeap heap, RgBuilder* builder)
   FrameResources ret;
 
   ret.viewport_buffer  = rg_create_upload_buffer(builder, "Viewport Buffer",     kGpuHeapSysRAMCpuToGpu, sizeof(Viewport));
-  ret.material_buffer  = rg_create_upload_buffer(builder, "Material Buffer",     kGpuHeapVRAMCpuToGpu,   sizeof(MaterialGpu) * kMaxSceneObjs, sizeof(MaterialGpu));
-  ret.scene_obj_buffer = rg_create_upload_buffer(builder, "Scene Object Buffer", kGpuHeapVRAMCpuToGpu,   sizeof(SceneObjGpu) * kMaxSceneObjs, sizeof(SceneObjGpu));
+  ret.material_buffer  = rg_create_upload_buffer(builder, "Material Buffer",     kGpuHeapSysRAMCpuToGpu, sizeof(MaterialGpu) * kMaxSceneObjs, sizeof(MaterialGpu));
+  ret.scene_obj_buffer = rg_create_upload_buffer(builder, "Scene Object Buffer", kGpuHeapSysRAMCpuToGpu, sizeof(SceneObjGpu) * kMaxSceneObjs, sizeof(SceneObjGpu));
 
   RgPassBuilder*      pass = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "Frame Init", params, &render_handler_frame_init, true);
   params->viewport_buffer  = RgConstantBuffer<Viewport>     (pass, ret.viewport_buffer);

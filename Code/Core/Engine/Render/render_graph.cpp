@@ -300,7 +300,9 @@ init_physical_resources(
   const GpuDevice* device,
   GpuLinearAllocator* local_heap,
   GpuLinearAllocator* sysram_upload_heaps,
+#if 0
   GpuLinearAllocator* vram_upload_heaps,
+#endif
   GpuLinearAllocator* temporal_heaps,
   u32 buffer_count,
   u32 texture_count
@@ -394,11 +396,12 @@ init_physical_resources(
       if (resource_desc->temporal_lifetime > 0 && resource_desc->temporal_lifetime < kInfiniteLifetime)
       {
         GpuLinearAllocator* allocator = nullptr;
+        ASSERT_MSG_FATAL(resource_desc->buffer_desc.heap_location != kGpuHeapVRAMCpuToGpu, "This heap type is not supported currently!");
         switch(resource_desc->buffer_desc.heap_location)
         {
           case kGpuHeapGpuOnly:        allocator = temporal_heaps;      break;
           case kGpuHeapSysRAMCpuToGpu: allocator = sysram_upload_heaps; break;
-          case kGpuHeapVRAMCpuToGpu:   allocator = vram_upload_heaps;   break;
+          // case kGpuHeapVRAMCpuToGpu:   allocator = vram_upload_heaps;   break;
           default: UNREACHABLE;
         }
 
@@ -857,10 +860,12 @@ compile_render_graph(AllocHeap heap, const RgBuilder& builder, RenderGraphDestro
       g_RenderGraph->sysram_upload_heaps[i] = init_gpu_linear_allocator(MiB(4), kGpuHeapSysRAMCpuToGpu);
     }
 
+#if 0
     for (u32 i = 0; i < kBackBufferCount; i++)
     {
       g_RenderGraph->vram_upload_heaps[i] = init_gpu_linear_allocator(MiB(16), kGpuHeapVRAMCpuToGpu);
     }
+#endif
 
     g_RenderGraph->temporal_heaps = init_array<GpuLinearAllocator>(heap, kMaxTemporalLifetime);
     for (u8 i = 0; i < kMaxTemporalLifetime; i++)
@@ -898,7 +903,9 @@ compile_render_graph(AllocHeap heap, const RgBuilder& builder, RenderGraphDestro
       g_GpuDevice,
       &g_RenderGraph->local_heap,
       g_RenderGraph->sysram_upload_heaps,
+#if 0
       g_RenderGraph->vram_upload_heaps,
+#endif
       g_RenderGraph->temporal_heaps.memory,
       buffer_count,
       texture_count

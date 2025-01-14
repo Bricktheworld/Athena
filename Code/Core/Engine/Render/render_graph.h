@@ -236,7 +236,9 @@ struct RenderGraph
 
   GpuLinearAllocator                     local_heap;
   GpuLinearAllocator                     sysram_upload_heaps[kBackBufferCount];
+#if 0 // Disabling for now, support isn't good
   GpuLinearAllocator                     vram_upload_heaps  [kBackBufferCount];
+#endif
   Array<GpuLinearAllocator>              temporal_heaps;
 
   RgDescriptorHeap                       descriptor_heap;
