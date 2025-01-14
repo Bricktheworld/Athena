@@ -10,7 +10,6 @@
 #include <wrl.h>
 
 static AllocHeap g_InitHeap;
-static FreeHeap  g_OSHeap;
 
 static check_return bool
 build_asset(const char* model_path, const char* project_root)
@@ -54,7 +53,7 @@ build_asset(const char* model_path, const char* project_root)
   }
 
   u32 texture_allocator_size = MiB(512);
-  LinearAllocator texture_allocator = init_linear_allocator(g_OSHeap, texture_allocator_size);
+  LinearAllocator texture_allocator = init_linear_allocator(GLOBAL_HEAP, texture_allocator_size);
 
   ID3D12Device* device = nullptr;
   HASSERT(D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&device)));
@@ -114,17 +113,12 @@ int main(int argc, const char** argv)
   const char* input_path   = argv[0];
   const char* project_root = argv[1];
 
-
-  OSAllocator     os_allocator   = init_os_allocator();
-
-  g_OSHeap                       = os_allocator;
-
-  u8* init_memory                = HEAP_ALLOC(u8, g_OSHeap, kInitHeapSize);
+  u8* init_memory                = HEAP_ALLOC(u8, GLOBAL_HEAP, kInitHeapSize);
   LinearAllocator init_allocator = init_linear_allocator(init_memory, kInitHeapSize);
 
   g_InitHeap                     = init_allocator;
 
-  init_context(g_InitHeap, g_OSHeap);
+  init_context(g_InitHeap, GLOBAL_HEAP);
 
   bool res = build_asset(input_path, project_root);
   if (!res)

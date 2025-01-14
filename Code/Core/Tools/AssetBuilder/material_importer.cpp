@@ -1,5 +1,4 @@
 #include "Core/Foundation/memory.h"
-#include "Core/Foundation/context.h"
 
 #include "Core/Tools/AssetBuilder/material_importer.h"
 
@@ -19,12 +18,10 @@ asset_builder::dump_imported_material(ImportedMaterial material)
 check_return bool 
 asset_builder::write_material_to_asset(const char* project_root, const ImportedMaterial& material)
 {
-  ScratchAllocator scratch_arena = alloc_scratch_arena();
-  defer { free_scratch_arena(&scratch_arena); };
-
   size_t output_size = sizeof(MaterialAsset) + sizeof(AssetRef<TextureAsset>) * material.num_textures;
 
-  u8* buffer = HEAP_ALLOC(u8, scratch_arena, output_size);
+  u8* buffer = HEAP_ALLOC(u8, GLOBAL_HEAP, output_size);
+  defer { HEAP_FREE(GLOBAL_HEAP, buffer); };
   u32 offset = 0;
 
 

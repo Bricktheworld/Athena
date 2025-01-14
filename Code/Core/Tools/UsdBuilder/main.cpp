@@ -20,7 +20,6 @@
 PXR_NAMESPACE_USING_DIRECTIVE
 
 static AllocHeap g_InitHeap;
-static FreeHeap  g_OSHeap;
 
 using namespace asset_builder;
 
@@ -196,16 +195,12 @@ int main(int argc, const char** argv)
   
   static constexpr size_t kInitHeapSize = MiB(128);
 
-  OSAllocator     os_allocator = init_os_allocator();
-
-  g_OSHeap = os_allocator;
-
-  u8* init_memory = HEAP_ALLOC(u8, g_OSHeap, kInitHeapSize);
+  u8* init_memory = HEAP_ALLOC(u8, GLOBAL_HEAP, kInitHeapSize);
   LinearAllocator init_allocator = init_linear_allocator(init_memory, kInitHeapSize);
 
   g_InitHeap = init_allocator;
 
-  init_context(g_InitHeap, g_OSHeap);
+  init_context(g_InitHeap, GLOBAL_HEAP);
 
   if (argc != 3)
   {

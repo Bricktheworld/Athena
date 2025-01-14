@@ -215,6 +215,8 @@ struct OSAllocator
   }
 };
 
+#define GLOBAL_HEAP ((FreeHeap)OSAllocator())
+
 FOUNDATION_API OSAllocator init_os_allocator   ();
 FOUNDATION_API void        destroy_os_allocator(OSAllocator* allocator);
 

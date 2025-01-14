@@ -1,5 +1,3 @@
-#include "Core/Foundation/context.h"
-
 #include "Core/Tools/AssetBuilder/texture_importer.h"
 
 #include "Core/Tools/AssetBuilder/Vendor/StbImage/stb_image.h"
@@ -77,9 +75,6 @@ asset_builder::write_texture_to_asset(
   const char* project_root,
   const ImportedTexture& texture
 ) {
-  ScratchAllocator scratch_arena = alloc_scratch_arena();
-  defer { free_scratch_arena(&scratch_arena); };
-
   D3D12_RESOURCE_DESC desc = {0};
   desc.Dimension           = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
   desc.Alignment           = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
@@ -101,7 +96,8 @@ asset_builder::write_texture_to_asset(
 
   u32 output_size = (u32)(sizeof(TextureAsset) + total_size);
 
-  u8* buffer = HEAP_ALLOC(u8, scratch_arena, output_size);
+  u8* buffer = HEAP_ALLOC(u8, GLOBAL_HEAP, output_size);
+  defer { HEAP_FREE(GLOBAL_HEAP, buffer); };
   u32 offset = 0;
 
   TextureAsset texture_asset = {0};

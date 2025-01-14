@@ -1,5 +1,3 @@
-#include "Core/Foundation/context.h"
-
 #include "Core/Tools/AssetBuilder/model_importer.h"
 
 #include "Core/Tools/AssetBuilder/Vendor/assimp/Importer.hpp"
@@ -247,8 +245,6 @@ asset_builder::dump_imported_model(ImportedModel model)
 check_return bool 
 asset_builder::write_model_to_asset(const char* project_root, const ImportedModel& model)
 {
-  ScratchAllocator scratch_arena = alloc_scratch_arena();
-  defer { free_scratch_arena(&scratch_arena); };
   u64 total_vertex_count = 0;
   u64 total_index_count  = 0;
   for (u32 imodel_subset = 0; imodel_subset < model.num_model_subsets; imodel_subset++)
@@ -264,7 +260,8 @@ asset_builder::write_model_to_asset(const char* project_root, const ImportedMode
                               sizeof(VertexAsset) * total_vertex_count +
                               sizeof(u32)         * total_index_count;
 
-  u8* buffer = HEAP_ALLOC(u8, scratch_arena, output_size);
+  u8* buffer = HEAP_ALLOC(u8, GLOBAL_HEAP, output_size);
+  defer { HEAP_FREE(GLOBAL_HEAP, buffer); };
   u32 offset = 0;
 
 
