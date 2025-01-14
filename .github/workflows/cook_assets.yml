@@ -35,7 +35,7 @@ jobs:
 
     - name: Generate SLN
       working-directory: ${{env.GITHUB_WORKSPACE}}
-      run: setup.bat
+      run: ./setup.bat
 
     - name: Build
       working-directory: ${{env.GITHUB_WORKSPACE}}
