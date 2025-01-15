@@ -349,9 +349,6 @@ namespace Athena
       conf.EventPostBuildExe.Add(copy_usd_folder);
       if (target.Optimization == Optimization.Debug)
       {
-        conf.LibraryFiles.Add(@"[project.SourceRootPath]\Lib\TinyUsd\Debug\tinyusdz_static.lib");
-        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\TinyUsd\Debug\tinyusdz_static.pdb");
-
         conf.LibraryFiles.Add(@"[project.SourceRootPath]\Lib\Debug\MaterialXCore.lib");
         conf.LibraryFiles.Add(@"[project.SourceRootPath]\Lib\Debug\MaterialXFormat.lib");
         conf.LibraryFiles.Add(@"[project.SourceRootPath]\Lib\Debug\MaterialXGenGlsl.lib");
@@ -575,9 +572,6 @@ namespace Athena
       }
       else if (target.Optimization == Optimization.Release)
       {
-        conf.LibraryFiles.Add(@"[project.SourceRootPath]\Lib\TinyUsd\Release\tinyusdz_static.lib");
-        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\TinyUsd\Release\tinyusdz_static.pdb");
-
         conf.LibraryFiles.Add(@"[project.SourceRootPath]\Lib\Release\MaterialXCore.lib");
         conf.LibraryFiles.Add(@"[project.SourceRootPath]\Lib\Release\MaterialXFormat.lib");
         conf.LibraryFiles.Add(@"[project.SourceRootPath]\Lib\Release\MaterialXGenGlsl.lib");
