@@ -89,6 +89,7 @@ struct RenderSettings
   bool disable_taa        = false;
   bool debug_gi_probes    = false;
   bool disable_hdr        = false;
+  bool disable_dof        = false;
 };
 
 struct Renderer
@@ -173,11 +174,11 @@ struct Scene
   GpuBuffer top_bvh;
   GpuBuffer bottom_bvh;
   
-  Array<SceneObject>          scene_objects;
-  Array<PointLight> point_lights;
-  Camera                      camera;
-  DirectionalLight  directional_light;
-  LinearAllocator             scene_object_allocator;
+  Array<SceneObject> scene_objects;
+  Array<PointLight>  point_lights;
+  Camera             camera;
+  DirectionalLight   directional_light;
+  LinearAllocator    scene_object_allocator;
 };
 
 Scene init_scene(AllocHeap heap);

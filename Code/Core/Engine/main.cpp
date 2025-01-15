@@ -158,6 +158,7 @@ draw_debug(DirectionalLight* out_directional_light, Camera* out_camera)
 
   ImGui::Checkbox("Disable TAA", &g_Renderer.settings.disable_taa);
   ImGui::Checkbox("Disable HDR", &g_Renderer.settings.disable_hdr);
+  ImGui::Checkbox("Disable DoF", &g_Renderer.settings.disable_dof);
 
   ImGui::DragFloat("Aperture", &g_Renderer.settings.aperture, 0.01f, 0.0f, 50.0f);
 
@@ -168,7 +169,7 @@ draw_debug(DirectionalLight* out_directional_light, Camera* out_camera)
   ImGui::DragFloat("Focal Range", &g_Renderer.settings.focal_range, 0.01f, 0.0f, 100.0f);
 
   ImGui::DragInt("DoF Sample Count", (s32*)&g_Renderer.settings.dof_sample_count, 1.0f, 0, 256);
-  ImGui::DragFloat("DoF Blur Radius", &g_Renderer.settings.dof_blur_radius, 0.01f, 0.0f, 2.0f);
+  ImGui::DragFloat("DoF Blur Radius", &g_Renderer.settings.dof_blur_radius, 0.1f, 0.0f, 40.0f);
 
   ImGui::End();
 
@@ -290,6 +291,9 @@ application_entry(HINSTANCE instance, int show_code)
   scene.camera.world_pos = Vec3(8.28f, 4.866f, 0.685f);
   scene.camera.pitch     = -0.203f;
   scene.camera.yaw       = -1.61f;
+  scene.directional_light.direction.x = -0.380f;
+  scene.directional_light.direction.y = -1.0f;
+  scene.directional_light.direction.z = -0.180f;
 
   bool done = false;
   while (!done)

@@ -154,7 +154,7 @@ init_renderer(
   g_Renderer.settings.focal_dist  = 8.0f;
   g_Renderer.settings.focal_range = 3.0f;
   g_Renderer.settings.dof_blur_radius  = 15.0f;
-  g_Renderer.settings.dof_sample_count = 64;
+  g_Renderer.settings.dof_sample_count = 32;
 }
 
 void

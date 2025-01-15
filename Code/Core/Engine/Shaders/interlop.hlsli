@@ -258,12 +258,13 @@ struct PointLight
   f32  intensity;
 };
 
-#define kDoFResolutionScale 1
+#define kDoFResolutionScale 2
 
-struct DofCocSrt
+struct DoFCocSrt
 {
-  Texture2DPtr<float>   depth_buffer;
-  RWTexture2DPtr<float> coc_buffer;
+  Texture2DPtr<float4>   hdr_buffer;
+  Texture2DPtr<float>    depth_buffer;
+  RWTexture2DPtr<float4> coc_buffer;
 
   f32 z_near;
   f32 aperture;
@@ -274,7 +275,7 @@ struct DofCocSrt
 struct DoFBokehBlurSrt
 {
   Texture2DPtr<float>    depth_buffer;
-  Texture2DPtr<float>    coc_buffer;
+  Texture2DPtr<float4>   coc_buffer;
   Texture2DPtr<float4>   hdr_buffer;
 
   RWTexture2DPtr<float4> blur_buffer;
@@ -286,7 +287,7 @@ struct DoFBokehBlurSrt
 
 struct DoFCompositeSrt
 {
-  Texture2DPtr<float>    coc_buffer;
+  Texture2DPtr<float4>   coc_buffer;
 
   Texture2DPtr<float4>   hdr_buffer;
   Texture2DPtr<float4>   blur_buffer;

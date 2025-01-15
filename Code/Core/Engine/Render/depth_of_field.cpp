@@ -6,20 +6,27 @@
 
 struct CoCGenerateParams
 {
+  RgTexture2D<float4>   hdr_buffer;
   RgTexture2D<float>    depth_buffer;
-  RgRWTexture2D<float>  coc_buffer;
+  RgRWTexture2D<float4> coc_buffer;
   ComputePSO            pso;
 };
 
 static void
 render_handler_coc_generate(RenderContext* ctx, const RenderSettings& settings, const void* data)
 {
+  if (settings.disable_dof)
+  {
+    return;
+  }
+
   const CoCGenerateParams* params = (const CoCGenerateParams*)data;
 
   ctx->set_compute_pso(&params->pso);
-  DofCocSrt srt;
+  DoFCocSrt srt;
 
   srt.coc_buffer   = params->coc_buffer;
+  srt.hdr_buffer   = params->hdr_buffer;
   srt.depth_buffer = params->depth_buffer;
 
   srt.z_near       = kZNear;
@@ -35,7 +42,7 @@ struct DoFBlurParams
 {
   RgTexture2D<float>    depth_buffer;
   RgTexture2D<float4>   hdr_buffer;
-  RgTexture2D<float>    coc_buffer;
+  RgTexture2D<float4>   coc_buffer;
   RgRWTexture2D<float4> blurred;
 
   ComputePSO            pso;
@@ -44,6 +51,11 @@ struct DoFBlurParams
 static void
 render_handler_depth_of_field_bokeh_blur(RenderContext* ctx, const RenderSettings& settings, const void* data)
 {
+  if (settings.disable_dof)
+  {
+    return;
+  }
+
   const DoFBlurParams* params = (const DoFBlurParams*)data;
 
   ctx->set_compute_pso(&params->pso);
@@ -64,7 +76,7 @@ render_handler_depth_of_field_bokeh_blur(RenderContext* ctx, const RenderSetting
 
 struct DoFCompositeParams
 {
-  RgTexture2D<float>    coc_buffer;
+  RgTexture2D<float4>   coc_buffer;
   RgTexture2D<float4>   hdr_buffer;
   RgTexture2D<float4>   blur_buffer;
 
@@ -74,9 +86,21 @@ struct DoFCompositeParams
 };
 
 static void
-render_handler_depth_of_field_composite(RenderContext* ctx, const RenderSettings&, const void* data)
+render_handler_depth_of_field_composite(RenderContext* ctx, const RenderSettings& settings, const void* data)
 {
   const DoFCompositeParams* params = (const DoFCompositeParams*)data;
+
+  if (settings.disable_dof)
+  {
+    TextureCopySrt srt;
+    srt.src = params->hdr_buffer;
+    srt.dst = params->render_target;
+
+    ctx->compute_bind_srt(srt);
+    ctx->set_compute_pso(&g_Renderer.texture_copy_pso);
+    ctx->dispatch(ctx->m_Width / 8, ctx->m_Height / 8, 1);
+    return;
+  }
 
   ctx->set_compute_pso(&params->pso);
 
@@ -96,7 +120,7 @@ RgHandle<GpuTexture> init_depth_of_field(
   RgHandle<GpuTexture> depth_buffer,
   RgHandle<GpuTexture> taa_buffer
 ) {
-  RgHandle<GpuTexture> coc_buffer        = rg_create_texture(builder, "CoC Buffer",             VAR_RES (builder, kDoFResolutionScale), kGpuFormatR16Float);
+  RgHandle<GpuTexture> coc_buffer        = rg_create_texture(builder, "CoC Buffer",             VAR_RES (builder, kDoFResolutionScale), kGpuFormatRGBA16Float);
   RgHandle<GpuTexture> blur_buffer       = rg_create_texture(builder, "Bokeh Blur Buffer",      VAR_RES (builder, kDoFResolutionScale), kGpuFormatRGBA16Float);
   RgHandle<GpuTexture> depth_of_field    = rg_create_texture(builder, "Depth Of Field Buffer",  FULL_RES(builder),                      kGpuFormatRGBA16Float);
 
@@ -105,7 +129,8 @@ RgHandle<GpuTexture> init_depth_of_field(
 
     RgPassBuilder*     pass   = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "Depth of Field CoC Generate", params, &render_handler_coc_generate);
     params->depth_buffer      = RgTexture2D<float>  (pass, depth_buffer);
-    params->coc_buffer        = RgRWTexture2D<float>(pass, &coc_buffer);
+    params->hdr_buffer        = RgTexture2D<float4> (pass, taa_buffer);
+    params->coc_buffer        = RgRWTexture2D<float4>(pass, &coc_buffer);
 
     params->pso               = init_compute_pipeline(g_GpuDevice, get_engine_shader(kCS_DoFCoC), "Depth of Field CoC Generate");
   }
@@ -115,7 +140,7 @@ RgHandle<GpuTexture> init_depth_of_field(
 
     RgPassBuilder*     pass   = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "Depth of Field Bokeh Blur", params, &render_handler_depth_of_field_bokeh_blur);
     params->depth_buffer      = RgTexture2D  <float> (pass, depth_buffer);
-    params->coc_buffer        = RgTexture2D  <float> (pass, coc_buffer);
+    params->coc_buffer        = RgTexture2D  <float4>(pass, coc_buffer);
     params->hdr_buffer        = RgTexture2D  <float4>(pass, taa_buffer);
     params->blurred           = RgRWTexture2D<float4>(pass, &blur_buffer);
 
@@ -127,7 +152,7 @@ RgHandle<GpuTexture> init_depth_of_field(
 
     RgPassBuilder*     pass   = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "Depth of Field Composite", params, &render_handler_depth_of_field_composite);
     params->hdr_buffer        = RgTexture2D  <float4>(pass, taa_buffer);
-    params->coc_buffer        = RgTexture2D  <float> (pass, coc_buffer);
+    params->coc_buffer        = RgTexture2D  <float4>(pass, coc_buffer);
     params->blur_buffer       = RgTexture2D  <float4>(pass, blur_buffer);
     params->render_target     = RgRWTexture2D<float4>(pass, &depth_of_field);
 
