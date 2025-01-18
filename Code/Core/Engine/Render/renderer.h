@@ -13,8 +13,11 @@ static constexpr D3D12_COMPARISON_FUNC kDepthComparison = D3D12_COMPARISON_FUNC_
 static constexpr f32 kZNear = 0.1f;
 
 struct ShaderManager;
+struct Scene;
+
 extern ShaderManager*  g_ShaderManager;
 extern DescriptorPool* g_DescriptorCbvSrvUavPool;
+extern Scene*          g_Scene;
 
 // TODO(Brandon): This entire system will be reworked once I figure out,
 // generally how I want to handle render entries in this engine. For now,
@@ -181,10 +184,7 @@ struct Scene
   LinearAllocator    scene_object_allocator;
 };
 
-Scene init_scene(AllocHeap heap);
-
 SceneObject* add_scene_object(
-  Scene* scene,
   const ModelData& model,
   EngineShaderIndex vertex_shader,
   EngineShaderIndex material_shader
@@ -192,6 +192,6 @@ SceneObject* add_scene_object(
 PointLight* add_point_light(Scene* scene);
 
 void build_acceleration_structures(GpuDevice* device);
-void submit_scene(const Scene& scene);
+void submit_scene();
 
 

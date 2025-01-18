@@ -22,6 +22,8 @@
 struct GpuDevice;
 extern GpuDevice* g_GpuDevice;
 
+static const char* kTotalFrameGpuMarker = "GPU Total Frametime";
+
 enum : u8
 {
   kBackBufferCount       = 2,
@@ -259,23 +261,6 @@ FenceValue submit_cmd_lists(
   Option<GpuFence*> fence = None
 );
 
-struct GpuDevice
-{
-  ID3D12Device6*   d3d12 = nullptr;
-  IDXGIDebug*      d3d12_debug = nullptr;
-  CmdQueue         graphics_queue;
-  CmdListAllocator graphics_cmd_allocator;
-  CmdQueue         compute_queue;
-  CmdListAllocator compute_cmd_allocator;
-  CmdQueue         copy_queue;
-  CmdListAllocator copy_cmd_allocator;
-};
-
-void init_graphics_device(HWND window);
-void destroy_graphics_device();
-
-void wait_for_gpu_device_idle(GpuDevice* device);
-
 enum GpuHeapLocation : u8
 {
   // GPU only
@@ -289,6 +274,10 @@ enum GpuHeapLocation : u8
   // This is also referred to as VRAM upload
   // (Only supported on systems with ReBAR)
   kGpuHeapVRAMCpuToGpu,
+
+  // GPU to CPU living in SysRAM (CPU RAM)
+  // This is also referred to as a readback heap
+  kGpuHeapSysRAMGpuToCpu,
 };
 
 enum GpuHeapType : u8
@@ -671,6 +660,49 @@ ShaderTable init_shader_table(
 );
 void destroy_shader_table(ShaderTable* shader_table);
 
+static constexpr u32 kMaxGpuTimestamps = 128;
+
+struct GpuTimestamp
+{
+  const char* name = nullptr;
+  bool in_flight   = false;
+};
+
+struct GpuProfiler
+{
+  ID3D12QueryHeap*            d3d12_timestamp_heap = nullptr;
+  u64                         gpu_frequency = 0;
+
+  GpuBuffer                   timestamp_readback;
+  GpuTimestamp                timestamps[kMaxGpuTimestamps];
+  u32                         next_free_idx = 0;
+
+
+  HashTable<const char*, u32> name_to_timestamp;
+};
+
+struct GpuDevice
+{
+  ID3D12Device6*   d3d12                = nullptr;
+  IDXGIDebug*      d3d12_debug          = nullptr;
+  GpuProfiler      profiler;
+
+  CmdQueue         graphics_queue;
+  CmdListAllocator graphics_cmd_allocator;
+  CmdQueue         compute_queue;
+  CmdListAllocator compute_cmd_allocator;
+  CmdQueue         copy_queue;
+  CmdListAllocator copy_cmd_allocator;
+};
+void init_graphics_device(HWND window);
+void destroy_graphics_device();
+
+void wait_for_gpu_device_idle(GpuDevice* device);
+
+void begin_gpu_profiler_timestamp(const CmdList& cmd_buffer, const char* name);
+void end_gpu_profiler_timestamp(const CmdList& cmd_buffer, const char* name);
+f64  query_gpu_profiler_timestamp(const char* name);
+
 struct SwapChain
 {
   u32       width  = 0;
@@ -716,5 +748,5 @@ void imgui_end_frame();
 void imgui_render(CmdList* cmd);
 
 #define U32_COLOR(r, g, b) (0xff000000u | ((u32)r << 16) | ((u32)g << 8) | (u32)b)
-#define GPU_SCOPED_EVENT(color, cmdlist, fmt, ...) PIXBeginEvent(cmdlist.d3d12_list, color, fmt, ##__VA_ARGS__); defer { PIXEndEvent(cmdlist.d3d12_list); }
+#define GPU_SCOPED_EVENT(color, cmdlist, fmt, ...) PIXBeginEvent(cmdlist.d3d12_list, color, fmt, ##__VA_ARGS__); begin_gpu_profiler_timestamp(cmdlist, fmt); defer { PIXEndEvent(cmdlist.d3d12_list); end_gpu_profiler_timestamp(cmdlist, fmt); }
 

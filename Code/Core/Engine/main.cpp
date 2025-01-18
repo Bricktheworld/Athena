@@ -117,66 +117,6 @@ static constexpr const wchar_t* WINDOW_NAME = L"Athena";
 static constexpr u64 INCREMENT_AMOUNT = 10000;
 
 static void
-draw_debug(DirectionalLight* out_directional_light, Camera* out_camera)
-{
-  // Start the Dear ImGui frame
-  ImGui_ImplDX12_NewFrame();
-  ImGui_ImplWin32_NewFrame();
-  ImGui::NewFrame();
-
-  ImGui::Begin("Rendering");
-
-#if 0
-  if (ImGui::BeginCombo("View", GET_RENDER_BUFFER_NAME(out_render_options->debug_view)))
-  {
-    for (u32 i = 0; i < RenderBuffers::kCount; i++)
-    {
-      bool is_selected = out_render_options->debug_view == i;
-      if (ImGui::Selectable(GET_RENDER_BUFFER_NAME(i), is_selected))
-      {
-        out_render_options->debug_view = (RenderBuffers::Entry)i;
-      }
-  
-      if (is_selected)
-      {
-        ImGui::SetItemDefaultFocus();
-      }
-    }
-  
-    ImGui::EndCombo();
-  }
-
-
-#endif
-  ImGui::ShowDemoWindow();
-
-  ImGui::DragFloat3("Direction", (f32*)&out_directional_light->direction, 0.02f, -1.0f, 1.0f);
-  ImGui::DragFloat3("Diffuse", (f32*)&out_directional_light->diffuse, 0.1f, 0.0f, 1.0f);
-  ImGui::DragFloat ("Intensity", &out_directional_light->intensity, 0.1f, 0.0f, 100.0f);
-
-  ImGui::InputFloat3("Camera Position", (f32*)&out_camera->world_pos);
-
-  ImGui::Checkbox("Disable TAA", &g_Renderer.settings.disable_taa);
-  ImGui::Checkbox("Disable HDR", &g_Renderer.settings.disable_hdr);
-  ImGui::Checkbox("Disable DoF", &g_Renderer.settings.disable_dof);
-
-  ImGui::DragFloat("Aperture", &g_Renderer.settings.aperture, 0.01f, 0.0f, 50.0f);
-
-  static f32 focal_distance = g_Renderer.settings.focal_dist;
-  ImGui::DragFloat("Focal Distance", &focal_distance, 0.01f, 0.0f, 1000.0f);
-  g_Renderer.settings.focal_dist = 0.9f * g_Renderer.settings.focal_dist + 0.1f * focal_distance;
-
-  ImGui::DragFloat("Focal Range", &g_Renderer.settings.focal_range, 0.01f, 0.0f, 100.0f);
-
-  ImGui::DragInt("DoF Sample Count", (s32*)&g_Renderer.settings.dof_sample_count, 1.0f, 0, 256);
-  ImGui::DragFloat("DoF Blur Radius", &g_Renderer.settings.dof_blur_radius, 0.1f, 0.0f, 40.0f);
-
-  ImGui::End();
-
-  ImGui::Render();
-}
-
-static void
 application_entry(HINSTANCE instance, int show_code)
 {
 //  SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
@@ -243,8 +183,6 @@ application_entry(HINSTANCE instance, int show_code)
   init_unified_geometry_buffer(g_GpuDevice);
   defer { destroy_unified_geometry_buffer(); };
 
-  Scene scene       = init_scene(g_InitHeap);
-
   SceneObject* sponza = nullptr;
   {
     OSAllocator allocator = init_os_allocator();
@@ -266,7 +204,7 @@ application_entry(HINSTANCE instance, int show_code)
     AssetLoadResult res = load_model((AllocHeap)heap, buf, buf_size, &model);
     ASSERT(res == AssetLoadResult::kOk);
 
-    sponza = add_scene_object(&scene, model, kVS_Basic, kPS_BasicNormalGloss);
+    sponza = add_scene_object(model, kVS_Basic, kPS_BasicNormalGloss);
   }
   kick_asset_load(ASSET_ID("Assets/Source/sponza/Sponza.gltf"));
 
@@ -288,12 +226,12 @@ application_entry(HINSTANCE instance, int show_code)
     lpp_agent.EnableModule(lpp::LppGetCurrentModulePath(), lpp::LPP_MODULES_OPTION_ALL_IMPORT_MODULES, nullptr, nullptr);
   }
 
-  scene.camera.world_pos = Vec3(8.28f, 4.866f, 0.685f);
-  scene.camera.pitch     = -0.203f;
-  scene.camera.yaw       = -1.61f;
-  scene.directional_light.direction.x = -0.380f;
-  scene.directional_light.direction.y = -1.0f;
-  scene.directional_light.direction.z = -0.180f;
+  g_Scene->camera.world_pos = Vec3(8.28f, 4.866f, 0.685f);
+  g_Scene->camera.pitch     = -0.203f;
+  g_Scene->camera.yaw       = -1.61f;
+  g_Scene->directional_light.direction.x = -0.380f;
+  g_Scene->directional_light.direction.y = -1.0f;
+  g_Scene->directional_light.direction.z = -0.180f;
 
   bool done = false;
   while (!done)
@@ -356,8 +294,8 @@ application_entry(HINSTANCE instance, int show_code)
     if (mouse.positionMode == DirectX::Mouse::MODE_RELATIVE)
     {
       Vec2 delta = Vec2(f32(mouse.x), f32(mouse.y)) * 0.001f;
-      scene.camera.pitch -= delta.y;
-      scene.camera.yaw   += delta.x;
+      g_Scene->camera.pitch -= delta.y;
+      g_Scene->camera.yaw   += delta.x;
     }
     d3d12_mouse.SetMode(mouse.rightButton ? DirectX::Mouse::MODE_RELATIVE : DirectX::Mouse::MODE_ABSOLUTE);
 
@@ -387,19 +325,17 @@ application_entry(HINSTANCE instance, int show_code)
       move.y -= 1.0f;
     }
     // TODO(Brandon): Something is completely fucked with my quaternion math...
-    Quat rot = quat_from_rotation_y(scene.camera.yaw); // * quat_from_rotation_x(-scene.camera.pitch);  //quat_from_euler_yxz(scene.camera.yaw, 0, 0);
+    Quat rot = quat_from_rotation_y(g_Scene->camera.yaw); // * quat_from_rotation_x(-scene.camera.pitch);  //quat_from_euler_yxz(scene.camera.yaw, 0, 0);
     move = rotate_vec3_by_quat(move, rot);
     move *= 2.0f / 60.0f;
 
-    scene.camera.world_pos += move;
+    g_Scene->camera.world_pos += move;
 
     if (done)
       break;
 
-    draw_debug(&scene.directional_light, &scene.camera);
-
     begin_renderer_recording();
-    submit_scene(scene);
+    submit_scene();
 
     execute_render_graph(back_buffer, g_Renderer.settings);
     swap_chain_submit(&g_MainWindow->swap_chain, g_GpuDevice, back_buffer);

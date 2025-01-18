@@ -26,10 +26,20 @@ linear_alloc(void* linear_allocator, size_t size, size_t alignment)
 
   uintptr_t new_pos      = memory_start + size;
 
+#if 0
   if (new_pos > self->start + self->size)
   {
     return nullptr;
   }
+#endif
+  ASSERT_MSG_FATAL(
+    new_pos <= self->start + self->size,
+    "Linear allocator ran out of memory! Attempted to allocate 0x%llx"
+    "bytes from linear allocator of size 0x%llx that only has 0x%llx"
+    "bytes remaining. Either bump this allocator's memory size or"
+    "figure out why it overflowed.",
+    size, self->size, self->size - self->pos
+  );
 
   self->pos = new_pos;
 
@@ -256,7 +266,6 @@ init_os_allocator()
 void destroy_os_allocator(OSAllocator* self) 
 {
   UNREFERENCED_PARAMETER(self);
-
 }
 
 // TODO(bshihabi): Finish this method

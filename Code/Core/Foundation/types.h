@@ -239,6 +239,6 @@ FOUNDATION_API void print_backtrace();
 #define HASSERT(hres) hres
 #endif
 
-#define UNREACHABLE ASSERT(false); __assume(false)
+#define UNREACHABLE ASSERT_MSG_FATAL(false, "Something that should never happen did! Check the code to see why this bug occurred."); __assume(false)
 
 

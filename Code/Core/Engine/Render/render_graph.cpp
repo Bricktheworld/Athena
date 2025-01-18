@@ -1087,6 +1087,8 @@ execute_render_graph(const GpuTexture* back_buffer, const RenderSettings& settin
 
   {
     GPU_SCOPED_EVENT(PIX_COLOR_DEFAULT, cmd_buffer, "Frame %lu", g_FrameId);
+    begin_gpu_profiler_timestamp(cmd_buffer, kTotalFrameGpuMarker);
+    defer { end_gpu_profiler_timestamp(cmd_buffer, kTotalFrameGpuMarker); };
 
     // Main render loop
     for (u32 ilevel = 0; ilevel < g_RenderGraph->dependency_levels.size; ilevel++)
@@ -1129,7 +1131,7 @@ execute_render_graph(const GpuTexture* back_buffer, const RenderSettings& settin
 
         g_HandlerId = pass_id;
         const RenderPass& pass = g_RenderGraph->render_passes[pass_id];
-        GPU_SCOPED_EVENT(PIX_COLOR_DEFAULT, cmd_buffer, "%s", pass.name);
+        GPU_SCOPED_EVENT(PIX_COLOR_DEFAULT, cmd_buffer, pass.name);
         (*pass.handler)(&ctx, settings, pass.data);
 
         set_descriptor_heaps(&cmd_buffer, {g_DescriptorCbvSrvUavPool});

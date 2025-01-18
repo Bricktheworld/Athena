@@ -208,8 +208,6 @@ template <typename K, typename V>
 inline V*
 hash_table_insert(HashTable<K, V>* table, const K& key)
 {
-  ASSERT(table->used < table->capacity);
-
   using Hash = typename HashTable<K, V>::Hash;
 
   Hash h = {0};
@@ -261,7 +259,14 @@ hash_table_insert(HashTable<K, V>* table, const K& key)
     group_index = (group_index + 1) % table->groups_size;
   } while (group_index != start_index);
 
-  UNREACHABLE;
+  if (table->used < table->capacity)
+  {
+    // This should never be possible, if this is true then something went wrong in the hash table
+    UNREACHABLE;
+  }
+
+  ASSERT_MSG_FATAL(table->used < table->capacity, "Attempted to insert into hash table which is full. No matching slots with given key were found.");
+  return nullptr;
 }
 
 template <typename K, typename V>

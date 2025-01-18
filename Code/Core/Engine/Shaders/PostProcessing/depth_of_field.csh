@@ -152,26 +152,8 @@ void CS_DoFComposite(uint2 thread_id : SV_DispatchThreadID)
   // NOTE(Brandon): The color buffer is expected to be the same dimensions as the render target
   float3 unblurred = hdr_buffer[thread_id].rgb;
 
-#if 0
-  float2 half_res;
-  blur_buffer.GetDimensions(half_res.x, half_res.y);
-
-  float2 uv_step_half = 1.0f / half_res;
-  float2 near_uv0   = uv - uv_step_half / 2.0f;
-  float2 near_uv1   = float2(near_uv0.x + uv_step_half.x, near_uv0.y                 );
-  float2 near_uv2   = float2(near_uv0.x,                  near_uv0.y + uv_step_half.y);
-  float2 near_uv3   = float2(near_uv0.x + uv_step_half.x, near_uv0.y + uv_step_half.y);
-
-  float3 blurred = 0.0f;
-  blurred       += blur_buffer.Sample(g_BilinearSampler, near_uv0).rgb;
-  blurred       += blur_buffer.Sample(g_BilinearSampler, near_uv1).rgb;
-  blurred       += blur_buffer.Sample(g_BilinearSampler, near_uv2).rgb;
-  blurred       += blur_buffer.Sample(g_BilinearSampler, near_uv3).rgb;
-
-  blurred /= 4.0f;
-#endif
-
 #if 1
+
   float blur_amount = blur_buffer[thread_id / kDoFResolutionScale].a;
   // 16 tap tent filter
   static const float2 kOffsets[16] =

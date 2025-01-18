@@ -411,14 +411,11 @@ get_d3d12_heap_location(GpuHeapLocation type)
 {
   switch(type)
   {
-    case kGpuHeapGpuOnly:
-      return D3D12_HEAP_TYPE_DEFAULT;
-    case kGpuHeapSysRAMCpuToGpu:
-      return D3D12_HEAP_TYPE_UPLOAD;
-    case kGpuHeapVRAMCpuToGpu:
-      return D3D12_HEAP_TYPE_GPU_UPLOAD;
-    default:
-      UNREACHABLE;
+    case kGpuHeapGpuOnly:        return D3D12_HEAP_TYPE_DEFAULT;
+    case kGpuHeapSysRAMCpuToGpu: return D3D12_HEAP_TYPE_UPLOAD;
+    case kGpuHeapVRAMCpuToGpu:   return D3D12_HEAP_TYPE_GPU_UPLOAD;
+    case kGpuHeapSysRAMGpuToCpu: return D3D12_HEAP_TYPE_READBACK;
+    default: UNREACHABLE;
   }
 }
 
@@ -471,6 +468,124 @@ gpu_linear_alloc(void* allocator, u32 size, u32 alignment)
 
   return ret;
 }
+static void
+init_gpu_profiler(void)
+{
+  GpuProfiler* profiler = &g_GpuDevice->profiler;
+
+  D3D12_QUERY_HEAP_DESC desc = {};
+  desc.Type     = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
+  desc.Count    = kMaxGpuTimestamps * 2;
+  desc.NodeMask = 0;
+
+  g_GpuDevice->d3d12->CreateQueryHeap(&desc, IID_PPV_ARGS(&profiler->d3d12_timestamp_heap));
+  GpuBufferDesc readback_desc = {0};
+  readback_desc.size          = sizeof(u64) * desc.Count * kBackBufferCount;
+
+  profiler->timestamp_readback = alloc_gpu_buffer_no_heap(g_GpuDevice, readback_desc, kGpuHeapSysRAMGpuToCpu, "Timestamp readback");
+  profiler->name_to_timestamp  = init_hash_table<const char*, u32>(g_InitHeap, kMaxGpuTimestamps);
+  zero_memory(profiler->timestamps, sizeof(profiler->timestamps));
+
+
+  profiler->next_free_idx      = 0;
+  HASSERT(g_GpuDevice->graphics_queue.d3d12_queue->GetTimestampFrequency(&profiler->gpu_frequency));
+}
+
+void
+begin_gpu_profiler_timestamp(const CmdList& cmd_buffer, const char* name)
+{
+  GpuProfiler* profiler = &g_GpuDevice->profiler;
+
+  u32 idx = 0;
+  {
+    u32* existing = hash_table_find(&profiler->name_to_timestamp, name);
+    if (existing == nullptr)
+    {
+      ASSERT_MSG_FATAL(
+        profiler->next_free_idx < kMaxGpuTimestamps,
+        "Attempting to start a GPU timestamp name %s but no slots left! You are permitted up to %u GPU timestamps. If you need more, try incrementing kMaxGpuTimestamps", name, kMaxGpuTimestamps
+      );
+      u32* dst = hash_table_insert(&profiler->name_to_timestamp, name);
+      *dst = profiler->next_free_idx++;
+      existing = dst;
+    }
+
+    idx = *existing;
+  }
+
+  GpuTimestamp* timestamp = profiler->timestamps + idx;
+
+  ASSERT_MSG_FATAL(!timestamp->in_flight, "GPU profiler timestamp name '%s' wasn't closed properly!", name);
+
+  u32 start_idx = idx * 2;
+  cmd_buffer.d3d12_list->EndQuery(profiler->d3d12_timestamp_heap, D3D12_QUERY_TYPE_TIMESTAMP, start_idx);
+
+  timestamp->in_flight = true;
+}
+
+void
+end_gpu_profiler_timestamp(const CmdList& cmd_buffer, const char* name)
+{
+  GpuProfiler* profiler = &g_GpuDevice->profiler;
+
+  u32* ptr = hash_table_find(&profiler->name_to_timestamp, name);
+
+  ASSERT_MSG_FATAL(ptr != nullptr, "GPU profiler timestamp name '%s' is invalid! Did you forget to call begin_gpu_profiler_timestamp?", name);
+
+  u32 idx       = *ptr;
+  u32 start_idx = idx * 2;
+  u32 end_idx   = start_idx + 1;
+
+  GpuTimestamp* timestamp = profiler->timestamps + idx;
+
+  cmd_buffer.d3d12_list->EndQuery(profiler->d3d12_timestamp_heap, D3D12_QUERY_TYPE_TIMESTAMP, end_idx);
+
+  u64 dst_offset = sizeof(u64) * ((g_FrameId % kBackBufferCount) * kMaxGpuTimestamps * 2 + start_idx);
+  cmd_buffer.d3d12_list->ResolveQueryData(
+    profiler->d3d12_timestamp_heap,
+    D3D12_QUERY_TYPE_TIMESTAMP,
+    start_idx,
+    2,
+    profiler->timestamp_readback.d3d12_buffer,
+    dst_offset
+  );
+
+  ASSERT_MSG_FATAL(timestamp->in_flight, "GPU profiler timestamp name '%s' was never started! Did you forget to call begin_gpu_profiler_timestamp?", name);
+  timestamp->in_flight = false;
+}
+
+f64
+query_gpu_profiler_timestamp(const char* name)
+{
+  if (g_FrameId < 1)
+  {
+    return 0.0;
+  }
+
+  GpuProfiler* profiler = &g_GpuDevice->profiler;
+
+  // TODO(bshihabi): Currently these time samples have a 1 frame delay.
+  // I designed it like this because the render graph won't actually have the query
+  // data because command lists are submitted all at once. This needs to be fixed first.
+
+  u32* ptr = hash_table_find(&profiler->name_to_timestamp, name);
+
+  ASSERT_MSG_FATAL(ptr != nullptr, "GPU profiler timestamp name '%s' is invalid! Did you forget to call begin_gpu_profiler_timestamp?", name);
+
+  u32 idx       = *ptr;
+  u32 start_idx = idx * 2;
+  u32 end_idx   = start_idx + 1;
+
+  u64 src_offset        = sizeof(u64) * (((g_FrameId - 1) % kBackBufferCount) * kMaxGpuTimestamps * 2);
+  const u64* query_data = (const u64*)((const u8*)unwrap(profiler->timestamp_readback.mapped) + src_offset);
+
+  u64 start_time        = query_data[start_idx];
+  u64 end_time          = query_data[end_idx];
+
+  u64 delta_time        = end_time - start_time;
+  return ((f64)delta_time / (f64)profiler->gpu_frequency) * 1000.0;
+  
+}
 
 void
 init_graphics_device(HWND window)
@@ -520,6 +635,8 @@ init_graphics_device(HWND window)
     &g_GpuDevice->copy_queue,
     kBackBufferCount * 8
   );
+
+  init_gpu_profiler();
 
 #ifdef DEBUG_LAYER
   HASSERT(DXGIGetDebugInterface1(0, IID_PPV_ARGS(&g_GpuDevice->d3d12_debug)));
@@ -743,7 +860,7 @@ alloc_gpu_buffer_no_heap(
   mbstowcs_s(nullptr, wname, name, 1024);
   ret.d3d12_buffer->SetName(wname);
   ret.gpu_addr = ret.d3d12_buffer->GetGPUVirtualAddress();
-  if (location == kGpuHeapSysRAMCpuToGpu || location == kGpuHeapVRAMCpuToGpu)
+  if (location == kGpuHeapSysRAMCpuToGpu || location == kGpuHeapVRAMCpuToGpu || location == kGpuHeapSysRAMGpuToCpu)
   {
     void* mapped = nullptr;
     ret.d3d12_buffer->Map(0, nullptr, &mapped);
@@ -794,7 +911,7 @@ alloc_gpu_buffer(
   ret.d3d12_buffer->SetName(wname);
 
   ret.gpu_addr = ret.d3d12_buffer->GetGPUVirtualAddress();
-  if (allocation.location == kGpuHeapSysRAMCpuToGpu || allocation.location == kGpuHeapVRAMCpuToGpu)
+  if (allocation.location == kGpuHeapSysRAMCpuToGpu || allocation.location == kGpuHeapVRAMCpuToGpu || allocation.location == kGpuHeapSysRAMGpuToCpu)
   {
     void* mapped = nullptr;
     ret.d3d12_buffer->Map(0, nullptr, &mapped);

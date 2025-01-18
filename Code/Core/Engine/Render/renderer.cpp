@@ -23,6 +23,7 @@ Renderer g_Renderer;
 UnifiedGeometryBuffer g_UnifiedGeometryBuffer;
 ShaderManager*  g_ShaderManager           = nullptr;
 DescriptorPool* g_DescriptorCbvSrvUavPool = nullptr;
+Scene*          g_Scene                   = nullptr;
 
 void
 init_shader_manager(const GpuDevice* device)
@@ -129,6 +130,25 @@ destroy_renderer_psos()
   destroy_compute_pipeline(&g_Renderer.ddgi_probe_blend_pso);
 }
 
+static void
+init_scene()
+{
+  g_Scene = HEAP_ALLOC(Scene, g_InitHeap, 1);
+  zero_memory(g_Scene, sizeof(Scene));
+
+  g_Scene->scene_objects = init_array<SceneObject>(g_InitHeap, 128);
+  g_Scene->point_lights  = init_array<PointLight>(g_InitHeap, 128);
+  static constexpr size_t kSceneObjectHeapSize = MiB(8);
+  g_Scene->scene_object_allocator = init_linear_allocator(
+    HEAP_ALLOC_ALIGNED(g_InitHeap, kSceneObjectHeapSize, 1),
+    kSceneObjectHeapSize
+  );
+
+  g_Scene->directional_light.direction = Vec4(-1.0f, -1.0f, 0.0f, 0.0f);
+  g_Scene->directional_light.diffuse   = Vec4(1.0f, 1.0f, 1.0f, 0.0f);
+  g_Scene->directional_light.intensity = 5.0f;
+}
+
 void
 init_renderer(
   const GpuDevice* device,
@@ -137,6 +157,7 @@ init_renderer(
 ) {
   zero_memory(&g_Renderer, sizeof(g_Renderer));
 
+  init_scene();
   g_DescriptorCbvSrvUavPool   = HEAP_ALLOC(DescriptorPool, g_InitHeap, 1);
   *g_DescriptorCbvSrvUavPool  = init_descriptor_pool(g_InitHeap, device, 2048, kDescriptorHeapTypeCbvSrvUav);
 
@@ -232,24 +253,6 @@ destroy_unified_geometry_buffer()
   free_gpu_buffer(&g_UnifiedGeometryBuffer.index_buffer);
 
   zero_memory(&g_UnifiedGeometryBuffer, sizeof(g_UnifiedGeometryBuffer));
-}
-
-Scene
-init_scene(AllocHeap heap)
-{
-  Scene ret = {0};
-  ret.scene_objects = init_array<SceneObject>(heap, 128);
-  ret.point_lights  = init_array<PointLight>(heap, 128);
-  static constexpr size_t kSceneObjectHeapSize = MiB(8);
-  ret.scene_object_allocator = init_linear_allocator(
-    HEAP_ALLOC_ALIGNED(heap, kSceneObjectHeapSize, 1),
-    kSceneObjectHeapSize
-  );
-
-  ret.directional_light.direction = Vec4(-1.0f, -1.0f, 0.0f, 0.0f);
-  ret.directional_light.diffuse   = Vec4(1.0f, 1.0f, 1.0f, 0.0f);
-  ret.directional_light.intensity = 5.0f;
-  return ret;
 }
 
 static UploadContext g_UploadContext;
@@ -397,16 +400,15 @@ init_render_model(AllocHeap heap, const ModelData& model)
 
 SceneObject*
 add_scene_object(
-  Scene* scene,
   const ModelData& model,
   EngineShaderIndex vertex_shader,
   EngineShaderIndex material_shader
 ) {
   UNREFERENCED_PARAMETER(vertex_shader);
   UNREFERENCED_PARAMETER(material_shader);
-  SceneObject* ret = array_add(&scene->scene_objects);
+  SceneObject* ret = array_add(&g_Scene->scene_objects);
   ret->flags = kSceneObjectMesh;
-  ret->model = init_render_model(scene->scene_object_allocator, model);
+  ret->model = init_render_model(g_Scene->scene_object_allocator, model);
 
   return ret;
 }
@@ -455,9 +457,9 @@ get_taa_jitter()
 }
 
 void
-submit_scene(const Scene& scene)
+submit_scene()
 {
-  for (const SceneObject& obj : scene.scene_objects)
+  for (const SceneObject& obj : g_Scene->scene_objects)
   {
 //    u8 flags = obj.flags;
 //    if (flags & kSceneObjectPendingLoad)
@@ -477,6 +479,6 @@ submit_scene(const Scene& scene)
   g_Renderer.taa_jitter        = get_taa_jitter();
 
   g_Renderer.prev_camera       = g_Renderer.camera;
-  g_Renderer.camera            = scene.camera;
-  g_Renderer.directional_light = scene.directional_light;
+  g_Renderer.camera            = g_Scene->camera;
+  g_Renderer.directional_light = g_Scene->directional_light;
 }
