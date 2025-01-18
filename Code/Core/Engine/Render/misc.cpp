@@ -47,8 +47,6 @@ render_handler_frame_init(RenderContext* ctx, const RenderSettings& settings, co
 {
   FrameInitParams* params = (FrameInitParams*)data;
 
-  begin_gpu_profiler_timestamp(ctx->m_CmdBuffer, kTotalFrameGpuMarker);
-
   Mat4 prev_view = view_from_camera(&g_Renderer.prev_camera);
   Mat4 view      = view_from_camera(&g_Renderer.camera);
 

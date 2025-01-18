@@ -17,6 +17,7 @@ struct AssetLoader
   LinearAllocator                           allocator;
 
   Thread                                    thread;
+  ThreadSignal                              wake_cond;
   bool                                      kill;
 };
 
@@ -171,7 +172,23 @@ submit_gpu_stream_requests(void)
     }
   }
 
-  g_GpuStreamDevice->file_queue->Submit();
+  if (value < g_GpuStreamDevice->file_queue_fence.value)
+  {
+    g_GpuStreamDevice->file_queue->Submit();
+  }
+  else
+  {
+    bool no_requests = false;
+    ACQUIRE(&g_AssetLoader->requests, auto* requests)
+    {
+      no_requests = ring_queue_is_empty(*requests);
+    };
+
+    if (no_requests)
+    {
+      wait_for_thread_signal(&g_AssetLoader->wake_cond);
+    }
+  }
 }
 
 static void process_asset_loads(void);
@@ -216,6 +233,7 @@ init_asset_loader(void)
     nullptr,
     7
   );
+  g_AssetLoader->wake_cond = init_thread_signal();
 
   set_thread_name(&g_AssetLoader->thread, L"Asset Streaming Thread");
 }
@@ -242,6 +260,8 @@ kick_asset_load(HashTable<AssetId, AssetDesc>* assets, AssetId asset_id)
   {
     ring_queue_push(requests, asset_id);
   };
+
+  notify_all_thread_signal(&g_AssetLoader->wake_cond);
 }
 
 void
@@ -259,6 +279,8 @@ kick_asset_load(AssetId asset_id)
   {
     ring_queue_push(requests, asset_id);
   };
+
+  notify_all_thread_signal(&g_AssetLoader->wake_cond);
 }
 
 void
@@ -499,6 +521,7 @@ void
 destroy_asset_loader(void)
 {
   g_AssetLoader->kill = true;
+  notify_all_thread_signal(&g_AssetLoader->wake_cond);
   join_threads(&g_AssetLoader->thread, 1);
   destroy_gpu_stream_device();
 }
