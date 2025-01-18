@@ -76,6 +76,15 @@ path_to_asset_id(const char* path)
 }
 
 #define ASSET_ID(A) std::integral_constant<AssetId, path_to_asset_id(A)>::value
+
+
+static constexpr char kAssetPathFmt[] = "Assets/Built/0xXXXXXXXX.built";
+static constexpr u32  kAssetPathSize  = sizeof(kAssetPathFmt);
+
+FOUNDATION_API void asset_id_to_path(char dst[kAssetPathSize], AssetId asset_id);
+
+static constexpr wchar_t kAssetPathFmtW[] = L"Assets/Built/0xXXXXXXXX.built";
+FOUNDATION_API void asset_id_to_path_w(wchar_t dst[kAssetPathSize], AssetId asset_id);
 FOUNDATION_API Result<FileStream, FileError> open_built_asset_file(AssetId asset);
 
 enum struct TextureFormat : u32

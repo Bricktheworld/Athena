@@ -77,9 +77,8 @@ request_gpu_stream_asset(const AssetGpuLoadRequest& request)
 {
   ASSERT_MSG_FATAL(g_AssetLoader != nullptr, "AssetLoader not initialized!");
 
-  // TODO(bshihabi): Use this https://johnnylee-sde.github.io/Fast-unsigned-integer-to-hex-string/
-  wchar_t path[512];
-  swprintf(path, 512, L"Assets/Built/0x%08x.built", request.asset_id);
+  wchar_t path[kAssetPathSize];
+  asset_id_to_path_w(path, request.asset_id);
 
   IDStorageFile* file = nullptr;
   HRESULT res = g_GpuStreamDevice->factory->OpenFile(path, IID_PPV_ARGS(&file));
