@@ -27,7 +27,7 @@ static const char* kTotalFrameGpuMarker = "GPU Total Frametime";
 enum : u8
 {
   kBackBufferCount       = 2,
-  kFramesInFlight        = 1,
+  kFramesInFlight        = 2,
   kMaxCommandListThreads = 8,
   kCommandAllocators     = kBackBufferCount * kMaxCommandListThreads,
 };
