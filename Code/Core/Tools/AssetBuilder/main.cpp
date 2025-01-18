@@ -128,7 +128,19 @@ int main(int argc, const char** argv)
   }
 
 
-  printf("\n\n=======================\nSuccessfully built asset!\n");
+  printf("\n\n=======================\nSuccessfully built asset!\n\n");
+
+  SetConsoleOutputCP(CP_UTF8);
+  setvbuf(stdout, nullptr, _IOFBF, 1000);
+
+
+  const char* kLoml = "       へ   ♡   ╱|、    \n"
+                      "    ૮ - ՛)     (` - 7   \n"
+                      "    / ⁻ ៸|     |、⁻〵     \n"
+                      "乀 (ˍ, ل ل     じしˍ,)ノ \n\n";
+
+  printf(kLoml);
+
 
   return 0;
 }
