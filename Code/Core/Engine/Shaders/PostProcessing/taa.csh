@@ -57,7 +57,7 @@ void tap_curr_buffer(
   Texture2D<float4> curr_buffer = DEREF(g_Srt.curr_hdr);
 
   float2 uv_offset = float2(texel_offset) / dimensions;
-  float3 color     = luma_weight_color_rec709(curr_buffer.Sample(g_BilinearSampler, uv + uv_offset).rgb);
+  float3 color     = luma_weight_color_rec709(curr_buffer.Sample(g_BilinearSamplerClamp, uv + uv_offset).rgb);
   min_color        = min(min_color, color);
   max_color        = max(max_color, color);
 }
@@ -123,17 +123,17 @@ float4 sample_texture_catmull_rom(Texture2D<float4> texture, float2 uv)
   tex_pos12 /= texture_size;
 
   float4 result = 0.0f;
-  result += texture.SampleLevel(g_BilinearSampler, float2(tex_pos0.x,  tex_pos0.y), 0.0f) * w0.x  * w0.y;
-  result += texture.SampleLevel(g_BilinearSampler, float2(tex_pos12.x, tex_pos0.y), 0.0f) * w12.x * w0.y;
-  result += texture.SampleLevel(g_BilinearSampler, float2(tex_pos3.x,  tex_pos0.y), 0.0f) * w3.x  * w0.y;
+  result += texture.SampleLevel(g_BilinearSamplerClamp, float2(tex_pos0.x,  tex_pos0.y), 0.0f) * w0.x  * w0.y;
+  result += texture.SampleLevel(g_BilinearSamplerClamp, float2(tex_pos12.x, tex_pos0.y), 0.0f) * w12.x * w0.y;
+  result += texture.SampleLevel(g_BilinearSamplerClamp, float2(tex_pos3.x,  tex_pos0.y), 0.0f) * w3.x  * w0.y;
 
-  result += texture.SampleLevel(g_BilinearSampler, float2(tex_pos0.x,  tex_pos12.y), 0.0f) * w0.x  * w12.y;
-  result += texture.SampleLevel(g_BilinearSampler, float2(tex_pos12.x, tex_pos12.y), 0.0f) * w12.x * w12.y;
-  result += texture.SampleLevel(g_BilinearSampler, float2(tex_pos3.x,  tex_pos12.y), 0.0f) * w3.x  * w12.y;
+  result += texture.SampleLevel(g_BilinearSamplerClamp, float2(tex_pos0.x,  tex_pos12.y), 0.0f) * w0.x  * w12.y;
+  result += texture.SampleLevel(g_BilinearSamplerClamp, float2(tex_pos12.x, tex_pos12.y), 0.0f) * w12.x * w12.y;
+  result += texture.SampleLevel(g_BilinearSamplerClamp, float2(tex_pos3.x,  tex_pos12.y), 0.0f) * w3.x  * w12.y;
 
-  result += texture.SampleLevel(g_BilinearSampler, float2(tex_pos0.x,  tex_pos3.y), 0.0f) * w0.x  * w3.y;
-  result += texture.SampleLevel(g_BilinearSampler, float2(tex_pos12.x, tex_pos3.y), 0.0f) * w12.x * w3.y;
-  result += texture.SampleLevel(g_BilinearSampler, float2(tex_pos3.x,  tex_pos3.y), 0.0f) * w3.x  * w3.y;
+  result += texture.SampleLevel(g_BilinearSamplerClamp, float2(tex_pos0.x,  tex_pos3.y), 0.0f) * w0.x  * w3.y;
+  result += texture.SampleLevel(g_BilinearSamplerClamp, float2(tex_pos12.x, tex_pos3.y), 0.0f) * w12.x * w3.y;
+  result += texture.SampleLevel(g_BilinearSamplerClamp, float2(tex_pos3.x,  tex_pos3.y), 0.0f) * w3.x  * w3.y;
 
   return result;
 }
@@ -181,7 +181,7 @@ void CS_TAA( uint3 thread_id : SV_DispatchThreadID )
   float2 curr_velocity         = curr_velocity_buffer[dilated_texel].xy;
 
   float2 reproj_uv             = uv + curr_velocity;
-  float2 prev_velocity         = prev_velocity_buffer.Sample(g_BilinearSampler, reproj_uv).xy;
+  float2 prev_velocity         = prev_velocity_buffer.Sample(g_BilinearSamplerClamp, reproj_uv).xy;
 
   float  acceleration          = length(prev_velocity - curr_velocity);
   float  velocity_disocclusion = saturate((acceleration - 0.001f) * 10.0f);

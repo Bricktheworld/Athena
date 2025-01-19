@@ -28,9 +28,9 @@ void CS_DoFCoC( uint2 thread_id : SV_DispatchThreadID )
   float aperture     = g_CoCSrt.aperture;
   float focal_dist   = g_CoCSrt.focal_dist;
   float focal_range  = g_CoCSrt.focal_range;
-  float z            = z_near / depth_buffer.Sample(g_BilinearSampler, full_res_uv);
+  float z            = z_near / depth_buffer.Sample(g_BilinearSamplerClamp, full_res_uv);
 
-  float3 color       = hdr_buffer.Sample(g_BilinearSampler, full_res_uv).rgb;
+  float3 color       = hdr_buffer.Sample(g_BilinearSamplerClamp, full_res_uv).rgb;
 
   if (z > focal_dist)
   {
@@ -76,7 +76,7 @@ void CS_DoFBokehBlur(uint2 thread_id : SV_DispatchThreadID)
 
   float coc         = max(coc_buffer[thread_id].a, 0.0f);
 
-  float depth       = z_near / depth_buffer.Sample(g_BilinearSampler, full_res_uv);
+  float depth       = z_near / depth_buffer.Sample(g_BilinearSamplerClamp, full_res_uv);
 
   float radius_step = (blur_radius * blur_radius) / (2.0f * sample_count);
 
@@ -96,9 +96,9 @@ void CS_DoFBokehBlur(uint2 thread_id : SV_DispatchThreadID)
     float2 sample_uv      = clamp(uv + sample_dir * full_res_uv_step * radius, 0.0f, 1.0f);
 
     // Sample the color/depth/CoC at this location
-    float3 sample_color   = hdr_buffer.Sample(g_BilinearSampler, sample_uv).rgb;
-    float  sample_depth   = z_near / depth_buffer.Sample(g_BilinearSampler, sample_uv);
-    float  sample_coc     = coc_buffer.Sample(g_BilinearSampler, sample_uv).a;
+    float3 sample_color   = hdr_buffer.Sample(g_BilinearSamplerClamp, sample_uv).rgb;
+    float  sample_depth   = z_near / depth_buffer.Sample(g_BilinearSamplerClamp, sample_uv);
+    float  sample_coc     = coc_buffer.Sample(g_BilinearSamplerClamp, sample_uv).a;
 
     // We're going to weight the sample we just got based on its CoC
     float  sample_weight  = sample_coc / kMaxCoC * blur_radius;
@@ -186,7 +186,7 @@ void CS_DoFComposite(uint2 thread_id : SV_DispatchThreadID)
     float2 offset    = kOffsets[i] * lerp(0.0f, 0.5f, saturate(blur_amount));
     float2 sample_uv = uv + offset / half_res;
 
-    blurred += blur_buffer.Sample(g_BilinearSampler, sample_uv);
+    blurred += blur_buffer.Sample(g_BilinearSamplerClamp, sample_uv);
   }
 
   blurred /= 16.0f;
@@ -209,14 +209,14 @@ void CS_DoFComposite(uint2 thread_id : SV_DispatchThreadID)
     float2 offset    = kOffsets[i];
     float2 sample_uv = uv + offset / half_res;
 
-    blurred += blur_buffer.Sample(g_BilinearSampler, sample_uv);
+    blurred += blur_buffer.Sample(g_BilinearSamplerClamp, sample_uv);
   }
 
   blurred *= 0.25f;
 #endif
 #if 0
-  float4 blurred = blur_buffer.Sample(g_BilinearSampler, uv);
+  float4 blurred = blur_buffer.Sample(g_BilinearSamplerClamp, uv);
 #endif
 
-  render_target[thread_id] = float4(lerp(unblurred, blurred.rgb, saturate(blurred.a)), 1.0f); // float4(lerp(far_blend, blurred, clamp(coc.x, 0.0f, 1.0f)), 1.0f);
+  render_target[thread_id] = float4(lerp(unblurred, blurred.rgb, saturate(blurred.a)), 1.0f);
 }

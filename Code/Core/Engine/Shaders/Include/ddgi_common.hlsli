@@ -214,7 +214,7 @@ float3 get_vol_irradiance(
       vol_desc
     );
 
-    float3 adj_irradiance = probe_irradiance_tex.SampleLevel(g_BilinearSampler, irradiance_uv, 0).rgb;
+    float3 adj_irradiance = probe_irradiance_tex.SampleLevel(g_BilinearSamplerClamp, irradiance_uv, 0).rgb;
     // Decompress encoding gamma
     adj_irradiance = pow(adj_irradiance, 5.0f);
 

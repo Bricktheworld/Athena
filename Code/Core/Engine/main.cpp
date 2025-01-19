@@ -40,9 +40,6 @@ static Window* g_MainWindow = nullptr;
 
 static bool g_EnableFullscreen = false;
 
-
-
-
 LRESULT CALLBACK
 window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM lparam) 
 {
@@ -373,10 +370,6 @@ WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, int show_code
   set_current_thread_name(L"Athena Main");
 
   profiler::init();
-
-//#ifdef DEBUG
-//  LoadLibrary(L"C:\\Program Files\\Microsoft PIX\\2305.10\\WinPixGpuCapturer.dll");
-//#endif
 
   init_engine_memory();
   defer { destroy_engine_memory(); };

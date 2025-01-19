@@ -67,7 +67,7 @@ float3 linear_to_pq(float3 rgb)
 float4 PS_ToneMapping(PSInput IN) : SV_TARGET
 {
   Texture2D<float4> input = DEREF(g_Srt.texture);
-  float3 color = input.Sample(g_BilinearSampler, IN.uv).rgb;
+  float3 color = input.Sample(g_BilinearSamplerClamp, IN.uv).rgb;
 
   // TODO(bshihabi): Switch to SDR tone mapping if display doesn't support HDR
   if (g_Srt.disable_hdr)

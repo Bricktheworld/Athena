@@ -26,5 +26,5 @@ void CS_TextureDownsampleHalf(uint2 thread_id : SV_DispatchThreadID)
 
   float2 src_uv = float2(thread_id * 2) / resolution;
 
-  dst[thread_id] = src.Sample(g_BilinearSampler, src_uv + float2(1.0f, 1.0f));
+  dst[thread_id] = src.Sample(g_BilinearSamplerClamp, src_uv + float2(1.0f, 1.0f));
 }

@@ -13,5 +13,5 @@ ConstantBuffer<FullscreenSrt> g_Srt : register(b0);
 float4 PS_Fullscreen(PSInput IN) : SV_TARGET
 {
   Texture2D<float4> input = DEREF(g_Srt.texture);
-  return input.Sample(g_BilinearSampler, IN.uv);
+  return input.Sample(g_BilinearSamplerClamp, IN.uv);
 }
