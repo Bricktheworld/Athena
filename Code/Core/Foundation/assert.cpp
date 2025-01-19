@@ -6,8 +6,13 @@
 #include "Core/Foundation/assert.h"
 
 void
-print_backtrace()
+print_backtrace(const char* fmt, ...)
 {
+  va_list args;
+  va_start(args, fmt);
+  v_dbg(fmt, true, args);
+  va_end(args);
+
   static constexpr u32 kMaxStackCount = 128;
   void* stack[kMaxStackCount];
 

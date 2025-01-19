@@ -5,6 +5,7 @@ struct MemoryLayout
   u8* memory = nullptr;
 
   LinearAllocator init_allocator;
+  LinearAllocator debug_allocator;
   LinearAllocator frame_allocator;
   PoolAllocator   overflow_allocator;
 //  PoolAllocator   overflow_allocator;
@@ -13,6 +14,7 @@ struct MemoryLayout
 static MemoryLayout g_MemoryLayout;
 
 AllocHeap       g_InitHeap;
+AllocHeap       g_DebugHeap;
 AllocHeap       g_FrameHeap;
 FreeHeap        g_OverflowHeap;
 ReallocFreeHeap g_ResourceHeap;
@@ -30,6 +32,9 @@ init_engine_memory()
   g_MemoryLayout.init_allocator     = init_linear_allocator(memory, kInitHeapSize);
   memory += kInitHeapSize;
 
+  g_MemoryLayout.debug_allocator    = init_linear_allocator(memory, kDebugHeapSize);
+  memory += kDebugHeapSize;
+
   g_MemoryLayout.frame_allocator    = init_linear_allocator(memory, kFrameHeapSize);
   memory += kFrameHeapSize;
 
@@ -37,6 +42,7 @@ init_engine_memory()
   memory += kOverflowHeapSize;
 
   g_InitHeap     = g_MemoryLayout.init_allocator;
+  g_DebugHeap    = g_MemoryLayout.debug_allocator;
   g_FrameHeap    = g_MemoryLayout.frame_allocator;
   g_OverflowHeap = g_MemoryLayout.overflow_allocator;
 //  g_ResourceHeap = g_MemoryLayout.resour;

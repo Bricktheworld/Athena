@@ -15,6 +15,8 @@ extern FreeHeap        g_OverflowHeap;
 
 extern ReallocFreeHeap g_ResourceHeap;
 
+extern AllocHeap       g_DebugHeap;
+
 enum
 {
   kOverflowPageSize = KiB(4),
@@ -23,11 +25,12 @@ enum
 enum HeapSize : u64
 {
   kInitHeapSize     = GiB(1),
+  kDebugHeapSize    = MiB(16),
   kFrameHeapSize    = MiB(512),
   kOverflowHeapSize = MiB(1),
   kResourceHeapSize = MiB(1),
 
-  kTotalHeapSize    = kInitHeapSize + kFrameHeapSize + kOverflowHeapSize + kResourceHeapSize,
+  kTotalHeapSize    = kInitHeapSize + kDebugHeapSize + kFrameHeapSize + kOverflowHeapSize + kResourceHeapSize,
 };
 
 void reset_frame_heap();
