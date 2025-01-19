@@ -10,4 +10,7 @@ struct FrameResources
 
 FrameResources init_frame_init_pass(AllocHeap heap, RgBuilder* builder);
 
+// TODO(bshihabi): Put this somewhere better...
+extern f64 g_CpuEffectiveTime;
+
 void init_imgui_pass(AllocHeap heap, RgBuilder* builder, RgHandle<GpuTexture>* dst);

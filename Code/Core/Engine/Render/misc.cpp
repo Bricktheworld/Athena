@@ -119,6 +119,8 @@ struct ImGuiParams
   RgRtv dst;
 };
 
+f64 g_CpuEffectiveTime = 0.0;
+
 void
 render_handler_imgui(RenderContext* ctx, const RenderSettings&, const void* data)
 {
@@ -130,29 +132,7 @@ render_handler_imgui(RenderContext* ctx, const RenderSettings&, const void* data
   ImGui::NewFrame();
 
   ImGui::Begin("Rendering");
-
-#if 0
-  if (ImGui::BeginCombo("View", GET_RENDER_BUFFER_NAME(out_render_options->debug_view)))
-  {
-    for (u32 i = 0; i < RenderBuffers::kCount; i++)
-    {
-      bool is_selected = out_render_options->debug_view == i;
-      if (ImGui::Selectable(GET_RENDER_BUFFER_NAME(i), is_selected))
-      {
-        out_render_options->debug_view = (RenderBuffers::Entry)i;
-      }
-  
-      if (is_selected)
-      {
-        ImGui::SetItemDefaultFocus();
-      }
-    }
-  
-    ImGui::EndCombo();
-  }
-
-
-#endif
+  static bool s_ShowDetailedPerformance = false;
 
   ImGui::DragFloat3("Direction", (f32*)&g_Scene->directional_light.direction, 0.02f, -1.0f, 1.0f);
   ImGui::DragFloat3("Diffuse", (f32*)&g_Scene->directional_light.diffuse, 0.1f, 0.0f, 1.0f);
@@ -163,12 +143,13 @@ render_handler_imgui(RenderContext* ctx, const RenderSettings&, const void* data
   ImGui::Checkbox("Disable TAA", &g_Renderer.settings.disable_taa);
   ImGui::Checkbox("Disable HDR", &g_Renderer.settings.disable_hdr);
   ImGui::Checkbox("Disable DoF", &g_Renderer.settings.disable_dof);
+  ImGui::Checkbox("Show Detailed Performance", &s_ShowDetailedPerformance);
 
   ImGui::DragFloat("Aperture", &g_Renderer.settings.aperture, 0.01f, 0.0f, 50.0f);
 
-  static f32 focal_distance = g_Renderer.settings.focal_dist;
-  ImGui::DragFloat("Focal Distance", &focal_distance, 0.01f, 0.0f, 1000.0f);
-  g_Renderer.settings.focal_dist = 0.9f * g_Renderer.settings.focal_dist + 0.1f * focal_distance;
+  static f32 s_FocalDistance = g_Renderer.settings.focal_dist;
+  ImGui::DragFloat("Focal Distance", &s_FocalDistance, 0.01f, 0.0f, 1000.0f);
+  g_Renderer.settings.focal_dist = 0.9f * g_Renderer.settings.focal_dist + 0.1f * s_FocalDistance;
 
   ImGui::DragFloat("Focal Range", &g_Renderer.settings.focal_range, 0.01f, 0.0f, 100.0f);
 
@@ -188,15 +169,17 @@ render_handler_imgui(RenderContext* ctx, const RenderSettings&, const void* data
 
   struct FrameTimeSample
   {
-    f64 time       = 0.0f;
-    f64 frame_time = 0.0f;
+    f64 time           = 0.0f;
+    f64 cpu_frame_time = 0.0f;
+    f64 gpu_frame_time = 0.0f;
   };
 
   f64 time = ImGui::GetTime() * 1000.0f;
   static FrameTimeSample* s_Buffer = HEAP_ALLOC(FrameTimeSample, g_DebugHeap, kFrameTimeBufferSize);
   static u32              s_Offset = 0;
-  s_Buffer[s_Offset].time          = time;
-  s_Buffer[s_Offset].frame_time    = frame_time;
+  s_Buffer[s_Offset].time           = time;
+  s_Buffer[s_Offset].cpu_frame_time = g_CpuEffectiveTime;
+  s_Buffer[s_Offset].gpu_frame_time = frame_time;
 
   s_Offset                         = (s_Offset + 1) % kFrameTimeBufferSize;
 
@@ -205,19 +188,26 @@ render_handler_imgui(RenderContext* ctx, const RenderSettings&, const void* data
     ImPlot::SetupAxes(nullptr, "ms", ImPlotAxisFlags_NoTickLabels, 0);
     ImPlot::SetupAxisLimits(ImAxis_X1, time - kHistoryMs, time, ImGuiCond_Always);
     ImPlot::SetupAxisLimits(ImAxis_Y1, 0, 33.334f);
-    ImPlot::SetNextLineStyle(ImVec4(0.0f, 0.69f, 0.15f, 1.0f), 0.5f);
     // TODO(bshihabi): Do something when we don't reach target frametime
-    ImPlot::PlotLine("GPU", &s_Buffer[0].time, &s_Buffer[0].frame_time, kFrameTimeBufferSize, ImPlotLineFlags_SkipNaN, s_Offset, sizeof(FrameTimeSample));
+    ImPlot::SetNextLineStyle(ImVec4(0.0f, 0.51f, 0.79f, 1.0f), 0.5f);
+    ImPlot::PlotLine("CPU", &s_Buffer[0].time, &s_Buffer[0].cpu_frame_time, kFrameTimeBufferSize, ImPlotLineFlags_SkipNaN, s_Offset, sizeof(FrameTimeSample));
+    ImPlot::SetNextLineStyle(ImVec4(0.0f, 0.69f, 0.15f, 1.0f), 0.5f);
+    ImPlot::PlotLine("GPU", &s_Buffer[0].time, &s_Buffer[0].gpu_frame_time, kFrameTimeBufferSize, ImPlotLineFlags_SkipNaN, s_Offset, sizeof(FrameTimeSample));
     ImPlot::EndPlot();
   }
-  ImGui::Text("GPU (ms): %f ms", frame_time);
+  ImGui::Text("Frame (ms): %f ms", ImGui::GetIO().DeltaTime * 1000.0f);
+  ImGui::Text("CPU   (ms): %f ms", g_CpuEffectiveTime);
+  ImGui::Text("GPU   (ms): %f ms", frame_time);
 
-  ImGui::Indent();
-  for (const RenderPass& pass : g_RenderGraph->render_passes)
+
+  if (s_ShowDetailedPerformance)
   {
-    f64 dt = query_gpu_profiler_timestamp(pass.name);
-    // dbgln("%s: %f", pass.name, dt);
-    ImGui::Text("%s: %f ms", pass.name, dt);
+    ImGui::Indent();
+    for (const RenderPass& pass : g_RenderGraph->render_passes)
+    {
+      f64 dt = query_gpu_profiler_timestamp(pass.name);
+      ImGui::Text("%s: %f ms", pass.name, dt);
+    }
   }
 
   ImGui::End();

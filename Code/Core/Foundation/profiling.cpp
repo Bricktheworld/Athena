@@ -63,3 +63,25 @@ profiler::end_switch_to_fiber(u64 current_fiber)
   PerformanceAPI_Functions& superluminal = unwrap(g_profiler.superluminal);
   superluminal.EndFiberSwitch(current_fiber);
 }
+
+u64
+begin_cpu_profiler_timestamp(void)
+{
+  LARGE_INTEGER li;
+  QueryPerformanceCounter(&li);
+  return (u64)li.QuadPart;
+}
+
+f64
+end_cpu_profiler_timestamp(u64 start_time)
+{
+  LARGE_INTEGER li;
+
+  ASSERT_MSG_FATAL(QueryPerformanceFrequency(&li), "Failed to query performance counter!");
+
+  static f64 s_PCFrequencyMs = (f64)li.QuadPart / 1000.0;
+
+  QueryPerformanceCounter(&li);
+
+  return (f64)((u64)li.QuadPart - start_time) / s_PCFrequencyMs;
+}

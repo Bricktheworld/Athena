@@ -26,8 +26,9 @@ extern "C" { __declspec(dllexport) extern const char* D3D12SDKPath = "."; }
 #define DEBUG_LAYER
 #endif
 
-GpuDevice* g_GpuDevice = nullptr;
-u32        g_FrameId   = 0;
+GpuDevice* g_GpuDevice   = nullptr;
+u32        g_FrameId     = 0;
+u32        g_DeltaTimeMs = 0;
 
 static DXGI_FORMAT gpu_format_to_d3d12(GpuFormat format)
 {

@@ -10,4 +10,9 @@ namespace profiler
   FOUNDATION_API void unregister_fiber(u64 fiber_id);
   FOUNDATION_API void begin_switch_to_fiber(u64 current_fiber, u64 other_fiber);
   FOUNDATION_API void end_switch_to_fiber(u64 current_fiber);
+
 }
+
+FOUNDATION_API u64 begin_cpu_profiler_timestamp(void);
+FOUNDATION_API f64 end_cpu_profiler_timestamp(u64 start_time);
+

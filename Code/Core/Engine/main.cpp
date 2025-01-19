@@ -13,6 +13,7 @@
 #include "Core/Engine/Render/graphics.h"
 #include "Core/Engine/Render/renderer.h"
 #include "Core/Engine/Render/render_graph.h"
+#include "Core/Engine/Render/misc.h"
 
 
 #include "Core/Engine/Vendor/imgui/imgui.h"
@@ -268,6 +269,10 @@ application_entry(HINSTANCE instance, int show_code)
     }
 
     swap_chain_wait_latency(&g_MainWindow->swap_chain);
+
+
+    u64 effective_cpu_start_time = begin_cpu_profiler_timestamp();
+
     const GpuTexture* back_buffer = swap_chain_acquire(&g_MainWindow->swap_chain);
 
     MSG message;
@@ -338,6 +343,8 @@ application_entry(HINSTANCE instance, int show_code)
     submit_scene();
 
     execute_render_graph(back_buffer, g_Renderer.settings);
+    g_CpuEffectiveTime = end_cpu_profiler_timestamp(effective_cpu_start_time);
+
     swap_chain_submit(&g_MainWindow->swap_chain, g_GpuDevice, back_buffer);
   }
 
