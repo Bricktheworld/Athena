@@ -267,6 +267,10 @@ application_entry(HINSTANCE instance, int show_code)
 
     swap_chain_wait_latency(&g_MainWindow->swap_chain);
 
+    ImGui_ImplDX12_NewFrame();
+    ImGui_ImplWin32_NewFrame();
+    ImGui::NewFrame();
+
 
     u64 effective_cpu_start_time = begin_cpu_profiler_timestamp();
 

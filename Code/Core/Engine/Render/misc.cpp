@@ -126,11 +126,6 @@ render_handler_imgui(RenderContext* ctx, const RenderSettings&, const void* data
 {
   ImGuiParams* params = (ImGuiParams*)data;
 
-  // Start the Dear ImGui frame
-  ImGui_ImplDX12_NewFrame();
-  ImGui_ImplWin32_NewFrame();
-  ImGui::NewFrame();
-
   ImGui::Begin("Rendering");
   static bool s_ShowDetailedPerformance = false;
 
@@ -162,7 +157,7 @@ render_handler_imgui(RenderContext* ctx, const RenderSettings&, const void* data
   ImGui::SetWindowPos(ImVec2(0.0f, 0.0f));
   ImGui::SetWindowSize(ImVec2(0.0f, 0.0f));
 
-  f64 frame_time = query_gpu_profiler_timestamp(kTotalFrameGpuMarker);
+  f64 gpu_effective_time = query_gpu_profiler_timestamp(kTotalFrameGpuMarker);
 
   static constexpr f64 kHistoryMs           = 2.0 * 1000.0f;
   static constexpr u32 kFrameTimeBufferSize = (u32)(kHistoryMs / 4.0f);
@@ -170,34 +165,49 @@ render_handler_imgui(RenderContext* ctx, const RenderSettings&, const void* data
   struct FrameTimeSample
   {
     f64 time           = 0.0f;
+    f64 target_ms      = 0.0f;
     f64 cpu_frame_time = 0.0f;
     f64 gpu_frame_time = 0.0f;
+
+    f64 err_time       = 0.0f;
   };
 
-  f64 time = ImGui::GetTime() * 1000.0f;
+  f64 time      = ImGui::GetTime() * 1000.0f;
+
+  // TODO(bshihabi): This is definitely not correct, but I'm not sure where to get this value from...
+  f64 target_ms = 18.0;
+  f64 frame_ms  = ImGui::GetIO().DeltaTime * 1000.0f;
+
   static FrameTimeSample* s_Buffer = HEAP_ALLOC(FrameTimeSample, g_DebugHeap, kFrameTimeBufferSize);
   static u32              s_Offset = 0;
   s_Buffer[s_Offset].time           = time;
+  s_Buffer[s_Offset].target_ms      = target_ms;
   s_Buffer[s_Offset].cpu_frame_time = g_CpuEffectiveTime;
-  s_Buffer[s_Offset].gpu_frame_time = frame_time;
+  s_Buffer[s_Offset].gpu_frame_time = gpu_effective_time;
+  // TODO(bshihabi): What I really want is to know whether the frame missed vsync. I basically want to know when the frame landed on glass.
+  s_Buffer[s_Offset].err_time       = frame_ms < target_ms ? 0.0 : frame_ms;
 
   s_Offset                         = (s_Offset + 1) % kFrameTimeBufferSize;
 
-  if (ImPlot::BeginPlot("##GPU Frame Time", ImVec2(-1, 150)))
+  ImGui::Text("%ls", g_GpuDevice->gpu_name);
+  if (ImPlot::BeginPlot("##GPU Frame Time", ImVec2(300, 150), 0))
   {
     ImPlot::SetupAxes(nullptr, "ms", ImPlotAxisFlags_NoTickLabels, 0);
-    ImPlot::SetupAxisLimits(ImAxis_X1, time - kHistoryMs, time, ImGuiCond_Always);
+    ImPlot::SetupAxisLimits(ImAxis_X1, MAX(time - kHistoryMs, 0.0), time, ImGuiCond_Always);
     ImPlot::SetupAxisLimits(ImAxis_Y1, 0, 33.334f);
-    // TODO(bshihabi): Do something when we don't reach target frametime
     ImPlot::SetNextLineStyle(ImVec4(0.0f, 0.51f, 0.79f, 1.0f), 0.5f);
-    ImPlot::PlotLine("CPU", &s_Buffer[0].time, &s_Buffer[0].cpu_frame_time, kFrameTimeBufferSize, ImPlotLineFlags_SkipNaN, s_Offset, sizeof(FrameTimeSample));
+    ImPlot::PlotLine("CPU", &s_Buffer[0].time, &s_Buffer[0].cpu_frame_time,   kFrameTimeBufferSize, ImPlotLineFlags_SkipNaN, s_Offset, sizeof(FrameTimeSample));
     ImPlot::SetNextLineStyle(ImVec4(0.0f, 0.69f, 0.15f, 1.0f), 0.5f);
-    ImPlot::PlotLine("GPU", &s_Buffer[0].time, &s_Buffer[0].gpu_frame_time, kFrameTimeBufferSize, ImPlotLineFlags_SkipNaN, s_Offset, sizeof(FrameTimeSample));
+    ImPlot::PlotLine("GPU",   &s_Buffer[0].time, &s_Buffer[0].gpu_frame_time, kFrameTimeBufferSize, ImPlotLineFlags_SkipNaN, s_Offset, sizeof(FrameTimeSample));
+    ImPlot::SetNextLineStyle(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), 0.5f);
+    ImPlot::PlotBars("##ERR",    &s_Buffer[0].time, &s_Buffer[0].err_time,    kFrameTimeBufferSize, 0.1f, 0,                 s_Offset, sizeof(FrameTimeSample));
+    ImPlot::SetNextLineStyle(ImVec4(1.0f, 1.0f, 1.0f, 1.0f), 0.1f);
+    ImPlot::PlotLine("##TARGET", &s_Buffer[0].time, &s_Buffer[0].target_ms,   kFrameTimeBufferSize, ImPlotLineFlags_SkipNaN, s_Offset, sizeof(FrameTimeSample));
     ImPlot::EndPlot();
   }
-  ImGui::Text("Frame (ms): %f ms", ImGui::GetIO().DeltaTime * 1000.0f);
+  ImGui::Text("Frame (ms): %f ms", frame_ms);
   ImGui::Text("CPU   (ms): %f ms", g_CpuEffectiveTime);
-  ImGui::Text("GPU   (ms): %f ms", frame_time);
+  ImGui::Text("GPU   (ms): %f ms", gpu_effective_time);
 
 
   if (s_ShowDetailedPerformance)

@@ -105,7 +105,7 @@ check_hdr_support(IDXGIAdapter1* adapter, HWND window)
 }
 
 static void
-init_d3d12_device(HWND window, IDXGIFactory7* factory, IDXGIAdapter1** out_adapter, ID3D12Device6** out_device)
+init_d3d12_device(HWND window, IDXGIFactory7* factory, IDXGIAdapter1** out_adapter, ID3D12Device6** out_device, wchar_t out_name[128])
 {
   *out_adapter = nullptr;
   *out_device  = nullptr;
@@ -126,13 +126,15 @@ init_d3d12_device(HWND window, IDXGIFactory7* factory, IDXGIAdapter1** out_adapt
       COM_RELEASE(current_adapter);
       continue;
     }
-    
+
     max_dedicated_vram = dxgi_adapter_desc.DedicatedVideoMemory;
     hdr_support       |= check_hdr_support(current_adapter, window);
     COM_RELEASE((*out_adapter));
     COM_RELEASE((*out_device));
     *out_adapter = current_adapter;
     *out_device  = current_device;
+
+    memcpy(out_name, dxgi_adapter_desc.Description, 128 * sizeof(wchar_t));
 
     current_adapter = nullptr;
   }
@@ -607,7 +609,7 @@ init_graphics_device(HWND window)
   defer { COM_RELEASE(factory); };
 
   IDXGIAdapter1* adapter; 
-  init_d3d12_device(window, factory, &adapter, &g_GpuDevice->d3d12);
+  init_d3d12_device(window, factory, &adapter, &g_GpuDevice->d3d12, g_GpuDevice->gpu_name);
   defer { COM_RELEASE(adapter); };
 
   //D3D12_FEATURE_DATA_D3D12_OPTIONS16 options{};

@@ -26,7 +26,7 @@ static const char* kTotalFrameGpuMarker = "GPU Total Frametime";
 
 enum : u8
 {
-  kBackBufferCount       = 2,
+  kBackBufferCount       = 3,
   kFramesInFlight        = 2,
   kMaxCommandListThreads = 8,
   kCommandAllocators     = kBackBufferCount * kMaxCommandListThreads,
@@ -685,6 +685,8 @@ struct GpuDevice
 {
   ID3D12Device6*   d3d12                = nullptr;
   IDXGIDebug*      d3d12_debug          = nullptr;
+  wchar_t          gpu_name[128];
+
   GpuProfiler      profiler;
 
   CmdQueue         graphics_queue;
