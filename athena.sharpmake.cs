@@ -229,6 +229,7 @@ namespace Athena
       SourceRootPath = @"[project.SharpmakeCsPath]\Code\Core\Engine";
       SourceFilesExtensions.Add(".py");
       SourceFilesExtensions.Add(".hlsli");
+      SourceFilesExtensions.Add(".rc");
       SourceFiles.Add(ShaderTableHeader);
       SourceFiles.Add(ShaderTableSource);
       CustomBuildShaderFile.AddFilesExt(this);
