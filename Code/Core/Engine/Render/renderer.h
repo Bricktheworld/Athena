@@ -14,10 +14,18 @@ static constexpr f32 kZNear = 0.1f;
 
 struct ShaderManager;
 struct Scene;
+struct Window;
 
 extern ShaderManager*  g_ShaderManager;
 extern DescriptorPool* g_DescriptorCbvSrvUavPool;
 extern Scene*          g_Scene;
+extern Window*         g_MainWindow;
+
+struct Window
+{
+  SwapChain swap_chain;
+  bool      needs_resize = false;
+};
 
 // TODO(Brandon): This entire system will be reworked once I figure out,
 // generally how I want to handle render entries in this engine. For now,

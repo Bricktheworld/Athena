@@ -175,7 +175,7 @@ render_handler_imgui(RenderContext* ctx, const RenderSettings&, const void* data
   f64 time      = ImGui::GetTime() * 1000.0f;
 
   // TODO(bshihabi): This is definitely not correct, but I'm not sure where to get this value from...
-  f64 target_ms = 18.0;
+  f64 target_ms = 16.67;
   f64 frame_ms  = ImGui::GetIO().DeltaTime * 1000.0f;
 
   static FrameTimeSample* s_Buffer = HEAP_ALLOC(FrameTimeSample, g_DebugHeap, kFrameTimeBufferSize);
@@ -184,8 +184,7 @@ render_handler_imgui(RenderContext* ctx, const RenderSettings&, const void* data
   s_Buffer[s_Offset].target_ms      = target_ms;
   s_Buffer[s_Offset].cpu_frame_time = g_CpuEffectiveTime;
   s_Buffer[s_Offset].gpu_frame_time = gpu_effective_time;
-  // TODO(bshihabi): What I really want is to know whether the frame missed vsync. I basically want to know when the frame landed on glass.
-  s_Buffer[s_Offset].err_time       = frame_ms < target_ms ? 0.0 : frame_ms;
+  s_Buffer[s_Offset].err_time       = g_MainWindow->swap_chain.missed_vsync ? frame_ms : 0.0;
 
   s_Offset                         = (s_Offset + 1) % kFrameTimeBufferSize;
 
@@ -196,13 +195,13 @@ render_handler_imgui(RenderContext* ctx, const RenderSettings&, const void* data
     ImPlot::SetupAxisLimits(ImAxis_X1, MAX(time - kHistoryMs, 0.0), time, ImGuiCond_Always);
     ImPlot::SetupAxisLimits(ImAxis_Y1, 0, 33.334f);
     ImPlot::SetNextLineStyle(ImVec4(0.0f, 0.51f, 0.79f, 1.0f), 0.5f);
-    ImPlot::PlotLine("CPU", &s_Buffer[0].time, &s_Buffer[0].cpu_frame_time,   kFrameTimeBufferSize, ImPlotLineFlags_SkipNaN, s_Offset, sizeof(FrameTimeSample));
+    ImPlot::PlotLine("CPU",      &s_Buffer[0].time, &s_Buffer[0].cpu_frame_time, kFrameTimeBufferSize, ImPlotLineFlags_SkipNaN, s_Offset, sizeof(FrameTimeSample));
     ImPlot::SetNextLineStyle(ImVec4(0.0f, 0.69f, 0.15f, 1.0f), 0.5f);
-    ImPlot::PlotLine("GPU",   &s_Buffer[0].time, &s_Buffer[0].gpu_frame_time, kFrameTimeBufferSize, ImPlotLineFlags_SkipNaN, s_Offset, sizeof(FrameTimeSample));
+    ImPlot::PlotLine("GPU",      &s_Buffer[0].time, &s_Buffer[0].gpu_frame_time, kFrameTimeBufferSize, ImPlotLineFlags_SkipNaN, s_Offset, sizeof(FrameTimeSample));
     ImPlot::SetNextLineStyle(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), 0.5f);
-    ImPlot::PlotBars("##ERR",    &s_Buffer[0].time, &s_Buffer[0].err_time,    kFrameTimeBufferSize, 0.1f, 0,                 s_Offset, sizeof(FrameTimeSample));
+    ImPlot::PlotBars("##ERR",    &s_Buffer[0].time, &s_Buffer[0].err_time,       kFrameTimeBufferSize, 0.1f, 0,                 s_Offset, sizeof(FrameTimeSample));
     ImPlot::SetNextLineStyle(ImVec4(1.0f, 1.0f, 1.0f, 1.0f), 0.1f);
-    ImPlot::PlotLine("##TARGET", &s_Buffer[0].time, &s_Buffer[0].target_ms,   kFrameTimeBufferSize, ImPlotLineFlags_SkipNaN, s_Offset, sizeof(FrameTimeSample));
+    ImPlot::PlotLine("##TARGET", &s_Buffer[0].time, &s_Buffer[0].target_ms,      kFrameTimeBufferSize, ImPlotLineFlags_SkipNaN, s_Offset, sizeof(FrameTimeSample));
     ImPlot::EndPlot();
   }
   ImGui::Text("Frame (ms): %f ms", frame_ms);

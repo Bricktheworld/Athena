@@ -30,13 +30,7 @@
 extern IMGUI_IMPL_API LRESULT
 ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-struct Window
-{
-  SwapChain swap_chain;
-  bool      needs_resize = false;
-};
-
-static Window* g_MainWindow = nullptr;
+Window* g_MainWindow = nullptr;
 
 static bool g_EnableFullscreen = false;
 

@@ -1759,9 +1759,20 @@ swap_chain_acquire(SwapChain* swap_chain)
 }
 
 void
-swap_chain_wait_latency(const SwapChain* swap_chain)
+swap_chain_wait_latency(SwapChain* swap_chain)
 {
   WaitForSingleObjectEx(swap_chain->d3d12_latency_waitable, 1000, true);
+
+  static DXGI_FRAME_STATISTICS prev_stats = {};
+  DXGI_FRAME_STATISTICS stats = {};
+  swap_chain->d3d12_swap_chain->GetFrameStatistics(&stats);
+
+  u32 refresh_diff = stats.SyncRefreshCount - prev_stats.SyncRefreshCount;
+  u32 present_diff = stats.PresentCount     - prev_stats.PresentCount;
+
+  swap_chain->missed_vsync = present_diff < refresh_diff;
+
+  prev_stats = stats;
 }
 
 void
@@ -1814,7 +1825,6 @@ swap_chain_resize(SwapChain* swap_chain, HWND window, GpuDevice* device)
     ARRAY_LENGTH(swap_chain->back_buffers)
   );
 }
-
 
 void
 set_descriptor_heaps(CmdList* cmd, const DescriptorPool* heaps, u32 num_heaps)

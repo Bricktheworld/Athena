@@ -720,6 +720,7 @@ struct SwapChain
   GpuTexture* back_buffers[kBackBufferCount] = {0};
   u32         back_buffer_index              = 0;
 
+  bool missed_vsync:      1 = false;
   bool vsync:             1 = false;
   bool tearing_supported: 1 = false;
   bool fullscreen:        1 = false;
@@ -729,7 +730,7 @@ SwapChain init_swap_chain(HWND window, const GpuDevice* device);
 void destroy_swap_chain(SwapChain* swap_chain);
 
 const GpuTexture* swap_chain_acquire(SwapChain* swap_chain);
-void swap_chain_wait_latency(const SwapChain* swap_chain);
+void swap_chain_wait_latency(SwapChain* swap_chain);
 void swap_chain_submit(SwapChain* swap_chain, const GpuDevice* device, const GpuTexture* rtv);
 void swap_chain_resize(SwapChain* swap_chain, HWND window, GpuDevice* device);
 
