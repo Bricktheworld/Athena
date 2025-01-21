@@ -255,3 +255,26 @@ struct TlsfAllocator
 {
 };
 #endif
+
+
+// ---- Sub allocators: Allocators but they give back metadata and aren't intrusive (need extra memory).
+// Use them if you want to Suballocate a resource (you have a big GPU buffer and want to allocate pieces of it at a time)
+
+struct SubAllocation
+{
+  u32 offset   = 0;
+  u32 metadata = 0;
+};
+
+struct SubAllocHeap
+{
+  SubAllocation (*alloc_fn)  (void* allocator, size_t size, size_t alignment) = nullptr;
+  void* allocator = nullptr;
+};
+
+struct SubFreeHeap
+{
+  SubAllocation (*alloc_fn)  (void* allocator, size_t size, size_t alignment) = nullptr;
+  void  (*free_fn)   (void* allocator, SubAllocation) = nullptr;
+  void* allocator = nullptr;
+};

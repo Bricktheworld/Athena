@@ -216,6 +216,8 @@ struct MaterialSrt
   ConstantBufferPtr<Transform> transform;
   Texture2DPtr<float4> diffuse;
   Texture2DPtr<float4> normal;
+  float4 diffuse_base;
+
   u32 gpu_id;
 };
 

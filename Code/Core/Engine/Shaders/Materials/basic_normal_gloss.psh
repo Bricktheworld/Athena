@@ -30,14 +30,14 @@ DeferredPSOut PS_BasicNormalGloss(BasicVSOut ps_in)
   DeferredPSOut ret;
 
   // Default value
-  float3 diffuse = 1.0f;
-  float  alpha   = 1.0f;
+  float3 diffuse = g_Srt.diffuse_base.rgb;
+  float  alpha   = g_Srt.diffuse_base.a;
   if (g_Srt.diffuse != 0)
   {
     Texture2D<float4> diffuse_tex = DEREF(g_Srt.diffuse);
 
-    diffuse = diffuse_tex.Sample(g_BilinearSamplerWrap, ps_in.uv).rgb;
-    alpha   = diffuse_tex.Sample(g_BilinearSamplerWrap, ps_in.uv).a;
+    diffuse *= diffuse_tex.Sample(g_BilinearSamplerWrap, ps_in.uv).rgb;
+    alpha   *= diffuse_tex.Sample(g_BilinearSamplerWrap, ps_in.uv).a;
   }
 
   float3 normal = ps_in.normal;

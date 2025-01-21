@@ -489,7 +489,9 @@ process_asset_loads(void)
             return;
           }
 
-          desc->material.textures = init_array_zeroed<AssetId>(g_AssetLoader->allocator, material_asset.num_textures);
+          desc->material.diffuse_base = material_asset.diffuse_base;
+
+          desc->material.textures     = init_array_zeroed<AssetId>(g_AssetLoader->allocator, material_asset.num_textures);
 
           read_result = read_file(file.value(), desc->material.textures.memory, sizeof(AssetId) * material_asset.num_textures, material_asset.textures);
           if (!read_result)

@@ -30,7 +30,29 @@ static constexpr u32 kAssetMagicNumber = CRC32_STR("ATHENA_ASSET");
 
 static constexpr u32 kModelAssetVersion    = 2;
 static constexpr u32 kTextureAssetVersion  = 2;
-static constexpr u32 kMaterialAssetVersion = 2;
+static constexpr u32 kMaterialAssetVersion = 3;
+
+struct U8Color4
+{
+  u8 r = 0;
+  u8 g = 0;
+  u8 b = 0;
+  u8 a = 0;
+
+  U8Color4() = default;
+  U8Color4(Vec4 color)
+  {
+    r = (u8)(CLAMP(color.r, 0.0f, 1.0f) * 255.0f);
+    g = (u8)(CLAMP(color.g, 0.0f, 1.0f) * 255.0f);
+    b = (u8)(CLAMP(color.b, 0.0f, 1.0f) * 255.0f);
+    a = (u8)(CLAMP(color.a, 0.0f, 1.0f) * 255.0f);
+  }
+
+  operator Vec4() const
+  {
+    return Vec4((f32)r, (f32)g, (f32)b, (f32)a) / 255.0f;
+  }
+};
 
 // The path is relative to the project root directory, so should be something like
 // Assets/Source/model.fbx
@@ -141,6 +163,7 @@ struct ModelData
 struct MaterialData
 {
   AssetId        shader;
+  Vec4           diffuse_base;
   Array<AssetId> textures;
 };
 
@@ -203,6 +226,8 @@ struct MaterialAsset
 {
   AssetMetadata                     metadata;
   AssetRef<ShaderAsset>             shader;
+  U8Color4                          diffuse_base;
+  U8Color4                          __pad0__;
   u32                               num_textures;
   OffsetPtr<AssetRef<TextureAsset>> textures;
 };

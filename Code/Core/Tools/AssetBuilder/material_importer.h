@@ -10,6 +10,8 @@ namespace asset_builder
   {
     AssetId hash;
     char    path[kMaxPathLength];
+
+    Vec4    diffuse_base;
     // NOTE(Brandon): We're not setting a shader here because I think that's something that the model
     // importer won't be able to know how to handle... we're gonna hard-code it to a pre-defined PBR
     // shader I think...

@@ -28,6 +28,7 @@ asset_builder::write_material_to_asset(const char* project_root, const ImportedM
   material_asset.metadata.version         = kMaterialAssetVersion;
   material_asset.metadata.asset_type      = AssetType::kMaterial,
   material_asset.metadata.asset_hash      = material.hash;
+  material_asset.diffuse_base             = material.diffuse_base;
   material_asset.num_textures             = material.num_textures;
   material_asset.textures                 = sizeof(MaterialAsset);
 

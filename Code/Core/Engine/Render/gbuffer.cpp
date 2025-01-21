@@ -104,10 +104,11 @@ render_handler_gbuffer_static(RenderContext* ctx, const RenderSettings&, const v
     ctx->set_graphics_pso(&subset.gbuffer_pso);
 
     MaterialSrt srt;
-    srt.transform = params->transform_buffer;
-    srt.diffuse   = diffuse;
-    srt.normal    = normal;
-    srt.gpu_id    = 0;
+    srt.transform    = params->transform_buffer;
+    srt.diffuse      = diffuse;
+    srt.normal       = normal;
+    srt.diffuse_base = material_res.value()->diffuse_base;
+    srt.gpu_id       = 0;
     ctx->graphics_bind_srt(srt);
     ctx->draw_indexed_instanced(subset.index_count, 1, subset.index_buffer_offset, 0, 0);
   }

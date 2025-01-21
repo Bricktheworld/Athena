@@ -128,6 +128,22 @@ count_num_bits(u64 val)
   return __popcnt64(val);
 }
 
+inline u32
+count_leading_zeroes(u32 val)
+{
+  unsigned long ret;
+  _BitScanReverse(&ret, val);
+  return 31 - ret;
+}
+
+inline u64
+count_leading_zeroes(u64 val)
+{
+  unsigned long ret;
+  _BitScanReverse64(&ret, val);
+  return 63 - ret;
+}
+
 #if 0
 template <typename T>
 inline void
@@ -141,6 +157,7 @@ swap(T* a, T* b)
 
 #define MAX(a, b) (((a) > (b)) ? (a) : (b))
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
+#define CLAMP(a, min, max) (MIN(MAX(a, min), max))
 
 #define KiB(val) (val * 1024LL)
 #define MiB(val) (KiB(val) * 1024LL)

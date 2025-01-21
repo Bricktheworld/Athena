@@ -78,6 +78,16 @@ asset_builder::import_model(
 
     zero_memory(materials[imaterial].texture_paths, sizeof(materials[imaterial].texture_paths));
 
+    aiColor4D base_color;
+    if (assimp_material->Get(AI_MATKEY_COLOR_DIFFUSE, base_color) == AI_SUCCESS)
+    {
+      materials[imaterial].diffuse_base = Vec4(base_color.r, base_color.g, base_color.b, base_color.a);
+    }
+    else
+    {
+      materials[imaterial].diffuse_base = Vec4(1.0f);
+    }
+
     u32 num_diffuse_textures = assimp_material->GetTextureCount(aiTextureType_BASE_COLOR);
     if (num_diffuse_textures > 0)
     {

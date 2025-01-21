@@ -180,7 +180,7 @@ application_entry(HINSTANCE instance, int show_code)
     OSAllocator allocator = init_os_allocator();
     FreeHeap    heap      = (FreeHeap)allocator;
 
-    AssetId sponza_model = ASSET_ID("Assets/Source/sponza/Sponza.gltf");
+    AssetId sponza_model = ASSET_ID("Assets/Source/Lego/space_mountain.fbx");
     auto sponza_built_file = open_built_asset_file(sponza_model);
     // TODO test USD cube here // mfrieden
     ASSERT_MSG_FATAL(sponza_built_file, "Failed to load sponza file! Did you run the AssetBuilder? You should see file Assets/Built/0x%0x.built", sponza_model);
@@ -198,7 +198,7 @@ application_entry(HINSTANCE instance, int show_code)
 
     sponza = add_scene_object(model, kVS_Basic, kPS_BasicNormalGloss);
   }
-  kick_asset_load(ASSET_ID("Assets/Source/sponza/Sponza.gltf"));
+  kick_asset_load(ASSET_ID("Assets/Source/Lego/space_mountain.fbx"));
 
   build_acceleration_structures(g_GpuDevice);
 
