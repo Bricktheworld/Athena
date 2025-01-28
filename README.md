@@ -13,7 +13,7 @@ Features:
 - Multi-threaded asset streaming
 - Direct Storage streaming of assets to GPU memory
 
-[![Image](/Documentation/realtime_gi.gif)](https://www.youtube.com/watch?v=05GTN8YapZE)
+[![Image](/Documentation/realtime_gi.gif)](https://www.youtube.com/watch?v=6I0wsOAcF3E)
 
 [Video demo](https://www.youtube.com/watch?v=6I0wsOAcF3E)
 
