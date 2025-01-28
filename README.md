@@ -9,10 +9,10 @@
 - [Temporal Anti-Aliasing](https://github.com/Bricktheworld/Athena?tab=readme-ov-file#temporal-anti-aliasing)
 - [Depth of field bokeh blur](https://github.com/Bricktheworld/Athena?tab=readme-ov-file#depth-of-field)
 - [Asset builder](https://github.com/Bricktheworld/Athena?tab=readme-ov-file#asset-builder)
-- Shader model 6.6 bindless rendering
-- HDR display output
-- Deferred Shading
-- Multi-threaded asset streaming
+- [Shader model 6.6 bindless rendering](https://github.com/Bricktheworld/Athena?tab=readme-ov-file#bindless-descriptors)
+- [HDR display output](https://github.com/Bricktheworld/Athena?tab=readme-ov-file#hdr-display-output)
+- [Deferred Shading](https://github.com/Bricktheworld/Athena?tab=readme-ov-file#deferred-shading)
+- [Multi-threaded asset streaming](https://github.com/Bricktheworld/Athena?tab=readme-ov-file#direct-storage)
 
 [![Image](/Documentation/realtime_gi.gif)](https://www.youtube.com/watch?v=6I0wsOAcF3E)
 [![Image](/Documentation/sponza.png)](https://www.youtube.com/watch?v=6I0wsOAcF3E)
@@ -93,6 +93,8 @@ calculations in the lighting pass.
 
 - [ddgi.h](https://github.com/Bricktheworld/Athena/blob/master/Code/Core/Engine/Render/ddgi.h)
 - [ddgi.cpp](https://github.com/Bricktheworld/Athena/blob/master/Code/Core/Engine/Render/ddgi.cpp)
+- [ddgi.csh](https://github.com/Bricktheworld/Athena/blob/master/Code/Core/Engine/Shaders/DDGI/ddgi.csh)
+- [probe_trace.rtsh](https://github.com/Bricktheworld/Athena/blob/master/Code/Core/Engine/Shaders/DDGI/probe_trace.rtsh)
 
 ## Temporal Anti-Aliasing
 Accumulation based Temporal AA is implemented using a compute shader to reproject the previous frame's AA buffer onto the
@@ -103,6 +105,7 @@ TAA to appear before tonemapping while still appearing stable and avoiding alias
 
 - [taa.h](https://github.com/Bricktheworld/Athena/blob/master/Code/Core/Engine/Render/taa.h)
 - [taa.cpp](https://github.com/Bricktheworld/Athena/blob/master/Code/Core/Engine/Render/taa.cpp)
+- [taa.csh](https://github.com/Bricktheworld/Athena/blob/master/Code/Core/Engine/Shaders/PostProcessing/taa.csh)
 
 ## Depth of Field
 Depth of field is implemented using a multi-pass technique which downsamples the render buffers to half-res and then applies
@@ -112,7 +115,36 @@ sampling radius should contribute to a given texel (objects in the foreground sh
 
 - [depth_of_field.h](https://github.com/Bricktheworld/Athena/blob/master/Code/Core/Engine/Render/depth_of_field.h)
 - [depth_of_field.cpp](https://github.com/Bricktheworld/Athena/blob/master/Code/Core/Engine/Render/depth_of_field.cpp)
+- [depth_of_field.csh](https://github.com/Bricktheworld/Athena/blob/master/Code/Core/Engine/Shaders/PostProcessing/depth_of_field.csh)
 
+## Deferred Shading
+I use a traditional GBuffer rendering pipeline that supports PBR textures/materials. The GBuffer pass uses a material shader
+which outputs to several GBuffers, and a lighting pass reads the GBuffer data to light the HDR buffer which is then passed
+through post processing. The material shader also supports alpha tested textures and will discard pixels that are below the
+alpha threshold.
+
+- [gbuffer.h](https://github.com/Bricktheworld/Athena/blob/master/Code/Core/Engine/Render/gbuffer.h)
+- [gbuffer.cpp](https://github.com/Bricktheworld/Athena/blob/master/Code/Core/Engine/Render/gbuffer.cpp)
+- [basic_normal_gloss.psh](https://github.com/Bricktheworld/Athena/blob/master/Code/Core/Engine/Shaders/Materials/basic_normal_gloss.psh)
+- [standard_brdf.rtsh](https://github.com/Bricktheworld/Athena/blob/master/Code/Core/Engine/Shaders/Lighting/standard_brdf.rtsh)
+
+## Bindless Descriptors
+Shader model 6.6 enables full bindless descriptor heap indexing for both improved performance and usability. I was heavily
+inspired by the PS5's capabilities of conjuring descriptors without having to mess with pools/allocators and just passing
+pointers to shaders using SRTs (shader resource tables). I wanted to get as close to this experience as possible so I
+have "Ptr" versions of every type of descriptor HLSL takes (Texture2DPtr, RWTexture2DPtr, etc.). Then, on the C++ side,
+I simply have an operator to convert a render graph descriptor into one of these shader types which on the HLSL side are
+just `uint32_t`s. This allows me to have what amounts to full bindless where I can pass any descriptor I want with ease into
+the root constants of every shader (all of which share a single root signature).
+
+- [root_signature.hlsli](https://github.com/Bricktheworld/Athena/blob/master/Code/Core/Engine/Shaders/root_signature.hlsli)
+- [interlop.hlsli](https://github.com/Bricktheworld/Athena/blob/master/Code/Core/Engine/Shaders/interlop.hlsli)
+
+## HDR Display Output
+The swap chain uses HDR10 output with Rec. 2020 color space and PQ transfer function. Tonemapping uses a fixed ACES approximation
+of 1000 nits max luminance and correctly applies the PQ transfer function.
+
+- [tonemapping.psh](https://github.com/Bricktheworld/Athena/blob/master/Code/Core/Engine/Shaders/PostProcessing/tonemapping.psh)
 
 ## Asset Builder
 The asset builder reads in model files using Assimp and finds material/texture properties, appropriately mapping them all into
