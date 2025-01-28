@@ -14,7 +14,7 @@ Features:
 - Direct Storage streaming of assets to GPU memory
 
 [![Image](/Documentation/realtime_gi.gif)](https://www.youtube.com/watch?v=6I0wsOAcF3E)
-[Image](/Documentation/sponza.png)
+[![Image](/Documentation/sponza.png)](https://www.youtube.com/watch?v=6I0wsOAcF3E)
 
 [Video demo](https://www.youtube.com/watch?v=6I0wsOAcF3E)
 
