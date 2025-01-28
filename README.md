@@ -23,7 +23,7 @@ Features:
 - Visual Studio 2022
 - x64 capable machine on windows 10 or higher
 
-# Setup
+# Build from Source
 
 1. Run `setup.bat` from the root directory
 2. Open `vs\athena.sln` in Visual Studio 2022
@@ -36,6 +36,11 @@ Features:
 5. Set the startup project in visual studio to be `Engine`
 6. Set the working directory in visual studio to be from the root of the repository
 7. Run the project! (controls are wasdeq + right mouse click to move around)
+
+# Pre-built Binary
+
+Alternatively, there are pre-built binaries available in the [Releases](https://github.com/Bricktheworld/Athena/releases)
+page.
 
 
 # A trip through Athena's graphics pipeline
