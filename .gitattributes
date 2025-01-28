@@ -69,4 +69,3 @@ Code/Core/Tools/UsdBuilder/Lib/Debug/usd_usd.pdb filter=lfs diff=lfs merge=lfs -
 Code/Core/Tools/UsdBuilder/Lib/Debug/usd_sdf.pdb filter=lfs diff=lfs merge=lfs -text
 Code/Core/Tools/UsdBuilder/Lib/Debug/usd_usdImaging.pdb filter=lfs diff=lfs merge=lfs -text
 Code/Core/Tools/UsdBuilder/Lib/Debug/usd_hd.pdb filter=lfs diff=lfs merge=lfs -text
-*.gif filter=lfs diff=lfs merge=lfs -text
