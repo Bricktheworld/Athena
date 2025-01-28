@@ -1,17 +1,18 @@
 # Athena D3D12 Renderer
 
-Features:
+[Features](https://github.com/Bricktheworld/Athena?tab=readme-ov-file#overview):
 
-- D3D12 rendering backend
-- Render-graph architecture with automatic resource barriers and transient allocations
+- [D3D12 rendering backend](https://github.com/Bricktheworld/Athena?tab=readme-ov-file#d3d12-gpu-device)
+- [Render-graph architecture with automatic resource barriers and transient allocations](https://github.com/Bricktheworld/Athena?tab=readme-ov-file#render-graph)
+- [Direct Storage streaming of assets to GPU memory](https://github.com/Bricktheworld/Athena?tab=readme-ov-file#direct-storage)
+- [Real-time ray-traced global illumination using irradiance probes](https://github.com/Bricktheworld/Athena?tab=readme-ov-file#dynamic-diffuse-global-illumination)
+- [Temporal Anti-Aliasing](https://github.com/Bricktheworld/Athena?tab=readme-ov-file#temporal-anti-aliasing)
+- [Depth of field bokeh blur](https://github.com/Bricktheworld/Athena?tab=readme-ov-file#depth-of-field)
+- [Asset builder](https://github.com/Bricktheworld/Athena?tab=readme-ov-file#asset-builder)
 - Shader model 6.6 bindless rendering
-- Real-time ray-traced global illumination using irradiance probes
-- Temporal Anti-Aliasing
-- Depth of field bokeh blur
 - HDR display output
 - Deferred Shading
 - Multi-threaded asset streaming
-- Direct Storage streaming of assets to GPU memory
 
 [![Image](/Documentation/realtime_gi.gif)](https://www.youtube.com/watch?v=6I0wsOAcF3E)
 [![Image](/Documentation/sponza.png)](https://www.youtube.com/watch?v=6I0wsOAcF3E)
