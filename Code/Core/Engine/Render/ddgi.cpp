@@ -14,11 +14,15 @@ struct ProbeTraceParams
 };
 
 static void
-render_handler_probe_trace(RenderContext* ctx, const RenderSettings&, const void* data)
+render_handler_probe_trace(RenderContext* ctx, const RenderSettings& settings, const void* data)
 {
   ProbeTraceParams* params = (ProbeTraceParams*)data;
-  params->vol_desc.probe_ray_rotation = generate_random_rotation();
+  if (!settings.freeze_probe_rotation)
+  {
+    params->vol_desc.probe_ray_rotation = generate_random_rotation();
+  }
 
+  params->vol_desc.debug_ray_probe = settings.debug_probe_ray_idx;
   ctx->write_cpu_upload_buffer(params->vol_desc_buffer, &params->vol_desc, sizeof(params->vol_desc));
 
   ProbeTraceSrt srt;

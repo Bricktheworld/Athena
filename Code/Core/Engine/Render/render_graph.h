@@ -461,6 +461,7 @@ RgOpaqueDescriptor rg_write_buffer (RgPassBuilder* builder, RgHandle<GpuBuffer>*
 
 RgOpaqueDescriptor rg_read_index_buffer (RgPassBuilder* builder, RgHandle<GpuBuffer> buffer);
 RgOpaqueDescriptor rg_read_vertex_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer> buffer);
+RgOpaqueDescriptor rg_read_indirect_args_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer> buffer);
 
 struct RgRtv
 {
@@ -570,6 +571,28 @@ struct RgVertexBuffer
 
     m_PassId     = opaque.pass_id;
     m_ResourceId = opaque.resource_id;
+  }
+};
+
+struct RgIndirectArgsBuffer
+{
+  u32 m_PassId           = 0;
+  u32 m_Pad0             = 0;
+  u32 m_ResourceId       = 0;
+
+  u8  m_TemporalLifetime = 0;
+  s8  m_TemporalFrame    = 0;
+  u16 m_Pad1             = 0;
+
+  RgIndirectArgsBuffer() = default;
+  RgIndirectArgsBuffer(RgPassBuilder* builder, RgHandle<GpuBuffer> buffer)
+  {
+    RgOpaqueDescriptor opaque = rg_read_indirect_args_buffer(builder, buffer);
+
+    m_PassId           = opaque.pass_id;
+    m_ResourceId       = opaque.resource_id;
+    m_TemporalLifetime = opaque.temporal_lifetime;
+    m_TemporalFrame    = opaque.temporal_frame;
   }
 };
 
@@ -1279,8 +1302,38 @@ struct RenderContext
     u32 start_instance_location
   );
 
+  void multi_draw_indirect(RgIndirectArgsBuffer args, u64 args_offset, u32 draw_count);
+  void multi_draw_indirect_indexed(RgIndirectArgsBuffer args, u64 args_offset, u32 draw_count);
+
   void dispatch(u32 x, u32 y, u32 z);
   void dispatch_rays(const ShaderTable* shader_table, u32 x, u32 y, u32 z);
+
+  template <typename T>
+  void uav_barrier(RgRWStructuredBuffer<T> buffer)
+  {
+    uav_barrier(rg_deref_buffer(buffer));
+  }
+  template <typename T>
+  void uav_barrier(RgRWBuffer<T> buffer)
+  {
+    uav_barrier(rg_deref_buffer(buffer));
+  }
+  void uav_barrier(RgRWByteAddressBuffer buffer)
+  {
+    uav_barrier(rg_deref_buffer(buffer));
+  }
+  template <typename T>
+  void uav_barrier(RgRWTexture2D<T> texture)
+  {
+    uav_barrier(rg_deref_texture(texture));
+  }
+  template <typename T>
+  void uav_barrier(RgRWTexture2DArray<T> texture)
+  {
+    uav_barrier(rg_deref_texture(texture));
+  }
+  void uav_barrier(const GpuBuffer*  buffer);
+  void uav_barrier(const GpuTexture* texture);
 
   void ia_set_index_buffer(const GpuBuffer* buffer, u32 stride, u32 size = 0);
   void ia_set_index_buffer(RgIndexBuffer    buffer, u32 stride, u32 size = 0);
@@ -1340,6 +1393,38 @@ struct RenderContext
   void set_graphics_root_shader_resource_view(u32 root_parameter_index, const GpuBuffer* buffer);
 
   template <typename T>
+  void set_compute_root_unordered_access_view(u32 root_parameter_index, RgRWStructuredBuffer<T> buffer)
+  {
+    set_compute_root_unordered_access_view(root_parameter_index, rg_deref_buffer(buffer));
+  }
+  template <typename T>
+  void set_compute_root_unordered_access_view(u32 root_parameter_index, RgRWBuffer<T> buffer)
+  {
+    set_compute_root_unordered_access_view(root_parameter_index, rg_deref_buffer(buffer));
+  }
+  void set_compute_root_unordered_access_view(u32 root_parameter_index, RgRWByteAddressBuffer buffer)
+  {
+    set_compute_root_unordered_access_view(root_parameter_index, rg_deref_buffer(buffer));
+  }
+  void set_compute_root_unordered_access_view(u32 root_parameter_index, const GpuBuffer* buffer);
+
+  template <typename T>
+  void set_graphics_root_unordered_access_view(u32 root_parameter_index, RgRWStructuredBuffer<T> buffer)
+  {
+    set_graphics_root_unordered_access_view(root_parameter_index, rg_deref_buffer(buffer));
+  }
+  template <typename T>
+  void set_graphics_root_unordered_access_view(u32 root_parameter_index, RgRWBuffer<T> buffer)
+  {
+    set_graphics_root_unordered_access_view(root_parameter_index, rg_deref_buffer(buffer));
+  }
+  void set_graphics_root_unordered_access_view(u32 root_parameter_index, RgRWByteAddressBuffer buffer)
+  {
+    set_graphics_root_unordered_access_view(root_parameter_index, rg_deref_buffer(buffer));
+  }
+  void set_graphics_root_unordered_access_view(u32 root_parameter_index, const GpuBuffer* buffer);
+
+  template <typename T>
   void set_compute_root_constant_buffer_view(u32 root_parameter_index, RgConstantBuffer<T> buffer)
   {
     set_compute_root_constant_buffer_view(root_parameter_index, rg_deref_buffer(buffer));
@@ -1378,6 +1463,6 @@ struct RenderContext
     set_compute_root_32bit_constants(0, (u32*)&resource, sizeof(T) / sizeof(u32), 0);
   }
 
-  void write_cpu_upload_buffer(RgCpuUploadBuffer dst, const void* src, u64 size);
-  void write_cpu_upload_buffer(const GpuBuffer* dst,  const void* src, u64 size);
+  void write_cpu_upload_buffer(RgCpuUploadBuffer dst, const void* src, u64 size, u64 offset = 0);
+  void write_cpu_upload_buffer(const GpuBuffer* dst,  const void* src, u64 size, u64 offset = 0);
 };

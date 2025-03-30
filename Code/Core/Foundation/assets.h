@@ -16,6 +16,10 @@ struct VertexAsset
 };
 static_assert(sizeof(VertexAsset) == sizeof(f32) * 8);
 
+struct BoneAsset
+{
+};
+
 // Asset ID is a CRC32 hash of asset path...
 typedef u32 AssetId;
 

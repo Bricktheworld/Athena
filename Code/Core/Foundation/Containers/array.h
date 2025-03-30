@@ -149,7 +149,7 @@ template <typename T, size_t S>
 inline T*
 array_add(Array<T, S>* arr)
 {
-  ASSERT(arr->memory != nullptr && arr->size < MAX(arr->capacity, S));
+  ASSERT_MSG_FATAL(arr->memory != nullptr && arr->size < MAX(arr->capacity, S), "Array is out of room! Attempted to add another element to an array of capacity %u", arr->capacity);
 
   T* ret =  &arr->memory[arr->size++];
   zero_memory(ret, sizeof(T));

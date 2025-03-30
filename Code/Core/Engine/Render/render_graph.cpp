@@ -255,9 +255,8 @@ init_dependency_levels(AllocHeap heap, const RgBuilder& builder)
 
     level_pass_counts[level_index]++;
 
-    // TODO(Brandon): This actually is using a _bit_ more memory because a resource can be read
-    // multiple times inside of a single level, so if we want to get some small gains we could fix this...
-    level_barrier_counts[level_index] += (u32)(pass.read_resources.size + 2 * pass.write_resources.size);
+    // For each resource, the graph might decide to put a UAV, Aliasing, and/or a Transition barrier => up to 3 barriers per resource.
+    level_barrier_counts[level_index] += (u32)(3 * (pass.read_resources.size + pass.write_resources.size));
   }
 
   Array<RgDependencyLevel> ret = init_array_zeroed<RgDependencyLevel>(heap, dependency_level_count);
@@ -1603,6 +1602,25 @@ rg_read_vertex_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer> buffer)
   return ret;
 }
 
+RgOpaqueDescriptor
+rg_read_indirect_args_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer> buffer)
+{
+  ASSERT(!array_find(&builder->write_resources, it->handle.id == buffer.id));
+  RgPassBuilder::ResourceAccessData* data = array_add(&builder->read_resources);
+  data->handle          = buffer;
+  data->access          = (u32)kReadBufferIndirectArgs;
+  data->temporal_frame  = 0;
+  data->is_write        = false;
+  data->descriptor_type = kDescriptorTypeNull;
+  data->descriptor_idx  = builder->descriptor_idx;
+
+  RgOpaqueDescriptor ret   = {0};
+  ret.pass_id              = builder->pass_id;
+  ret.resource_id          = buffer.id;
+
+  return ret;
+}
+
 template <>
 const GpuBuffer*
 rg_deref_buffer<RgIndexBuffer>(RgIndexBuffer rg_descriptor)
@@ -1732,6 +1750,34 @@ RenderContext::draw_instanced(
 }
 
 void
+RenderContext::multi_draw_indirect(RgIndirectArgsBuffer args, u64 args_offset, u32 draw_count)
+{
+  const GpuBuffer* args_buffer = rg_deref_buffer(args);
+  m_CmdBuffer.d3d12_list->ExecuteIndirect(
+    g_GpuDevice->d3d12_multi_draw_indirect_signature,
+    draw_count,
+    args_buffer->d3d12_buffer,
+    args_offset,
+    nullptr,
+    0
+  );
+}
+
+void
+RenderContext::multi_draw_indirect_indexed(RgIndirectArgsBuffer args, u64 args_offset, u32 draw_count)
+{
+  const GpuBuffer* args_buffer = rg_deref_buffer(args);
+  m_CmdBuffer.d3d12_list->ExecuteIndirect(
+    g_GpuDevice->d3d12_multi_draw_indirect_indexed_signature,
+    draw_count,
+    args_buffer->d3d12_buffer,
+    args_offset,
+    nullptr,
+    0
+  );
+}
+
+void
 RenderContext::dispatch(u32 x, u32 y, u32 z)
 {
   m_CmdBuffer.d3d12_list->Dispatch(x, y, z);
@@ -1757,6 +1803,20 @@ RenderContext::dispatch_rays(const ShaderTable* shader_table, u32 x, u32 y, u32 
   desc.Depth  = z;
 
   m_CmdBuffer.d3d12_list->DispatchRays(&desc);
+}
+
+void
+RenderContext::uav_barrier(const GpuBuffer* buffer)
+{
+  D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::UAV(buffer->d3d12_buffer);
+  m_CmdBuffer.d3d12_list->ResourceBarrier(1, &barrier);
+}
+
+void
+RenderContext::uav_barrier(const GpuTexture* texture)
+{
+  D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::UAV(texture->d3d12_texture);
+  m_CmdBuffer.d3d12_list->ResourceBarrier(1, &barrier);
 }
 
 void
@@ -1894,6 +1954,22 @@ RenderContext::set_graphics_root_shader_resource_view(
 }
 
 void
+RenderContext::set_compute_root_unordered_access_view(
+  u32 root_parameter_index,
+  const GpuBuffer* buffer
+) {
+  m_CmdBuffer.d3d12_list->SetComputeRootUnorderedAccessView(root_parameter_index, buffer->gpu_addr);
+}
+
+void
+RenderContext::set_graphics_root_unordered_access_view(
+  u32 root_parameter_index,
+  const GpuBuffer* buffer
+) {
+  m_CmdBuffer.d3d12_list->SetGraphicsRootUnorderedAccessView(root_parameter_index, buffer->gpu_addr);
+}
+
+void
 RenderContext::set_compute_root_constant_buffer_view(u32 root_parameter_index, const GpuBuffer* buffer)
 {
   m_CmdBuffer.d3d12_list->SetComputeRootConstantBufferView(root_parameter_index, buffer->gpu_addr);
@@ -1928,17 +2004,17 @@ RenderContext::set_descriptor_heaps(Span<const DescriptorLinearAllocator*> heaps
 }
 
 void
-RenderContext::write_cpu_upload_buffer(RgCpuUploadBuffer dst, const void* src, u64 size)
+RenderContext::write_cpu_upload_buffer(RgCpuUploadBuffer dst, const void* src, u64 size, u64 offset)
 {
   const GpuBuffer* physical = rg_deref_buffer(dst);
-  write_cpu_upload_buffer(physical, src, size);
+  write_cpu_upload_buffer(physical, src, size, offset);
 }
 
 void
-RenderContext::write_cpu_upload_buffer(const GpuBuffer* dst, const void* src, u64 size)
+RenderContext::write_cpu_upload_buffer(const GpuBuffer* dst, const void* src, u64 size, u64 offset)
 {
   ASSERT_MSG_FATAL(size <= dst->desc.size, "Buffer overwrite detected from CPU to upload GPU buffer. Attempted to write 0x%llx bytes into buffer with only 0x%llx bytes", size, dst->desc.size);
 
-  void* ptr = unwrap(dst->mapped);
-  memcpy(ptr, src, size);
+  u8* ptr = (u8*)unwrap(dst->mapped);
+  memcpy(ptr + offset, src, size);
 }

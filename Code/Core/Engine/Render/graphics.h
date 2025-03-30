@@ -594,15 +594,42 @@ GpuShader load_shader_from_file  (const GpuDevice* device, const wchar_t* path);
 GpuShader load_shader_from_memory(const GpuDevice* device, const u8* src, size_t size);
 void destroy_shader(GpuShader* shader);
 
+enum PrimitiveTopologyType : u8
+{
+  kPrimitiveTopologyUndefined,
+  kPrimitiveTopologyPoint,
+  kPrimitiveTopologyLine,
+  kPrimitiveTopologyTriangle,
+  kPrimitiveTopologyPatch,
+
+  kPrimitiveTopologyCount,
+};
+
+enum DepthFunc : u8
+{
+  kDepthFuncNone,
+  kDepthFuncNever,
+  kDepthFuncLess,
+  kDepthFuncEqual,
+  kDepthFuncLessEqual,
+  kDepthFuncGreater,
+  kDepthFuncNotEqual,
+  kDepthFuncGreaterEqual,
+  kDepthFuncAlways,
+
+  kDepthFuncCount,
+};
+
 struct GraphicsPipelineDesc
 {
   const GpuShader* vertex_shader;
   const GpuShader* pixel_shader;
   Array<GpuFormat, 8> rtv_formats;
   GpuFormat dsv_format = kGpuFormatUnknown;
-  D3D12_COMPARISON_FUNC comparison_func = D3D12_COMPARISON_FUNC_GREATER;
+  DepthFunc depth_func = kDepthFuncGreater;
+  PrimitiveTopologyType topology = kPrimitiveTopologyTriangle;
   bool stencil_enable = false;
-  u8 __padding__[3]{0};
+  u8 __padding__[2]{0};
 
   auto operator<=>(const GraphicsPipelineDesc& rhs) const = default;
 };
@@ -683,21 +710,27 @@ struct GpuProfiler
 
 struct GpuDevice
 {
-  ID3D12Device6*   d3d12                = nullptr;
-  IDXGIDebug*      d3d12_debug          = nullptr;
-  wchar_t          gpu_name[128];
+  ID3D12Device6*          d3d12       = nullptr;
+  IDXGIDebug*             d3d12_debug = nullptr;
 
-  GpuProfiler      profiler;
+  ID3D12CommandSignature* d3d12_multi_draw_indirect_signature         = nullptr;
+  ID3D12CommandSignature* d3d12_multi_draw_indirect_indexed_signature = nullptr;
+  ID3D12CommandSignature* d3d12_dispatch_indirect_signature           = nullptr;
 
-  CmdQueue         graphics_queue;
-  CmdListAllocator graphics_cmd_allocator;
-  CmdQueue         compute_queue;
-  CmdListAllocator compute_cmd_allocator;
-  CmdQueue         copy_queue;
-  CmdListAllocator copy_cmd_allocator;
+  wchar_t                 gpu_name[128];
+
+  GpuProfiler             profiler;
+
+
+  CmdQueue                graphics_queue;
+  CmdListAllocator        graphics_cmd_allocator;
+  CmdQueue                compute_queue;
+  CmdListAllocator        compute_cmd_allocator;
+  CmdQueue                copy_queue;
+  CmdListAllocator        copy_cmd_allocator;
 };
-void init_graphics_device(HWND window);
-void destroy_graphics_device();
+void init_gpu_device(HWND window);
+void destroy_gpu_device();
 
 void wait_for_gpu_device_idle(GpuDevice* device);
 

@@ -26,8 +26,35 @@ typedef int2     SVec2;
 typedef int3     SVec3;
 typedef int4     SVec4;
 typedef uint     u32;
+typedef int      s32;
 typedef float    f32;
+
+#define kQNaN (asfloat(0x7FC00000))
 #endif
+
+struct MultiDrawIndirectArgs
+{
+  u32 vertex_count_per_instance;
+  u32 instance_count;
+  u32 start_vertex_location;
+  u32 start_instance_location;
+};
+
+struct MultiDrawIndirectIndexedArgs
+{
+  u32 index_count_per_instance;
+  u32 instance_count;
+  u32 start_index_location;
+  s32 base_vertex_location;
+  u32 start_instance_location;
+};
+
+struct DispatchIndirectArgs
+{
+  u32 x;
+  u32 y;
+  u32 z;
+};
 
 #if defined(__cplusplus)
 template <typename T>
@@ -318,6 +345,8 @@ struct DDGIVolDesc
 
   f32  probe_hysteresis;
   f32  probe_max_ray_distance;
+
+  u32  debug_ray_probe;
 };
 
 struct ProbeTraceSrt
@@ -360,6 +389,19 @@ struct TemporalAASrt
 
   RWTexture2DPtr<float4> taa;
 };
+
+
+struct DebugLinePoint
+{
+  float3 position;
+  float3 color;
+};
+
+struct DebugLineDrawSrt
+{
+  StructuredBufferPtr<DebugLinePoint> debug_line_vert_buffer;
+};
+
 
 
 #ifndef __cplusplus

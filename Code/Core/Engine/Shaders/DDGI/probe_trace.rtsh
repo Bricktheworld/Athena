@@ -4,6 +4,7 @@
 #include "../include/lighting_common.hlsli"
 #include "../include/math.hlsli"
 #include "../include/ddgi_common.hlsli"
+#include "../include/debug_draw.hlsli"
 
 GlobalRootSignature kBindlessRootSignature =
 {
@@ -67,6 +68,10 @@ void ray_gen()
 
   Payload payload = (Payload)0;
   TraceRay(g_AccelerationStructure, RAY_FLAG_NONE, 0xFF, 0, 0, 0, ray, payload);
+  if (probe_index == vol_desc.debug_ray_probe || vol_desc.debug_ray_probe >= vol_desc.probe_count_x * vol_desc.probe_count_y * vol_desc.probe_count_z)
+  {
+    debug_draw_line(probe_ws_pos, probe_ws_pos + probe_ray_dir, float3(1.0, 0.0, 0.0));
+  }
 
 
   if (payload.t < 0.0f)

@@ -16,9 +16,13 @@
 
 struct FrameInitParams
 {
-  RgConstantBuffer  <Viewport>    viewport_buffer;
-  RgStructuredBuffer<SceneObjGpu> scene_obj_buffer;
-  RgStructuredBuffer<MaterialGpu> material_buffer;
+  RgConstantBuffer<Viewport>                  viewport_buffer;
+  RgStructuredBuffer<SceneObjGpu>             scene_obj_buffer;
+  RgStructuredBuffer<MaterialGpu>             material_buffer;
+  RgRWStructuredBuffer<MultiDrawIndirectArgs> debug_draw_args_buffer;
+  RgRWStructuredBuffer<DebugLinePoint>        debug_line_vert_buffer;
+
+  ComputePSO                                  init_debug_draw_buffers_pso;
 };
 
 static
@@ -79,12 +83,18 @@ render_handler_frame_init(RenderContext* ctx, const RenderSettings& settings, co
     g_MaterialManager->material_upload_count = 0;
   }
 
+  // For global resources you need to put manual resource barriers since they aren't tracked at compile time (assumed that everyone is going to use them)
+  ctx->uav_barrier(params->debug_draw_args_buffer);
+  ctx->uav_barrier(params->debug_line_vert_buffer);
+
   ctx->set_graphics_root_shader_resource_view(kIndexBufferSlot ,          &g_UnifiedGeometryBuffer.index_buffer);
   ctx->set_graphics_root_shader_resource_view(kVertexBufferSlot,          &g_UnifiedGeometryBuffer.vertex_buffer);
   ctx->set_graphics_root_constant_buffer_view(kViewportBufferSlot,        params->viewport_buffer);
   ctx->set_graphics_root_shader_resource_view(kSceneObjBufferSlot,        params->scene_obj_buffer);
   ctx->set_graphics_root_shader_resource_view(kMaterialBufferSlot,        params->material_buffer);
   ctx->set_graphics_root_shader_resource_view(kAccelerationStructureSlot, &g_UnifiedGeometryBuffer.bvh.top_bvh);
+  ctx->set_graphics_root_unordered_access_view(kDebugArgsBufferSlot,      params->debug_draw_args_buffer);
+  ctx->set_graphics_root_unordered_access_view(kDebugVertexBufferSlot,    params->debug_line_vert_buffer);
 
   ctx->set_compute_root_shader_resource_view(kIndexBufferSlot ,           &g_UnifiedGeometryBuffer.index_buffer);
   ctx->set_compute_root_shader_resource_view(kVertexBufferSlot,           &g_UnifiedGeometryBuffer.vertex_buffer);
@@ -92,6 +102,15 @@ render_handler_frame_init(RenderContext* ctx, const RenderSettings& settings, co
   ctx->set_compute_root_shader_resource_view(kSceneObjBufferSlot,         params->scene_obj_buffer);
   ctx->set_compute_root_shader_resource_view(kMaterialBufferSlot,         params->material_buffer);
   ctx->set_compute_root_shader_resource_view(kAccelerationStructureSlot,  &g_UnifiedGeometryBuffer.bvh.top_bvh);
+  ctx->set_compute_root_unordered_access_view(kDebugArgsBufferSlot,       params->debug_draw_args_buffer);
+  ctx->set_compute_root_unordered_access_view(kDebugVertexBufferSlot,     params->debug_line_vert_buffer);
+
+  // Clear/initialize the multi draw indirect args
+  ctx->set_compute_pso(&params->init_debug_draw_buffers_pso);
+  ctx->dispatch(kDebugMaxVertices / 64, 1, 1);
+
+  ctx->uav_barrier(params->debug_draw_args_buffer);
+  ctx->uav_barrier(params->debug_line_vert_buffer);
 }
 
 FrameResources
@@ -102,14 +121,20 @@ init_frame_init_pass(AllocHeap heap, RgBuilder* builder)
 
   FrameResources ret;
 
-  ret.viewport_buffer  = rg_create_upload_buffer(builder, "Viewport Buffer",     kGpuHeapSysRAMCpuToGpu, sizeof(Viewport));
-  ret.material_buffer  = rg_create_upload_buffer(builder, "Material Buffer",     kGpuHeapSysRAMCpuToGpu, sizeof(MaterialGpu) * kMaxSceneObjs, sizeof(MaterialGpu));
-  ret.scene_obj_buffer = rg_create_upload_buffer(builder, "Scene Object Buffer", kGpuHeapSysRAMCpuToGpu, sizeof(SceneObjGpu) * kMaxSceneObjs, sizeof(SceneObjGpu));
+  ret.viewport_buffer        = rg_create_upload_buffer(builder, "Viewport Buffer",         kGpuHeapSysRAMCpuToGpu, sizeof(Viewport));
+  ret.material_buffer        = rg_create_upload_buffer(builder, "Material Buffer",         kGpuHeapSysRAMCpuToGpu, sizeof(MaterialGpu)    * kMaxSceneObjs,     sizeof(MaterialGpu));
+  ret.scene_obj_buffer       = rg_create_upload_buffer(builder, "Scene Object Buffer",     kGpuHeapSysRAMCpuToGpu, sizeof(SceneObjGpu)    * kMaxSceneObjs,     sizeof(SceneObjGpu));
+  ret.debug_draw_args_buffer = rg_create_buffer       (builder, "Debug Draw Args Buffer",      sizeof(MultiDrawIndirectArgs),              sizeof(MultiDrawIndirectArgs));
+  ret.debug_line_vert_buffer = rg_create_buffer       (builder, "Debug Lines Vertices Buffer", sizeof(DebugLinePoint) * kDebugMaxVertices, sizeof(DebugLinePoint));
 
-  RgPassBuilder*      pass = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "Frame Init", params, &render_handler_frame_init, true);
-  params->viewport_buffer  = RgConstantBuffer<Viewport>     (pass, ret.viewport_buffer);
-  params->material_buffer  = RgStructuredBuffer<MaterialGpu>(pass, ret.material_buffer);
-  params->scene_obj_buffer = RgStructuredBuffer<SceneObjGpu>(pass, ret.scene_obj_buffer);
+  RgPassBuilder*      pass       = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "Frame Init", params, &render_handler_frame_init, true);
+  params->viewport_buffer        = RgConstantBuffer<Viewport>(pass, ret.viewport_buffer);
+  params->material_buffer        = RgStructuredBuffer<MaterialGpu>(pass, ret.material_buffer);
+  params->scene_obj_buffer       = RgStructuredBuffer<SceneObjGpu>(pass, ret.scene_obj_buffer);
+  params->debug_draw_args_buffer = RgRWStructuredBuffer<MultiDrawIndirectArgs>(pass, &ret.debug_draw_args_buffer);
+  params->debug_line_vert_buffer = RgRWStructuredBuffer<DebugLinePoint>(pass, &ret.debug_line_vert_buffer);
+
+  params->init_debug_draw_buffers_pso = init_compute_pipeline(g_GpuDevice, get_engine_shader(kCS_DebugDrawInitMultiDrawIndirectArgs), "Debug Draw Init MultiDrawIndirect Args");
 
   return ret;
 }
@@ -138,6 +163,7 @@ render_handler_imgui(RenderContext* ctx, const RenderSettings&, const void* data
   ImGui::Checkbox("Disable TAA", &g_Renderer.settings.disable_taa);
   ImGui::Checkbox("Disable HDR", &g_Renderer.settings.disable_hdr);
   ImGui::Checkbox("Disable DoF", &g_Renderer.settings.disable_dof);
+  ImGui::Checkbox("Disable Debug Lines", &g_Renderer.settings.disable_debug_lines);
   ImGui::Checkbox("Show Detailed Performance", &s_ShowDetailedPerformance);
 
   ImGui::DragFloat("Aperture", &g_Renderer.settings.aperture, 0.01f, 0.0f, 50.0f);
@@ -150,6 +176,9 @@ render_handler_imgui(RenderContext* ctx, const RenderSettings&, const void* data
 
   ImGui::DragInt("DoF Sample Count", (s32*)&g_Renderer.settings.dof_sample_count, 1.0f, 0, 256);
   ImGui::DragFloat("DoF Blur Radius", &g_Renderer.settings.dof_blur_radius, 0.1f, 0.0f, 40.0f);
+
+  ImGui::DragInt("Probe Debug Rays", (s32*)&g_Renderer.settings.debug_probe_ray_idx, 1.0f, -1, 512);
+  ImGui::Checkbox("Probe Freeze Rotation", &g_Renderer.settings.freeze_probe_rotation);
 
   ImGui::End();
 
@@ -245,4 +274,61 @@ init_imgui_pass(AllocHeap heap, RgBuilder* builder, RgHandle<GpuTexture>* dst)
   params->dst         = RgRtv(pass, dst);
 
   ImPlot::CreateContext();
+}
+
+struct DebugDrawParams
+{
+  RgRtv dst;
+  RgIndirectArgsBuffer               debug_draw_args_buffer;
+  RgStructuredBuffer<DebugLinePoint> debug_line_vert_buffer;
+  
+  GraphicsPSO debug_draw_pso;
+};
+
+static void
+render_handler_debug_draw(RenderContext* ctx, const RenderSettings& settings, const void* data)
+{
+  DebugDrawParams* params = (DebugDrawParams*)data;
+  if (settings.disable_debug_lines)
+  {
+    return;
+  }
+
+  ctx->om_set_render_targets({params->dst}, None);
+
+  ctx->set_graphics_pso(&params->debug_draw_pso);
+
+  DebugLineDrawSrt srt;
+  srt.debug_line_vert_buffer = params->debug_line_vert_buffer;
+  ctx->graphics_bind_srt(srt);
+
+  ctx->ia_set_primitive_topology(D3D_PRIMITIVE_TOPOLOGY_LINELIST);
+  // Out of courtesy we want to reset the topology back to something sane.
+  defer { ctx->ia_set_primitive_topology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST); };
+
+  ctx->multi_draw_indirect(params->debug_draw_args_buffer, 0, 1);
+}
+
+void
+init_debug_draw_pass(AllocHeap heap, RgBuilder* builder, const FrameResources& frame_resources, RgHandle<GpuTexture>* dst)
+{
+  DebugDrawParams* params        = HEAP_ALLOC(DebugDrawParams, g_InitHeap, 1);
+
+  RgPassBuilder*   pass          = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "Debug Line Draw Pass", params, &render_handler_debug_draw);
+  params->dst                    = RgRtv(pass, dst);
+
+  params->debug_draw_args_buffer = RgIndirectArgsBuffer(pass, frame_resources.debug_draw_args_buffer);
+
+  // This is used basically just so that the render graph puts in the UAV barriers for me :)
+  params->debug_line_vert_buffer = RgStructuredBuffer<DebugLinePoint>(pass, frame_resources.debug_line_vert_buffer);
+
+
+  GraphicsPipelineDesc desc = 
+  {
+    .vertex_shader = get_engine_shader(kVS_DebugDrawLine),
+    .pixel_shader  = get_engine_shader(kPS_DebugDrawLine),
+    .rtv_formats   = Span{kGpuFormatRGBA16Float},
+    .topology      = kPrimitiveTopologyLine,
+  };
+  params->debug_draw_pso = init_graphics_pipeline(g_GpuDevice, desc, "Debug Line Draw");
 }

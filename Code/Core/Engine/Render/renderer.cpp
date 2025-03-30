@@ -67,10 +67,8 @@ init_renderer_dependency_graph(
   defer { free_scratch_arena(&scratch_arena); };
 
   RgBuilder builder = init_rg_builder(scratch_arena, swap_chain->width, swap_chain->height);
-
-  GBuffer   gbuffer = init_gbuffer(&builder);
-
-  init_frame_init_pass(scratch_arena, &builder);
+  GBuffer gbuffer = init_gbuffer(&builder);
+  FrameResources frame_resources = init_frame_init_pass(scratch_arena, &builder);
 
   init_gbuffer_static(scratch_arena, &builder, &gbuffer);
 
@@ -85,6 +83,8 @@ init_renderer_dependency_graph(
   RgHandle<GpuTexture> dof_buffer = init_depth_of_field(scratch_arena, &builder, gbuffer.depth, taa_buffer);
 
   RgHandle<GpuTexture> tonemapped_buffer = init_tonemapping(scratch_arena, &builder, dof_buffer);
+
+  init_debug_draw_pass(scratch_arena, &builder, frame_resources, &tonemapped_buffer);
 
   init_imgui_pass(scratch_arena, &builder, &tonemapped_buffer);
 
@@ -367,7 +367,7 @@ init_render_model(AllocHeap heap, const ModelData& model)
       .pixel_shader    = get_engine_shader(dst->material_shader),
       .rtv_formats     = kGBufferRenderTargetFormats,
       .dsv_format      = kGpuFormatD32Float,
-      .comparison_func = kDepthComparison,
+      .depth_func      = kDepthComparison,
       .stencil_enable  = false,
     };
 

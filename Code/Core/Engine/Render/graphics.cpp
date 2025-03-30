@@ -590,8 +590,75 @@ query_gpu_profiler_timestamp(const char* name)
   
 }
 
+static ID3D12CommandSignature* g_MultiDrawIndirectSignature = nullptr;
+static ID3D12CommandSignature* g_DispatchIndirectSignature  = nullptr;
+
+static void
+init_d3d12_indirect(GpuDevice* device)
+{
+  {
+    D3D12_INDIRECT_ARGUMENT_DESC arg_desc = {};
+    arg_desc.Type         = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW;
+
+    D3D12_COMMAND_SIGNATURE_DESC desc = {};
+    desc.ByteStride       = sizeof(MultiDrawIndirectArgs);
+    desc.NumArgumentDescs = 1;
+    desc.pArgumentDescs   = &arg_desc;
+    desc.NodeMask         = 0;
+    static_assert(sizeof(MultiDrawIndirectArgs) >= sizeof(D3D12_DRAW_ARGUMENTS));
+
+    HASSERT(
+      g_GpuDevice->d3d12->CreateCommandSignature(
+        &desc,
+        nullptr,
+        IID_PPV_ARGS(&device->d3d12_multi_draw_indirect_signature)
+      )
+    );
+  }
+
+  {
+    D3D12_INDIRECT_ARGUMENT_DESC arg_desc = {};
+    arg_desc.Type         = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED;
+
+    D3D12_COMMAND_SIGNATURE_DESC desc = {};
+    desc.ByteStride       = sizeof(MultiDrawIndirectIndexedArgs);
+    desc.NumArgumentDescs = 1;
+    desc.pArgumentDescs   = &arg_desc;
+    desc.NodeMask         = 0;
+    static_assert(sizeof(MultiDrawIndirectIndexedArgs) >= sizeof(D3D12_DRAW_INDEXED_ARGUMENTS));
+
+    HASSERT(
+      g_GpuDevice->d3d12->CreateCommandSignature(
+        &desc,
+        nullptr,
+        IID_PPV_ARGS(&device->d3d12_multi_draw_indirect_indexed_signature)
+      )
+    );
+  }
+
+  {
+    D3D12_INDIRECT_ARGUMENT_DESC arg_desc = {};
+    arg_desc.Type         = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH;
+
+    D3D12_COMMAND_SIGNATURE_DESC desc = {};
+    desc.ByteStride       = sizeof(DispatchIndirectArgs);
+    desc.NumArgumentDescs = 1;
+    desc.pArgumentDescs   = &arg_desc;
+    desc.NodeMask         = 0;
+    static_assert(sizeof(DispatchIndirectArgs) >= sizeof(D3D12_DISPATCH_ARGUMENTS));
+
+    HASSERT(
+      g_GpuDevice->d3d12->CreateCommandSignature(
+        &desc,
+        nullptr,
+        IID_PPV_ARGS(&device->d3d12_dispatch_indirect_signature)
+      )
+    );
+  }
+}
+
 void
-init_graphics_device(HWND window)
+init_gpu_device(HWND window)
 {
   if (g_GpuDevice == nullptr)
   {
@@ -611,10 +678,6 @@ init_graphics_device(HWND window)
   IDXGIAdapter1* adapter; 
   init_d3d12_device(window, factory, &adapter, &g_GpuDevice->d3d12, g_GpuDevice->gpu_name);
   defer { COM_RELEASE(adapter); };
-
-  //D3D12_FEATURE_DATA_D3D12_OPTIONS16 options{};
-  //bool gpu_upload_heap_supported = false;
-  //if (SUCCEEDED(g_GpuDevice->d3d12->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS16, )))
 
   g_GpuDevice->graphics_queue = init_cmd_queue(g_GpuDevice, kCmdQueueTypeGraphics);
 
@@ -639,6 +702,8 @@ init_graphics_device(HWND window)
     kBackBufferCount * 8
   );
 
+  init_d3d12_indirect(g_GpuDevice);
+
   init_gpu_profiler();
 
 #ifdef DEBUG_LAYER
@@ -660,7 +725,7 @@ wait_for_gpu_device_idle(GpuDevice* device)
 }
 
 void
-destroy_graphics_device()
+destroy_gpu_device()
 {
   destroy_cmd_list_allocator(&g_GpuDevice->graphics_cmd_allocator);
   destroy_cmd_list_allocator(&g_GpuDevice->compute_cmd_allocator);
@@ -1239,7 +1304,7 @@ init_bvh_srv(GpuDescriptor* descriptor, const GpuBvh* bvh)
   g_GpuDevice->d3d12->CreateShaderResourceView(nullptr, &desc, descriptor->cpu_handle);
 }
 
-static ID3D12RootSignature* g_RootSignature = nullptr;
+static ID3D12RootSignature*    g_RootSignature = nullptr;
 
 static void
 init_root_signature(const GpuDevice* device, ID3DBlob* blob)
@@ -1296,6 +1361,39 @@ destroy_shader(GpuShader* shader)
   COM_RELEASE(shader->d3d12_shader);
 }
 
+static D3D12_PRIMITIVE_TOPOLOGY_TYPE
+get_d3d12_primitive_topology(PrimitiveTopologyType type)
+{
+  switch(type)
+  {
+    case kPrimitiveTopologyUndefined: return D3D12_PRIMITIVE_TOPOLOGY_TYPE_UNDEFINED;
+    case kPrimitiveTopologyPoint:     return D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
+    case kPrimitiveTopologyLine:      return D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
+    case kPrimitiveTopologyTriangle:  return D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    case kPrimitiveTopologyPatch:     return D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
+    default: UNREACHABLE;
+  }
+}
+
+static D3D12_COMPARISON_FUNC
+get_d3d12_compare_func(DepthFunc func)
+{
+  switch (func)
+  {
+    case kDepthFuncNone:         return D3D12_COMPARISON_FUNC_NONE;
+    case kDepthFuncNever:        return D3D12_COMPARISON_FUNC_NEVER;
+    case kDepthFuncLess:         return D3D12_COMPARISON_FUNC_LESS;
+    case kDepthFuncEqual:        return D3D12_COMPARISON_FUNC_EQUAL;
+    case kDepthFuncLessEqual:    return D3D12_COMPARISON_FUNC_LESS_EQUAL;
+    case kDepthFuncGreater:      return D3D12_COMPARISON_FUNC_GREATER;
+    case kDepthFuncNotEqual:     return D3D12_COMPARISON_FUNC_NOT_EQUAL;
+    case kDepthFuncGreaterEqual: return D3D12_COMPARISON_FUNC_GREATER_EQUAL;
+    case kDepthFuncAlways:       return D3D12_COMPARISON_FUNC_ALWAYS;
+    default: UNREACHABLE;
+  }
+}
+
+
 GraphicsPSO
 init_graphics_pipeline(
   const GpuDevice* device,
@@ -1327,7 +1425,7 @@ init_graphics_pipeline(
   D3D12_DEPTH_STENCIL_DESC depth_stencil_desc;
   depth_stencil_desc.DepthEnable = desc.dsv_format != DXGI_FORMAT_UNKNOWN;
   depth_stencil_desc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
-  depth_stencil_desc.DepthFunc = desc.comparison_func;
+  depth_stencil_desc.DepthFunc = get_d3d12_compare_func(desc.depth_func);
   depth_stencil_desc.StencilEnable = desc.stencil_enable;
   depth_stencil_desc.StencilReadMask = D3D12_DEFAULT_STENCIL_READ_MASK;
   depth_stencil_desc.StencilWriteMask = D3D12_DEFAULT_STENCIL_WRITE_MASK;
@@ -1336,11 +1434,12 @@ init_graphics_pipeline(
   D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc = {0};
   pso_desc.VS = CD3DX12_SHADER_BYTECODE(desc.vertex_shader->d3d12_shader);
   pso_desc.PS = CD3DX12_SHADER_BYTECODE(desc.pixel_shader->d3d12_shader);
-  pso_desc.BlendState = blend_desc,
-  pso_desc.SampleMask = UINT32_MAX,
-  pso_desc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT),
-  pso_desc.DepthStencilState = depth_stencil_desc,
-  pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE,
+  pso_desc.BlendState = blend_desc;
+  pso_desc.SampleMask = UINT32_MAX;
+  pso_desc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+  pso_desc.DepthStencilState = depth_stencil_desc;
+  PrimitiveTopologyType topology = desc.topology == kPrimitiveTopologyUndefined ? kPrimitiveTopologyTriangle : desc.topology;
+  pso_desc.PrimitiveTopologyType = get_d3d12_primitive_topology(topology);
   pso_desc.NumRenderTargets = static_cast<u32>(desc.rtv_formats.size);
 
   pso_desc.DSVFormat = gpu_format_to_d3d12(desc.dsv_format);

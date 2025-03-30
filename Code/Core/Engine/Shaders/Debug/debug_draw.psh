@@ -1,0 +1,14 @@
+#include "../root_signature.hlsli"
+#include "../interlop.hlsli"
+
+struct PSInput
+{
+  float4 position : SV_Position;
+  float4 color    : COLOR0;
+};
+
+[RootSignature(BINDLESS_ROOT_SIGNATURE)]
+float4 PS_DebugDrawLine(PSInput interp) : SV_TARGET
+{
+  return interp.color;
+}

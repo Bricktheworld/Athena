@@ -149,8 +149,8 @@ application_entry(HINSTANCE instance, int show_code)
   ShowWindow(window, show_code);
   UpdateWindow(window);
 
-  init_graphics_device(window);
-  defer { destroy_graphics_device(); };
+  init_gpu_device(window);
+  defer { destroy_gpu_device(); };
 
   init_asset_loader();
   defer { destroy_asset_loader(); };

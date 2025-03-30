@@ -187,7 +187,7 @@ init_hash_table(AllocHeap heap, u64 capacity)
   HashTable<K, V> ret = {};
 
   capacity = capacity * 4 / 3 + 15;
-  ret.groups_size = capacity / 16;
+  ret.groups_size = (capacity + 15) / 16;
   using GroupType = typename HashTable<K, V>::Group;
   ret.groups      = HEAP_ALLOC(GroupType, heap, ret.groups_size);
   zero_memory(ret.groups, ret.groups_size * sizeof(typename HashTable<K, V>::Group));

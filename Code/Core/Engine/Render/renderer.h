@@ -8,7 +8,7 @@
 #include "Core/Engine/Shaders/interlop.hlsli"
 #include "Core/Engine/Generated/shader_table.h"
 
-static constexpr D3D12_COMPARISON_FUNC kDepthComparison = D3D12_COMPARISON_FUNC_GREATER;
+static constexpr DepthFunc kDepthComparison = kDepthFuncGreater;
 
 static constexpr f32 kZNear = 0.1f;
 
@@ -97,10 +97,14 @@ struct RenderSettings
   f32  dof_blur_radius  = 0.2f;
   u32  dof_sample_count = 128;
 
-  bool disable_taa        = false;
-  bool debug_gi_probes    = false;
-  bool disable_hdr        = false;
-  bool disable_dof        = false;
+  u32  debug_probe_ray_idx = U32_MAX;
+
+  bool disable_taa           = false;
+  bool debug_gi_probes       = false;
+  bool disable_hdr           = false;
+  bool disable_dof           = false;
+  bool disable_debug_lines   = true;
+  bool freeze_probe_rotation = false;
 };
 
 struct Renderer
@@ -110,6 +114,7 @@ struct Renderer
   DescriptorLinearAllocator imgui_descriptor_heap;
 
   Array<RenderModelSubset> meshes;
+
   Camera prev_camera;
   Camera camera;
   Vec2   taa_jitter;
