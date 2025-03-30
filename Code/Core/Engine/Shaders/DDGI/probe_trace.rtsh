@@ -52,9 +52,9 @@ void ray_gen()
   int probe_index       = (plane_index * probes_per_plane) + probe_plane_index;
 
   int3 probe_coords;
-  probe_coords.x        = probe_index % vol_desc.probe_count_x;
-  probe_coords.y        = probe_index / (vol_desc.probe_count_x * vol_desc.probe_count_z);
-  probe_coords.z        = (probe_index / vol_desc.probe_count_x) % vol_desc.probe_count_z;
+  probe_coords.x        = probe_index % vol_desc.probe_count.x;
+  probe_coords.y        = probe_index / (vol_desc.probe_count.x * vol_desc.probe_count.z);
+  probe_coords.z        = (probe_index / vol_desc.probe_count.x) % vol_desc.probe_count.z;
 
   float3 probe_ws_pos   = get_probe_ws_pos(probe_coords, vol_desc);
   float3 probe_ray_dir  = get_probe_ray_dir(ray_index, vol_desc);
@@ -68,7 +68,7 @@ void ray_gen()
 
   Payload payload = (Payload)0;
   TraceRay(g_AccelerationStructure, RAY_FLAG_NONE, 0xFF, 0, 0, 0, ray, payload);
-  if (probe_index == vol_desc.debug_ray_probe || vol_desc.debug_ray_probe >= vol_desc.probe_count_x * vol_desc.probe_count_y * vol_desc.probe_count_z)
+  if (probe_index == vol_desc.debug_ray_probe || vol_desc.debug_ray_probe >= vol_desc.probe_count.x * vol_desc.probe_count.y * vol_desc.probe_count.z)
   {
     debug_draw_line(probe_ws_pos, probe_ws_pos + probe_ray_dir, float3(1.0, 0.0, 0.0));
   }

@@ -7,7 +7,7 @@
 
 struct ProbeTraceParams
 {
-  DDGIVolDesc                   vol_desc = {0};
+  DDGIVolDesc                   vol_desc = {};
   RgConstantBuffer<DDGIVolDesc> vol_desc_buffer;
   RgRWTexture2DArray<float4>    ray_data;
   RgTexture2DArray<float4>      irradiance;
@@ -23,6 +23,7 @@ render_handler_probe_trace(RenderContext* ctx, const RenderSettings& settings, c
   }
 
   params->vol_desc.debug_ray_probe = settings.debug_probe_ray_idx;
+  params->vol_desc.probe_spacing   = settings.probe_spacing;
   ctx->write_cpu_upload_buffer(params->vol_desc_buffer, &params->vol_desc, sizeof(params->vol_desc));
 
   ProbeTraceSrt srt;
@@ -35,8 +36,8 @@ render_handler_probe_trace(RenderContext* ctx, const RenderSettings& settings, c
   ctx->dispatch_rays(
     &g_Renderer.ddgi_probe_trace_st,
     params->vol_desc.probe_num_rays,
-    params->vol_desc.probe_count_x * params->vol_desc.probe_count_z,
-    params->vol_desc.probe_count_y
+    params->vol_desc.probe_count.x * params->vol_desc.probe_count.z,
+    params->vol_desc.probe_count.y
   );
 }
 
@@ -81,9 +82,9 @@ render_handler_probe_blend(RenderContext* ctx, const RenderSettings&, const void
 
   ctx->set_compute_pso(&g_Renderer.ddgi_probe_blend_pso);
   ctx->dispatch(
-    params->vol_desc.probe_count_x,
-    params->vol_desc.probe_count_z,
-    params->vol_desc.probe_count_y
+    params->vol_desc.probe_count.x,
+    params->vol_desc.probe_count.z,
+    params->vol_desc.probe_count.y
   );
 }
 
@@ -110,12 +111,10 @@ init_probe_blend(
 Ddgi
 init_ddgi(AllocHeap heap, RgBuilder* builder)
 {
-  DDGIVolDesc desc = {0};
-  desc.origin                 = Vec4(0.0f, 5.0f, 0.0f, 0.0f);
-  desc.probe_spacing          = Vec4(0.5f, 0.5f, 0.5f, 0.0f);
-  desc.probe_count_x          = 22;
-  desc.probe_count_y          = 5;
-  desc.probe_count_z          = 22;
+  DDGIVolDesc desc = {};
+  desc.origin                 = Vec4(0.0f, 5.0f, 0.0f, 0.0);
+  desc.probe_spacing          = Vec4(0.5f, 0.5f, 0.5f, 0.0);
+  desc.probe_count            = UVec3(22, 5, 10);
 
   desc.probe_num_rays         = 128;
   desc.probe_hysteresis       = 0.97f;
@@ -127,17 +126,17 @@ init_ddgi(AllocHeap heap, RgBuilder* builder)
     builder,
     "Probe Ray Data",
     desc.probe_num_rays,
-    desc.probe_count_x * desc.probe_count_z,
-    (u16)desc.probe_count_y,
+    desc.probe_count.x * desc.probe_count.z,
+    (u16)desc.probe_count.y,
     kGpuFormatRGBA16Float
   );
 
   RgHandle<GpuTexture> probe_irradiance = rg_create_texture_array_ex(
     builder,
     "Probe Irradiance",
-    desc.probe_count_x * kProbeNumIrradianceTexels,
-    desc.probe_count_z * kProbeNumIrradianceTexels,
-    (u16)desc.probe_count_y,
+    desc.probe_count.x * kProbeNumIrradianceTexels,
+    desc.probe_count.z * kProbeNumIrradianceTexels,
+    (u16)desc.probe_count.y,
     kGpuFormatRGBA16Float,
     kInfiniteLifetime // We want the irradiance data from the previous frame to blend with on the current frame
   );

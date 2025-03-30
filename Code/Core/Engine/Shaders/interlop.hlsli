@@ -332,21 +332,19 @@ struct DoFCompositeSrt
 
 struct DDGIVolDesc
 {
-  Vec4 origin;
-  Vec4 probe_spacing;
+  Vec4  origin;
+  Vec4  probe_spacing;
 
-  Mat4 probe_ray_rotation;
+  Mat4  probe_ray_rotation;
 
-  u32  probe_count_x;
-  u32  probe_count_y;
-  u32  probe_count_z;
+  UVec3 probe_count;
 
-  u32  probe_num_rays;
+  u32   probe_num_rays;
 
-  f32  probe_hysteresis;
-  f32  probe_max_ray_distance;
+  f32   probe_hysteresis;
+  f32   probe_max_ray_distance;
 
-  u32  debug_ray_probe;
+  u32   debug_ray_probe;
 };
 
 struct ProbeTraceSrt

@@ -30,7 +30,7 @@ float3 get_probe_ws_pos(int3 probe_coords, DDGIVolDesc vol_desc)
 {
 	float3 probe_grid_ws_pos = probe_coords * vol_desc.probe_spacing.xyz;
 
-	int3   probe_counts      = int3(vol_desc.probe_count_x, vol_desc.probe_count_y, vol_desc.probe_count_z);
+	int3   probe_counts      = int3(vol_desc.probe_count.x, vol_desc.probe_count.y, vol_desc.probe_count.z);
 
 	float3 probe_grid_shift = (vol_desc.probe_spacing.xyz * (probe_counts - 1)) * 0.5f;
 
@@ -41,7 +41,7 @@ float3 get_probe_ws_pos(int3 probe_coords, DDGIVolDesc vol_desc)
 
 int get_probes_per_plane(DDGIVolDesc vol_desc)
 {
-  return vol_desc.probe_count_x * vol_desc.probe_count_z;
+  return vol_desc.probe_count.x * vol_desc.probe_count.z;
 }
 
 uint3 get_ray_data_texel_coords(int ray_index, int probe_index, DDGIVolDesc vol_desc)
@@ -78,7 +78,7 @@ int get_probe_index_in_plane(uint3 tex_coords, int3 probe_counts, int probe_num_
 
 int get_probe_index(int3 probe_coords, DDGIVolDesc vol_desc)
 {
-  int3 probe_counts = int3(vol_desc.probe_count_x, vol_desc.probe_count_y, vol_desc.probe_count_z);
+  int3 probe_counts = int3(vol_desc.probe_count.x, vol_desc.probe_count.y, vol_desc.probe_count.z);
   int probes_per_plane = get_probes_per_plane(vol_desc);
   int plane_index      = get_plane_index(probe_coords);
   int probe_index_in_plane = get_probe_index_in_plane(probe_coords, probe_counts);
@@ -87,7 +87,7 @@ int get_probe_index(int3 probe_coords, DDGIVolDesc vol_desc)
 
 int get_probe_index(uint3 tex_coords, int probe_num_texels, DDGIVolDesc vol_desc)
 {
-  int3 probe_counts = int3(vol_desc.probe_count_x, vol_desc.probe_count_y, vol_desc.probe_count_z);
+  int3 probe_counts = int3(vol_desc.probe_count.x, vol_desc.probe_count.y, vol_desc.probe_count.z);
   int probes_per_plane = get_probes_per_plane(vol_desc);
   int probe_index_in_plane = get_probe_index_in_plane(tex_coords, probe_counts, probe_num_texels);
 
@@ -99,8 +99,8 @@ uint3 get_probe_texel_coords(int probe_index, DDGIVolDesc vol_desc)
   int probes_per_plane = get_probes_per_plane(vol_desc);
   int plane_index      = int(probe_index / probes_per_plane);
 
-  int x = (probe_index % vol_desc.probe_count_x);
-  int y = (probe_index / vol_desc.probe_count_x) % vol_desc.probe_count_z;
+  int x = (probe_index % vol_desc.probe_count.x);
+  int y = (probe_index / vol_desc.probe_count.x) % vol_desc.probe_count.z;
 
   return uint3(x, y, plane_index);
 }
@@ -112,8 +112,8 @@ float3 get_probe_uv(int probe_index, float2 octant_coords, int num_interior_texe
   // Add the 2 border texels
   float num_texels = num_interior_texels + 2.0f;
 
-  float tex_width  = num_texels * vol_desc.probe_count_x;
-  float tex_height = num_texels * vol_desc.probe_count_z;
+  float tex_width  = num_texels * vol_desc.probe_count.x;
+  float tex_height = num_texels * vol_desc.probe_count.z;
 
   float2 uv        = float2(coords.x * num_texels, coords.y * num_texels) + (num_texels * 0.5f);
   uv              += octant_coords.xy * ((float)num_interior_texels * 0.5f);
@@ -155,7 +155,7 @@ float2 octahedral_encode_dir(float3 n)
 // cuboid that is formed by those 8 probes
 int3 get_base_probe_grid_coords(float3 ws_pos, DDGIVolDesc vol_desc)
 {
-  int3 probe_counts = int3(vol_desc.probe_count_x, vol_desc.probe_count_y, vol_desc.probe_count_z);
+  int3 probe_counts = int3(vol_desc.probe_count.x, vol_desc.probe_count.y, vol_desc.probe_count.z);
   float3 rel_pos    = ws_pos - vol_desc.origin.xyz;
 
   rel_pos          += (vol_desc.probe_spacing.xyz * (probe_counts - 1)) * 0.5f;
@@ -172,7 +172,7 @@ float3 get_vol_irradiance(
   DDGIVolDesc vol_desc,
   Texture2DArray<float4> probe_irradiance_tex
 ) {
-  int3 probe_counts        = int3(vol_desc.probe_count_x, vol_desc.probe_count_y, vol_desc.probe_count_z);
+  int3 probe_counts        = int3(vol_desc.probe_count.x, vol_desc.probe_count.y, vol_desc.probe_count.z);
 
   float3 biased_ws_pos     = ws_pos + surface_bias;
 

@@ -171,6 +171,7 @@ init_renderer(
   g_Renderer.imgui_descriptor_heap = init_descriptor_linear_allocator(device, 1, kDescriptorHeapTypeCbvSrvUav);
   init_imgui_ctx(device, kGpuFormatRGBA16Float, window, &g_Renderer.imgui_descriptor_heap);
 
+  new (&g_Renderer.settings) RenderSettings();
   g_Renderer.settings.aperture    = 5.6f;
   g_Renderer.settings.focal_dist  = 8.0f;
   g_Renderer.settings.focal_range = 3.0f;

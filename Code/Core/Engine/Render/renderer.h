@@ -90,21 +90,23 @@ struct Camera
 
 struct RenderSettings
 {
-  f32  aperture;
-  f32  focal_dist;
-  f32  focal_range;
+  f32   aperture              = 5.6f;
+  f32   focal_dist            = 8.0f;
+  f32   focal_range           = 3.0f;
 
-  f32  dof_blur_radius  = 0.2f;
-  u32  dof_sample_count = 128;
+  f32   dof_blur_radius       = 15.0f;
+  u32   dof_sample_count      = 32;
 
-  u32  debug_probe_ray_idx = U32_MAX;
+  u32   debug_probe_ray_idx   = U32_MAX;
 
-  bool disable_taa           = false;
-  bool debug_gi_probes       = false;
-  bool disable_hdr           = false;
-  bool disable_dof           = false;
-  bool disable_debug_lines   = true;
-  bool freeze_probe_rotation = false;
+  Vec3  probe_spacing         = Vec3(1.0f, 2.0f, 1.0f);
+
+  bool  disable_taa           = false;
+  bool  debug_gi_probes       = false;
+  bool  disable_hdr           = false;
+  bool  disable_dof           = false;
+  bool  disable_debug_lines   = true;
+  bool  freeze_probe_rotation = false;
 };
 
 struct Renderer

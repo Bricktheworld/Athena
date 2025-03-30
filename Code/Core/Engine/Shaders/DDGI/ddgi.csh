@@ -34,7 +34,7 @@ void CS_ProbeBlending(
   RWTexture2DArray<float4>    irradiance = DEREF(g_Srt.irradiance);
 
   int  probe_index = get_probe_index(dispatch_thread_id, kProbeNumIrradianceTexels, vol_desc);
-  uint num_probes  = vol_desc.probe_count_x * vol_desc.probe_count_y * vol_desc.probe_count_z;
+  uint num_probes  = vol_desc.probe_count.x * vol_desc.probe_count.y * vol_desc.probe_count.z;
 
   if (probe_index >= num_probes || probe_index < 0) return;
 
