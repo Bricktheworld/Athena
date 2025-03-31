@@ -158,6 +158,7 @@ swap(T* a, T* b)
 #define MAX(a, b) (((a) > (b)) ? (a) : (b))
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
 #define CLAMP(a, min, max) (MIN(MAX(a, min), max))
+#define UCEIL_DIV(num, denom) ((num) / (denom) + ((num) % (denom) != 0))
 
 #define KiB(val) (val * 1024LL)
 #define MiB(val) (KiB(val) * 1024LL)

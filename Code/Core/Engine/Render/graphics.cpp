@@ -1403,7 +1403,7 @@ init_graphics_pipeline(
   GraphicsPSO ret = {0};
 
   D3D12_RENDER_TARGET_BLEND_DESC render_target_blend_desc;
-  render_target_blend_desc.BlendEnable = FALSE;
+  render_target_blend_desc.BlendEnable = desc.blend_enable;
   render_target_blend_desc.LogicOpEnable = FALSE;
   render_target_blend_desc.SrcBlend = D3D12_BLEND_SRC_ALPHA;
   render_target_blend_desc.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
@@ -1424,7 +1424,7 @@ init_graphics_pipeline(
 
   D3D12_DEPTH_STENCIL_DESC depth_stencil_desc;
   depth_stencil_desc.DepthEnable = desc.dsv_format != DXGI_FORMAT_UNKNOWN;
-  depth_stencil_desc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+  depth_stencil_desc.DepthWriteMask = desc.depth_read_only ? D3D12_DEPTH_WRITE_MASK_ZERO : D3D12_DEPTH_WRITE_MASK_ALL;
   depth_stencil_desc.DepthFunc = get_d3d12_compare_func(desc.depth_func);
   depth_stencil_desc.StencilEnable = desc.stencil_enable;
   depth_stencil_desc.StencilReadMask = D3D12_DEFAULT_STENCIL_READ_MASK;

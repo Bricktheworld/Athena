@@ -628,7 +628,9 @@ struct GraphicsPipelineDesc
   GpuFormat dsv_format = kGpuFormatUnknown;
   DepthFunc depth_func = kDepthFuncGreater;
   PrimitiveTopologyType topology = kPrimitiveTopologyTriangle;
-  bool stencil_enable = false;
+  bool stencil_enable:  1 = false;
+  bool blend_enable:    1 = false;
+  bool depth_read_only: 1 = false;
   u8 __padding__[2]{0};
 
   auto operator<=>(const GraphicsPipelineDesc& rhs) const = default;

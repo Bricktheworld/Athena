@@ -84,7 +84,7 @@ init_renderer_dependency_graph(
 
   RgHandle<GpuTexture> tonemapped_buffer = init_tonemapping(scratch_arena, &builder, dof_buffer);
 
-  init_debug_draw_pass(scratch_arena, &builder, frame_resources, &tonemapped_buffer);
+  init_debug_draw_pass(scratch_arena, &builder, frame_resources, &gbuffer, &tonemapped_buffer);
 
   init_imgui_pass(scratch_arena, &builder, &tonemapped_buffer);
 

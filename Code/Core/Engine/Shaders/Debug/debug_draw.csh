@@ -6,17 +6,24 @@ void CS_DebugDrawInitMultiDrawIndirectArgs(uint dispatch_id : SV_DispatchThreadI
 {
   if (dispatch_id == 0)
   {
-    g_DebugLineArgsBuffer[0].vertex_count_per_instance = 0;
-    g_DebugLineArgsBuffer[0].instance_count            = 1;
-    g_DebugLineArgsBuffer[0].start_vertex_location     = 0;
-    g_DebugLineArgsBuffer[0].start_instance_location   = 0;
+    g_DebugArgsBuffer[0].vertex_count_per_instance = 0;
+    g_DebugArgsBuffer[0].instance_count            = 1;
+    g_DebugArgsBuffer[0].start_vertex_location     = 0;
+    g_DebugArgsBuffer[0].start_instance_location   = 0;
+
+    g_DebugArgsBuffer[1].vertex_count_per_instance = 6;
+    g_DebugArgsBuffer[1].instance_count            = 0;
+    g_DebugArgsBuffer[1].start_vertex_location     = 0;
+    g_DebugArgsBuffer[1].start_instance_location   = 0;
   }
 
-  if (dispatch_id >= kDebugMaxVertices)
+  if (dispatch_id < kDebugMaxVertices)
   {
-    return;
+    g_DebugLineVertexBuffer[dispatch_id] = (DebugLinePoint)0;
   }
 
-  g_DebugLineVertexBuffer[dispatch_id].position = 0.0;
-  g_DebugLineVertexBuffer[dispatch_id].color    = 0.0;
+  if (dispatch_id < kDebugMaxSdfs)
+  {
+    g_DebugSdfBuffer[dispatch_id] = (DebugSdf)0;
+  }
 }

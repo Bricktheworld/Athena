@@ -205,6 +205,7 @@ struct DirectionalLight
 struct Viewport
 {
   Mat4 proj;
+  Mat4 view;
   Mat4 view_proj;
   Mat4 prev_view_proj;
   Mat4 inverse_view_proj;
@@ -388,16 +389,34 @@ struct TemporalAASrt
   RWTexture2DPtr<float4> taa;
 };
 
+enum SdfType
+{
+  kSdfTypeSphere,
+};
+
+struct DebugSdf
+{
+  Vec3    position;
+  f32     radius;
+
+  Vec3    color;
+  SdfType type;
+};
 
 struct DebugLinePoint
 {
-  float3 position;
-  float3 color;
+  Vec3 position;
+  Vec3 color;
 };
 
 struct DebugLineDrawSrt
 {
   StructuredBufferPtr<DebugLinePoint> debug_line_vert_buffer;
+};
+
+struct DebugSdfDrawSrt
+{
+  StructuredBufferPtr<DebugSdf> debug_sdf_buffer;
 };
 
 

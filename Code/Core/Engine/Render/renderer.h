@@ -99,13 +99,13 @@ struct RenderSettings
 
   u32   debug_probe_ray_idx   = U32_MAX;
 
-  Vec3  probe_spacing         = Vec3(1.0f, 2.0f, 1.0f);
+  Vec3  probe_spacing         = Vec3(1.0f, 1.8f, 1.0f);
 
   bool  disable_taa           = false;
   bool  debug_gi_probes       = false;
   bool  disable_hdr           = false;
   bool  disable_dof           = false;
-  bool  disable_debug_lines   = true;
+  bool  enabled_debug_draw    = false;
   bool  freeze_probe_rotation = false;
 };
 

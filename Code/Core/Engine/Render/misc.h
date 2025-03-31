@@ -1,5 +1,6 @@
 #pragma once
 #include "Core/Engine/Render/render_graph.h"
+#include "Core/Engine/Render/gbuffer.h"
 
 struct FrameResources
 {
@@ -9,6 +10,7 @@ struct FrameResources
 
   RgHandle<GpuBuffer> debug_draw_args_buffer;
   RgHandle<GpuBuffer> debug_line_vert_buffer;
+  RgHandle<GpuBuffer> debug_sdf_buffer;
 };
 
 FrameResources init_frame_init_pass(AllocHeap heap, RgBuilder* builder);
@@ -17,4 +19,4 @@ FrameResources init_frame_init_pass(AllocHeap heap, RgBuilder* builder);
 extern f64 g_CpuEffectiveTime;
 
 void init_imgui_pass(AllocHeap heap, RgBuilder* builder, RgHandle<GpuTexture>* dst);
-void init_debug_draw_pass(AllocHeap heap, RgBuilder* builder, const FrameResources& frame_resources, RgHandle<GpuTexture>* dst);
+void init_debug_draw_pass(AllocHeap heap, RgBuilder* builder, const FrameResources& frame_resources, GBuffer* gbuffer, RgHandle<GpuTexture>* dst);

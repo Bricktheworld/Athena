@@ -73,6 +73,11 @@ void ray_gen()
     debug_draw_line(probe_ws_pos, probe_ws_pos + probe_ray_dir, float3(1.0, 0.0, 0.0));
   }
 
+  if (ray_index == 0)
+  {
+    debug_draw_sphere(probe_ws_pos, 0.1, float3(1.0, 1.0, 1.0));
+  }
+
 
   if (payload.t < 0.0f)
   {
@@ -90,7 +95,7 @@ void ray_gen()
 
 
   // Direct lighting and shadowing
-	float  shadow_atten = saturate(
+  float  shadow_atten = saturate(
     light_visibility(
       directional_light.direction.xyz,
       payload.ws_pos,

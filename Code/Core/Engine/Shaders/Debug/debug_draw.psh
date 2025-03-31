@@ -1,14 +1,57 @@
 #include "../root_signature.hlsli"
 #include "../interlop.hlsli"
 
-struct PSInput
+[RootSignature(BINDLESS_ROOT_SIGNATURE)]
+float4 PS_DebugDrawLine(in float4 position: SV_Position, in float4 color: COLOR0) : SV_TARGET
 {
-  float4 position : SV_Position;
-  float4 color    : COLOR0;
-};
+  return color;
+}
+
+float sdf_sphere(float3 sphere_center, float sphere_radius, float3 position)
+{
+  return length(position - sphere_center) - sphere_radius;
+}
+
+float sdf_eval(DebugSdf sdf, float3 position)
+{
+  if (sdf.type == kSdfTypeSphere)
+  {
+    return sdf_sphere(sdf.position, sdf.radius, position);
+  }
+  else
+  {
+    return -1.0;
+  }
+}
+
+ConstantBuffer<DebugSdfDrawSrt> g_DebugDrawSdfSrt : register(b0);
 
 [RootSignature(BINDLESS_ROOT_SIGNATURE)]
-float4 PS_DebugDrawLine(PSInput interp) : SV_TARGET
+float4 PS_DebugDrawSdf(in float4 position: SV_Position, in float3 ray_dir: RayDirection, in uint instance_id: InstanceID) : SV_TARGET
 {
-  return interp.color;
+  float3 ray_origin = g_ViewportBuffer.camera_world_pos.xyz;
+
+  StructuredBuffer<DebugSdf> sdf_buffer = DEREF(g_DebugDrawSdfSrt.debug_sdf_buffer);
+  DebugSdf sdf = sdf_buffer[instance_id % kDebugMaxSdfs];
+  #define kMaxSdfDistance (50)
+  #define kMinSdfDistance (0.01)
+
+  float d = 0.0;
+  for (uint i = 0; i < 64; i++)
+  {
+    d += sdf_eval(sdf, ray_origin + ray_dir * d);
+    if (d < kMinSdfDistance || d > kMaxSdfDistance)
+    {
+      break;
+    }
+  }
+
+  if (d > kMaxSdfDistance)
+  {
+    discard;
+    return 0.0;
+  }
+
+  float3 hit = ray_origin + ray_dir * d;
+  return float4(sdf.color, 1.0);
 }
