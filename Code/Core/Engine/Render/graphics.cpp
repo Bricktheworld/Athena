@@ -1032,8 +1032,10 @@ init_d3d12_descriptor_heap(const GpuDevice* device, u32 size, DescriptorHeapType
 }
 
 DescriptorPool
-init_descriptor_pool(AllocHeap heap, const GpuDevice* device, u32 size, DescriptorHeapType type)
+init_descriptor_pool(AllocHeap heap, const GpuDevice* device, u32 size, DescriptorHeapType type, u32 table_reserved)
 {
+  ASSERT_MSG_FATAL(table_reserved < size, "The number of reserved entries for the descriptor table is more than the capacity for the descriptor pool.");
+
   DescriptorPool ret = {0};
   ret.num_descriptors = size;
   ret.type = type;
@@ -1047,7 +1049,7 @@ init_descriptor_pool(AllocHeap heap, const GpuDevice* device, u32 size, Descript
     ret.gpu_start = ret.d3d12_heap->GetGPUDescriptorHandleForHeapStart();
   }
 
-  for (u32 i = 0; i < size; i++)
+  for (u32 i = table_reserved; i < size; i++)
   {
     ring_queue_push(&ret.free_descriptors, i);
   }
@@ -1106,17 +1108,35 @@ alloc_descriptor(DescriptorPool* pool)
   ring_queue_pop(&pool->free_descriptors, &index);
   u64 offset = index * pool->descriptor_size;
 
-  GpuDescriptor ret = {0};
+  GpuDescriptor ret  = {0};
   ret.cpu_handle.ptr = pool->cpu_start.ptr + offset;
-  ret.gpu_handle = None;
-  ret.index = index;
+  ret.gpu_handle     = None;
+  ret.index          = index;
+  ret.type           = pool->type;
 
   if (pool->gpu_start)
   {
     ret.gpu_handle = D3D12_GPU_DESCRIPTOR_HANDLE{unwrap(pool->gpu_start).ptr + offset};
   }
 
-  ret.type = pool->type;
+  return ret;
+}
+
+GpuDescriptor
+alloc_table_descriptor(DescriptorPool* pool, u32 idx)
+{
+  u64 offset = idx * pool->descriptor_size;
+
+  GpuDescriptor ret  = {0};
+  ret.cpu_handle.ptr = pool->cpu_start.ptr + offset;
+  ret.gpu_handle     = None;
+  ret.index          = idx;
+  ret.type           = pool->type;
+
+  if (pool->gpu_start)
+  {
+    ret.gpu_handle = D3D12_GPU_DESCRIPTOR_HANDLE{unwrap(pool->gpu_start).ptr + offset};
+  }
 
   return ret;
 }
@@ -1951,6 +1971,15 @@ set_descriptor_heaps(CmdList* cmd, Span<const DescriptorPool*> heaps)
   }
 
   cmd->d3d12_list->SetDescriptorHeaps(static_cast<u32>(heaps.size), &d3d12_heaps[0]);
+}
+
+void
+set_descriptor_table(CmdList* cmd, const DescriptorPool* heap, u32 start_idx, u32 bind_slot)
+{
+  auto gpu_handle = unwrap(heap->gpu_start);
+  gpu_handle.ptr += heap->descriptor_size * start_idx;
+  cmd->d3d12_list->SetGraphicsRootDescriptorTable(bind_slot, gpu_handle);
+  cmd->d3d12_list->SetComputeRootDescriptorTable(bind_slot, gpu_handle);
 }
 
 void

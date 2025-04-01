@@ -102,7 +102,8 @@ struct Array<typename T, 0>
 
   T& operator[](size_t index)
   {
-    ASSERT(memory != nullptr && index < size);
+    ASSERT_MSG_FATAL(memory != nullptr, "Array has a nullptr memory, did you initialize it?");
+    ASSERT_MSG_FATAL(index < size, "Array access out of bounds. Attempting to access index %llu but array only has size of %llu", index, size);
     return memory[index];
   }
 

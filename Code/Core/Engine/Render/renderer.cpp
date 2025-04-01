@@ -12,7 +12,7 @@
 #include "Core/Engine/Render/taa.h"
 #include "Core/Engine/Render/visibility_buffer.h"
 
-#include "Core/Engine/Shaders/interlop.hlsli"
+#include "Core/Engine/Shaders/root_signature.hlsli"
 
 #include "Core/Engine/Vendor/imgui/imgui.h"
 #include "Core/Engine/Vendor/imgui/imgui_impl_win32.h"
@@ -159,7 +159,7 @@ init_renderer(
 
   init_scene();
   g_DescriptorCbvSrvUavPool   = HEAP_ALLOC(DescriptorPool, g_InitHeap, 1);
-  *g_DescriptorCbvSrvUavPool  = init_descriptor_pool(g_InitHeap, device, 2048, kDescriptorHeapTypeCbvSrvUav);
+  *g_DescriptorCbvSrvUavPool  = init_descriptor_pool(g_InitHeap, device, 2048, kDescriptorHeapTypeCbvSrvUav, kGrvTemporalCount * kBackBufferCount + kGrvCount);
 
   const uint32_t kGraphMemory = MiB(32);
   g_Renderer.graph_allocator  = init_linear_allocator(HEAP_ALLOC_ALIGNED(g_InitHeap, kGraphMemory, alignof(u64)), kGraphMemory);

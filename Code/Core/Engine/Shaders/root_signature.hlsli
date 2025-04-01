@@ -3,27 +3,38 @@
 
 #include "interlop.hlsli"
 
+#define kViewportBufferSlot 0
+
+#define kSceneObjBufferSlot 0
+#define kMaterialBufferSlot 1
+
+#define kDebugArgsBufferSlot 32
+#define kDebugVertexBufferSlot 33
+#define kDebugSdfBufferSlot 34
+
 #define kAccelerationStructureSlot 1
 #define kIndexBufferSlot           2
 #define kVertexBufferSlot          3
-#define kViewportBufferSlot        4
-#define kSceneObjBufferSlot        5
-#define kMaterialBufferSlot        6
 
-#define kDebugArgsBufferSlot       7
-#define kDebugVertexBufferSlot     8
-#define kDebugSdfBufferSlot        9
+#define kGrvTemporalTableSlot     10
+#define kGrvTableSlot             11
 
 #define kDebugMaxVertices       8192
 #define kDebugMaxSdfs           8192
 
 #define kBindlessParamsSlot        b0
 
+#define kGrvCbvCount 16
+#define kGrvSrvCount 32
+#define kGrvUavCount 16
+#define kGrvTemporalCount (kGrvCbvCount)
+#define kGrvCount (kGrvSrvCount + kGrvUavCount)
+
 #ifndef __cplusplus
 
 #define BINDLESS_ROOT_SIGNATURE \
   "RootFlags(ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT | CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED)," \
-  "RootConstants(b0, num32BitConstants=27, visibility=SHADER_VISIBILITY_ALL)," \
+  "RootConstants(b0, num32BitConstants=26, visibility=SHADER_VISIBILITY_ALL)," \
   "StaticSampler(s0, filter = FILTER_MIN_MAG_LINEAR_MIP_POINT, addressU = TEXTURE_ADDRESS_WRAP,  addressV = TEXTURE_ADDRESS_WRAP,  addressW = TEXTURE_ADDRESS_WRAP,  mipLODBias = 0.0f, minLOD = 0.0f, maxLOD = 100.0f),"\
   "StaticSampler(s1, filter = FILTER_MIN_MAG_LINEAR_MIP_POINT, addressU = TEXTURE_ADDRESS_CLAMP, addressV = TEXTURE_ADDRESS_CLAMP, addressW = TEXTURE_ADDRESS_CLAMP, mipLODBias = 0.0f, minLOD = 0.0f, maxLOD = 100.0f),"\
   "SRV(t0),"\
@@ -35,19 +46,29 @@
   "UAV(u125),"\
   "UAV(u126),"\
   "UAV(u127),"\
-  "DescriptorTable(CBV(b120, numDescriptors=8), SRV(t128, numDescriptors=128), UAV(u128, numDescriptors=128))"
+  "DescriptorTable(CBV(b112, numDescriptors=16)),"\
+  "DescriptorTable(SRV(t128, numDescriptors=32), UAV(u128, numDescriptors=16))"
 
+  // These will always be static
 SamplerState                              g_BilinearSamplerWrap   : register(s0);
 SamplerState                              g_BilinearSamplerClamp  : register(s1);
+
+// Can't move these to GRVs for now because of stupid reasons
 RaytracingAccelerationStructure           g_AccelerationStructure : register(t0);
 ByteAddressBuffer                         g_IndexBuffer           : register(t1);
 StructuredBuffer<Vertex>                  g_VertexBuffer          : register(t2);
-ConstantBuffer<Viewport>                  g_ViewportBuffer        : register(b1);
-StructuredBuffer<SceneObjGpu>             g_SceneObjs             : register(t3);
-StructuredBuffer<MaterialGpu>             g_Materials             : register(t4);
-RWStructuredBuffer<MultiDrawIndirectArgs> g_DebugArgsBuffer       : register(u125);
-RWStructuredBuffer<DebugLinePoint>        g_DebugLineVertexBuffer : register(u126);
-RWStructuredBuffer<DebugSdf>              g_DebugSdfBuffer        : register(u127);
+
+////////////// GRVs //////////////
+
+StructuredBuffer<SceneObjGpu>             g_SceneObjs             : register(t128);
+StructuredBuffer<MaterialGpu>             g_Materials             : register(t129);
+
+//////////// Temporal ////////////
+ConstantBuffer<Viewport>                  g_ViewportBuffer        : register(b112);
+
+RWStructuredBuffer<MultiDrawIndirectArgs> g_DebugArgsBuffer       : register(u128);
+RWStructuredBuffer<DebugLinePoint>        g_DebugLineVertexBuffer : register(u129);
+RWStructuredBuffer<DebugSdf>              g_DebugSdfBuffer        : register(u130);
 
 #endif
 

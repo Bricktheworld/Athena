@@ -471,6 +471,7 @@ struct DescriptorPool
   Option<D3D12_GPU_DESCRIPTOR_HANDLE> gpu_start = None;
 
   u32 num_descriptors = 0;
+
   DescriptorHeapType type = kDescriptorHeapTypeCbvSrvUav;
 };
 
@@ -478,7 +479,8 @@ DescriptorPool init_descriptor_pool(
   AllocHeap heap,
   const GpuDevice* device,
   u32 size,
-  DescriptorHeapType type
+  DescriptorHeapType type,
+  u32 table_reserved = 0
 );
 
 void destroy_descriptor_pool(DescriptorPool* pool);
@@ -510,11 +512,12 @@ struct GpuDescriptor
 {
   D3D12_CPU_DESCRIPTOR_HANDLE         cpu_handle = {0};
   Option<D3D12_GPU_DESCRIPTOR_HANDLE> gpu_handle = None;
-  u32                index = 0;
-  DescriptorHeapType type  = kDescriptorHeapTypeCbvSrvUav;
+  DescriptorHeapType                  type       = kDescriptorHeapTypeCbvSrvUav;
+  u32                                 index      = 0;
 };
 
 GpuDescriptor alloc_descriptor(DescriptorPool* pool);
+GpuDescriptor alloc_table_descriptor(DescriptorPool* pool, u32 idx);
 void          free_descriptor(DescriptorPool* heap, GpuDescriptor* descriptor);
 
 GpuDescriptor alloc_descriptor(DescriptorLinearAllocator* allocator);
@@ -771,6 +774,7 @@ void swap_chain_resize(SwapChain* swap_chain, HWND window, GpuDevice* device);
 
 void set_descriptor_heaps(CmdList* cmd, const DescriptorPool* heaps, u32 num_heaps);
 void set_descriptor_heaps(CmdList* cmd, Span<const DescriptorPool*> heaps);
+void set_descriptor_table(CmdList* cmd, const DescriptorPool* heap, u32 start_idx, u32 bind_slot);
 void set_graphics_root_signature(CmdList* cmd);
 void set_compute_root_signature(CmdList* cmd);
 

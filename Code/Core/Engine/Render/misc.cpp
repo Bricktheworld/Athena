@@ -92,23 +92,11 @@ render_handler_frame_init(RenderContext* ctx, const RenderSettings& settings, co
 
   ctx->set_graphics_root_shader_resource_view(kIndexBufferSlot ,           &g_UnifiedGeometryBuffer.index_buffer);
   ctx->set_graphics_root_shader_resource_view(kVertexBufferSlot,           &g_UnifiedGeometryBuffer.vertex_buffer);
-  ctx->set_graphics_root_constant_buffer_view(kViewportBufferSlot,         params->viewport_buffer);
-  ctx->set_graphics_root_shader_resource_view(kSceneObjBufferSlot,         params->scene_obj_buffer);
-  ctx->set_graphics_root_shader_resource_view(kMaterialBufferSlot,         params->material_buffer);
   ctx->set_graphics_root_shader_resource_view(kAccelerationStructureSlot,  &g_UnifiedGeometryBuffer.bvh.top_bvh);
-  ctx->set_graphics_root_unordered_access_view(kDebugArgsBufferSlot,       params->debug_draw_args_buffer);
-  ctx->set_graphics_root_unordered_access_view(kDebugVertexBufferSlot,     params->debug_line_vert_buffer);
-  ctx->set_graphics_root_unordered_access_view(kDebugSdfBufferSlot,        params->debug_sdf_buffer);
 
   ctx->set_compute_root_shader_resource_view(kIndexBufferSlot ,           &g_UnifiedGeometryBuffer.index_buffer);
   ctx->set_compute_root_shader_resource_view(kVertexBufferSlot,           &g_UnifiedGeometryBuffer.vertex_buffer);
-  ctx->set_compute_root_constant_buffer_view(kViewportBufferSlot,         params->viewport_buffer);
-  ctx->set_compute_root_shader_resource_view(kSceneObjBufferSlot,         params->scene_obj_buffer);
-  ctx->set_compute_root_shader_resource_view(kMaterialBufferSlot,         params->material_buffer);
   ctx->set_compute_root_shader_resource_view(kAccelerationStructureSlot,  &g_UnifiedGeometryBuffer.bvh.top_bvh);
-  ctx->set_compute_root_unordered_access_view(kDebugArgsBufferSlot,       params->debug_draw_args_buffer);
-  ctx->set_compute_root_unordered_access_view(kDebugVertexBufferSlot,     params->debug_line_vert_buffer);
-  ctx->set_compute_root_unordered_access_view(kDebugSdfBufferSlot,        params->debug_sdf_buffer);
 
   // Clear/initialize the multi draw indirect args
   ctx->set_compute_pso(&params->init_debug_draw_buffers_pso);
@@ -136,12 +124,12 @@ init_frame_init_pass(AllocHeap heap, RgBuilder* builder)
   ret.debug_sdf_buffer       = rg_create_buffer(builder, "Debug SDF Buffer",            sizeof(DebugSdf)       * kDebugMaxSdfs,     sizeof(DebugSdf));
 
   RgPassBuilder*      pass       = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "Frame Init", params, &render_handler_frame_init, true);
-  params->viewport_buffer        = RgConstantBuffer<Viewport>(pass, ret.viewport_buffer);
-  params->material_buffer        = RgStructuredBuffer<MaterialGpu>(pass, ret.material_buffer);
-  params->scene_obj_buffer       = RgStructuredBuffer<SceneObjGpu>(pass, ret.scene_obj_buffer);
-  params->debug_draw_args_buffer = RgRWStructuredBuffer<MultiDrawIndirectArgs>(pass, &ret.debug_draw_args_buffer);
-  params->debug_line_vert_buffer = RgRWStructuredBuffer<DebugLinePoint>(pass, &ret.debug_line_vert_buffer);
-  params->debug_sdf_buffer       = RgRWStructuredBuffer<DebugSdf>(pass, &ret.debug_sdf_buffer);
+  params->viewport_buffer        = RgConstantBuffer<Viewport>(pass, ret.viewport_buffer, 0, kViewportBufferSlot);
+  params->material_buffer        = RgStructuredBuffer<MaterialGpu>(pass, ret.material_buffer, 0, kMaterialBufferSlot);
+  params->scene_obj_buffer       = RgStructuredBuffer<SceneObjGpu>(pass, ret.scene_obj_buffer, 0, kSceneObjBufferSlot);
+  params->debug_draw_args_buffer = RgRWStructuredBuffer<MultiDrawIndirectArgs>(pass, &ret.debug_draw_args_buffer, kDebugArgsBufferSlot);
+  params->debug_line_vert_buffer = RgRWStructuredBuffer<DebugLinePoint>(pass, &ret.debug_line_vert_buffer, kDebugVertexBufferSlot);
+  params->debug_sdf_buffer       = RgRWStructuredBuffer<DebugSdf>(pass, &ret.debug_sdf_buffer, kDebugSdfBufferSlot);
 
   params->init_debug_draw_buffers_pso = init_compute_pipeline(g_GpuDevice, get_engine_shader(kCS_DebugDrawInitMultiDrawIndirectArgs), "Debug Draw Init MultiDrawIndirect Args");
 
