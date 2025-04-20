@@ -1305,10 +1305,9 @@ RgHandle<GpuBuffer>
 rg_create_buffer(
   RgBuilder* builder,
   const char* name,
-  u32 size,
-  u32 stride
+  u32 size
 ) {
-  return rg_create_buffer_ex(builder, name, size, stride, 0);
+  return rg_create_buffer_ex(builder, name, size, 0);
 }
 
 RgHandle<GpuBuffer>
@@ -1316,8 +1315,7 @@ rg_create_upload_buffer(
   RgBuilder* builder,
   const char* name,
   GpuHeapLocation location,
-  u32 size,
-  u32 stride
+  u32 size
 ) {
   ResourceHandle resource_handle      = {0};
   resource_handle.id                  = handle_index(builder);
@@ -1331,7 +1329,6 @@ rg_create_upload_buffer(
   desc->type                          = resource_handle.type;
   desc->temporal_lifetime             = resource_handle.temporal_lifetime;
   desc->buffer_desc.size              = size;
-  desc->buffer_desc.stride            = stride == 0 ? size : stride;
 
   ASSERT_MSG_FATAL(location == kGpuHeapSysRAMCpuToGpu || location == kGpuHeapVRAMCpuToGpu, "Attempting to create a render graph upload buffer that isn't actually located in an upload heap. This is probably not what you intended to do. Use either kGpuHeapSysRAMCpuToGpu or kGpuHeapVRAMCpuToGpu for the location.");
   desc->buffer_desc.heap_location     = location;
@@ -1345,7 +1342,6 @@ rg_create_buffer_ex(
   RgBuilder* builder,
   const char* name,
   u32 size,
-  u32 stride,
   u8 temporal_lifetime
 ) {
   ASSERT(temporal_lifetime == kInfiniteLifetime || temporal_lifetime <= kMaxTemporalLifetime);
@@ -1361,7 +1357,6 @@ rg_create_buffer_ex(
   desc->type                          = resource_handle.type;
   desc->temporal_lifetime             = resource_handle.temporal_lifetime;
   desc->buffer_desc.size              = size;
-  desc->buffer_desc.stride            = stride;
   desc->buffer_desc.heap_location     = kGpuHeapGpuOnly;
 
   RgHandle<GpuBuffer> ret = {resource_handle.id, resource_handle.version, resource_handle.temporal_lifetime};

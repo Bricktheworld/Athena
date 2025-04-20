@@ -68,6 +68,7 @@ def main():
           '-Qembed_debug',
           '-HV',
           '2021',
+          '-enable-16bit-types',
           '-Fh',
           tmp.name,
           '-Vn',

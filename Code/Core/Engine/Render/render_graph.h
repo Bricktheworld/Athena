@@ -57,7 +57,6 @@ struct TransientResourceDesc
     struct BufferDesc
     {
       u32         size;
-      u32         stride;
       GpuHeapLocation heap_location;
     } buffer_desc;
   };
@@ -425,23 +424,20 @@ RgHandle<GpuTexture> rg_create_texture_array_ex(
 RgHandle<GpuBuffer> rg_create_buffer(
   RgBuilder* builder,
   const char* name,
-  u32 size,
-  u32 stride
+  u32 size
 );
 
 RgHandle<GpuBuffer> rg_create_upload_buffer(
   RgBuilder* builder,
   const char* name,
   GpuHeapLocation location,
-  u32 size,
-  u32 stride = 0
+  u32 size
 );
 
 RgHandle<GpuBuffer> rg_create_buffer_ex(
   RgBuilder* builder,
   const char* name,
   u32 size,
-  u32 stride,
   u8 temporal_lifetime
 );
 

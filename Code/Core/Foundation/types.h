@@ -18,6 +18,8 @@ typedef uint16_t u16;
 typedef uint32_t u32;
 typedef uint64_t u64;
 
+// Dirty hack to get fp16 working c++ side (completely opaque, just used for alias to hlsl side interop)
+enum struct f16 : u16 {};
 typedef float f32;
 typedef double f64;
 

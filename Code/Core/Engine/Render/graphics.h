@@ -167,28 +167,49 @@ template <typename T>
 inline GpuFormat gpu_format_from_type();
 
 template <>
-inline GpuFormat gpu_format_from_type<float>()  { return kGpuFormatR32Float;    }
+inline GpuFormat gpu_format_from_type<float>()    { return kGpuFormatR32Float;    }
 
 template <>
-inline GpuFormat gpu_format_from_type<float2>() { return kGpuFormatRG32Float;   }
+inline GpuFormat gpu_format_from_type<f16>()      { return kGpuFormatR16Float;    }
 
 template <>
-inline GpuFormat gpu_format_from_type<float3>() { return kGpuFormatRGB32Float;  }
+inline GpuFormat gpu_format_from_type<float2>()   { return kGpuFormatRG32Float;   }
 
 template <>
-inline GpuFormat gpu_format_from_type<float4>() { return kGpuFormatRGBA32Float; }
+inline GpuFormat gpu_format_from_type<float3>()   { return kGpuFormatRGB32Float;  }
 
 template <>
-inline GpuFormat gpu_format_from_type<uint>()   { return kGpuFormatR32Uint;     }
+inline GpuFormat gpu_format_from_type<float4>()   { return kGpuFormatRGBA32Float; }
 
 template <>
-inline GpuFormat gpu_format_from_type<uint2>()  { return kGpuFormatRG32Uint;    }
+inline GpuFormat gpu_format_from_type<u8>()       { return kGpuFormatR8Uint;      }
 
 template <>
-inline GpuFormat gpu_format_from_type<uint3>()  { return kGpuFormatRGB32Uint;   }
+inline GpuFormat gpu_format_from_type<Vec2u8>()   { return kGpuFormatRG8Uint;     }
 
 template <>
-inline GpuFormat gpu_format_from_type<uint4>()  { return kGpuFormatRGBA32Uint;  }
+inline GpuFormat gpu_format_from_type<Vec4u8>()   { return kGpuFormatRGBA8Uint;   }
+
+template <>
+inline GpuFormat gpu_format_from_type<u16>()      { return kGpuFormatR16Uint;     }
+
+template <>
+inline GpuFormat gpu_format_from_type<Vec2u16>()  { return kGpuFormatRG16Uint;    }
+
+template <>
+inline GpuFormat gpu_format_from_type<Vec4u16>()  { return kGpuFormatRGBA16Uint;  }
+
+template <>
+inline GpuFormat gpu_format_from_type<uint>()     { return kGpuFormatR32Uint;     }
+
+template <>
+inline GpuFormat gpu_format_from_type<uint2>()    { return kGpuFormatRG32Uint;    }
+
+template <>
+inline GpuFormat gpu_format_from_type<uint3>()    { return kGpuFormatRGB32Uint;   }
+
+template <>
+inline GpuFormat gpu_format_from_type<uint4>()    { return kGpuFormatRGBA32Uint;  }
 
 struct GpuFence
 {

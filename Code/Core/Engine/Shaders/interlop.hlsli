@@ -2,32 +2,44 @@
 #define __INTERLOP_HLSLI__
 
 #if defined(__cplusplus)
-typedef Mat4  float4x4;
-typedef Vec2  float2;
-typedef Vec3  float3;
-typedef Vec4  float4;
-typedef UVec2 uint2;
-typedef UVec3 uint3;
-typedef UVec4 uint4;
-typedef SVec2 int2;
-typedef SVec3 int3;
-typedef SVec4 int4;
-typedef u32   uint;
+typedef Mat4    float4x4;
+typedef Vec2    float2;
+typedef Vec3    float3;
+typedef Vec4    float4;
+typedef UVec2   uint2;
+typedef UVec3   uint3;
+typedef UVec4   uint4;
+typedef SVec2   int2;
+typedef SVec3   int3;
+typedef SVec4   int4;
+typedef u32     uint;
+
+typedef f16     float16_t;
+typedef f16     half;
+typedef f32     float32_t;
+
+typedef Vec2f16 half2;
+typedef Vec3f16 half3;
+typedef Vec4f16 half4;
 #else
-typedef float4x4 Mat4;
-typedef float2   Vec2;
-typedef float3   Vec3;
-typedef float4   Vec4;
-typedef float4   Quat;
-typedef uint2    UVec2;
-typedef uint3    UVec3;
-typedef uint4    UVec4;
-typedef int2     SVec2;
-typedef int3     SVec3;
-typedef int4     SVec4;
-typedef uint     u32;
-typedef int      s32;
-typedef float    f32;
+typedef float4x4  Mat4;
+typedef float2    Vec2;
+typedef float3    Vec3;
+typedef float4    Vec4;
+typedef float4    Quat;
+typedef uint2     UVec2;
+typedef uint3     UVec3;
+typedef uint4     UVec4;
+typedef int2      SVec2;
+typedef int3      SVec3;
+typedef int4      SVec4;
+typedef uint      u32;
+typedef int       s32;
+typedef float     f32;
+typedef float16_t f16;
+typedef half2     Vec2f16;
+typedef half3     Vec3f16;
+typedef half4     Vec4f16;
 
 #define kQNaN (asfloat(0x7FC00000))
 #endif
@@ -210,6 +222,7 @@ struct Viewport
   Mat4 prev_view_proj;
   Mat4 inverse_view_proj;
   Vec4 camera_world_pos;
+  Vec4 prev_camera_world_pos;
   Vec2 taa_jitter;
   Vec2 __pad__;
   DirectionalLight directional_light;
@@ -330,6 +343,20 @@ struct DoFCompositeSrt
 #define kProbeNumIrradianceTexels 16
 #define kProbeNumDistanceInteriorTexels 14
 #define kProbeNumDistanceTexels 16
+
+static const UVec3 kProbeCountPerClipmap = UVec3(16, 16, 16);
+static const u32   kProbeClipmapCount    = 3;
+static const u32   kProbeMaxActiveCount  = kProbeCountPerClipmap.x * kProbeCountPerClipmap.y * kProbeCountPerClipmap.z * kProbeClipmapCount;
+static const u32   kProbeMaxRayCount     = 64 * kProbeMaxActiveCount; // 32768; // This is 8 rays per probe in a 16 x 16 x 16 grid, choose wisely!
+
+struct GiProbeRayAllocSrt
+{
+  RWBufferPtr<half> gi_probe_radiance;
+};
+
+struct GiProbeRayRadiance
+{
+};
 
 struct DDGIVolDesc
 {

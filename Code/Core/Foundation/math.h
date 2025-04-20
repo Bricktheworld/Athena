@@ -7,236 +7,99 @@
 static constexpr f32 kPI  = 3.1415926535897932f;
 static constexpr f32 k2PI = 6.2831853071795864f;
 
-struct UVec2
+template <typename T>
+struct Vec2T
 {
-  UVec2() : x(0u), y(0u) {}
-  UVec2(u32 all) : x(all), y(all) {}
-  UVec2(u32 x, u32 y) : x(x), y(y) {}
+  Vec2T() : x(0u), y(0u) {}
+  Vec2T(T all) : x(all), y(all) {}
+  Vec2T(T x, T y) : x(x), y(y) {}
 
   struct
   {
     union
     {
-      u32 x;
-      u32 r;
+      T x;
+      T r;
     };
     union
     {
-      u32 y;
-      u32 g;
+      T y;
+      T g;
     };
   };
 };
 
-struct UVec3
+template <typename T>
+struct Vec3T
 {
-  UVec3() : x(0u), y(0u), z(0u) {}
-  UVec3(u32 all) : x(all), y(all), z(all) {}
-  UVec3(u32 x, u32 y, u32 z) : x(x), y(y), z(z) {}
-  UVec3(UVec2 v, u32 z = 0u) : x(v.x), y(v.y), z(z) {}
+  Vec3T() : x(0), y(0), z(0) {}
+  Vec3T(T all) : x(all), y(all), z(all) {}
+  Vec3T(T x, T y, T z) : x(x), y(y), z(z) {}
+  Vec3T(Vec2T<T> v, T z = 0) : x(v.x), y(v.y), z(z) {}
 
   struct
   {
     union
     {
-      u32 x;
-      u32 r;
+      T x;
+      T r;
     };
     union
     {
-      u32 y;
-      u32 g;
+      T y;
+      T g;
     };
     union
     {
-      u32 z;
-      u32 b;
+      T z;
+      T b;
     };
   };
 };
 
-struct UVec4
+template <typename T>
+struct Vec4T
 {
-  UVec4() : x(0u), y(0u), z(0u), w(0u) {}
-  UVec4(u32 all) : x(all), y(all), z(all), w(all) {}
-  UVec4(u32 x, u32 y, u32 z, u32 w) : x(x), y(y), z(z), w(w) {}
-  UVec4(UVec2 v, u32 z = 0u, u32 w = 0u) : x(v.x), y(v.y), z(z), w(w) {}
-  UVec4(UVec3 v, u32 w = 0u) : x(v.x), y(v.y), z(v.z), w(w) {}
-
-  u32 x;
-  u32 y;
-  u32 z;
-  u32 w;
+  Vec4T() : x(0), y(0), z(0), w(0) {}
+  Vec4T(T all) : x(all), y(all), z(all), w(all) {}
+  Vec4T(T x, T y, T z, T w) : x(x), y(y), z(z), w(w) {}
+  Vec4T(Vec2T<T> v, T z = 0, T w = 0) : x(v.x), y(v.y), z(z), w(w) {}
+  Vec4T(Vec3T<T> v, T w = 0) : x(v.x), y(v.y), z(v.z), w(w) {}
 
   struct
   {
     union
     {
-      u32 x;
-      u32 r;
+      T x;
+      T r;
     };
     union
     {
-      u32 y;
-      u32 g;
+      T y;
+      T g;
     };
     union
     {
-      u32 z;
-      u32 b;
+      T z;
+      T b;
     };
     union
     {
-      u32 w;
-      u32 a;
+      T w;
+      T a;
     };
   };
 };
 
-struct SVec2
+template <>
+struct alignas(16) Vec4T<f32>
 {
-  SVec2() : x(0), y(0) {}
-  SVec2(s32 all) : x(all), y(all) {}
-  SVec2(s32 x, s32 y) : x(x), y(y) {}
-
-  struct
-  {
-    union
-    {
-      s32 x;
-      s32 r;
-    };
-    union
-    {
-      s32 y;
-      s32 g;
-    };
-  };
-};
-
-struct SVec3
-{
-  SVec3() : x(0), y(0), z(0) {}
-  SVec3(s32 all) : x(all), y(all), z(all) {}
-  SVec3(s32 x, s32 y, s32 z) : x(x), y(y), z(z) {}
-  SVec3(UVec2 v, s32 z = 0) : x(v.x), y(v.y), z(z) {}
-
-  struct
-  {
-    union
-    {
-      s32 x;
-      s32 r;
-    };
-    union
-    {
-      s32 y;
-      s32 g;
-    };
-    union
-    {
-      s32 z;
-      s32 b;
-    };
-  };
-};
-
-struct SVec4
-{
-  SVec4() : x(0), y(0), z(0), w(0) {}
-  SVec4(s32 all) : x(all), y(all), z(all), w(all) {}
-  SVec4(s32 x, s32 y, s32 z, s32 w) : x(x), y(y), z(z), w(w) {}
-  SVec4(SVec2 v, s32 z = 0, s32 w = 0) : x(v.x), y(v.y), z(z), w(w) {}
-  SVec4(SVec3 v, s32 w = 0) : x(v.x), y(v.y), z(v.z), w(w) {}
-
-  s32 x;
-  s32 y;
-  s32 z;
-  s32 w;
-
-  struct
-  {
-    union
-    {
-      s32 x;
-      s32 r;
-    };
-    union
-    {
-      s32 y;
-      s32 g;
-    };
-    union
-    {
-      s32 z;
-      s32 b;
-    };
-    union
-    {
-      s32 w;
-      s32 a;
-    };
-  };
-};
-
-inline s64
-modulo(s64 x, s64 mod)
-{
-  return (mod + (x % mod)) % mod;
-}
-
-struct Vec2
-{
-  Vec2() : x(0.0f), y(0.0f) {}
-  Vec2(f32 all) : x(all), y(all) {}
-  Vec2(f32 x, f32 y) : x(x), y(y) {}
-  struct
-  {
-    union
-    {
-      f32 x;
-      f32 r;
-    };
-    union
-    {
-      f32 y;
-      f32 g;
-    };
-  };
-};
-
-struct Vec3
-{
-  Vec3() : x(0), y(0), z(0) {}
-  Vec3(f32 all) : x(all), y(all), z(all) {}
-  Vec3(f32 x, f32 y, f32 z) : x(x), y(y), z(z) {}
-  Vec3(Vec2 v, f32 z = 0.0) : x(v.x), y(v.y), z(z) {}
-
-  union
-  {
-    f32 x;
-    f32 r;
-  };
-  union
-  {
-    f32 y;
-    f32 g;
-  };
-  union
-  {
-    f32 z;
-    f32 b;
-  };
-};
-
-struct alignas(16) Vec4
-{
-  Vec4() : avx(_mm_setzero_ps()) {}
-  Vec4(f32 all) : avx(_mm_set_ps(all, all, all, all)) {}
-  Vec4(f32 x, f32 y, f32 z, f32 w) : avx(_mm_set_ps(w, z, y, x)) {}
-  Vec4(Vec2 v, f32 z = 0.0, f32 w = 1.0) : avx(_mm_set_ps(w, z, v.y, v.x)) {}
-  Vec4(Vec3 v, f32 w = 1.0) : avx(_mm_set_ps(w, v.z, v.y, v.x)) {}
-  Vec4(f32x4 val) : avx(val) {}
+  Vec4T<f32>() : avx(_mm_setzero_ps()) {}
+  Vec4T<f32>(f32 all) : avx(_mm_set_ps(all, all, all, all)) {}
+  Vec4T<f32>(f32 x, f32 y, f32 z, f32 w) : avx(_mm_set_ps(w, z, y, x)) {}
+  Vec4T<f32>(Vec2T<f32> v, f32 z = 0.0, f32 w = 1.0) : avx(_mm_set_ps(w, z, v.y, v.x)) {}
+  Vec4T<f32>(Vec3T<f32> v, f32 w = 1.0) : avx(_mm_set_ps(w, v.z, v.y, v.x)) {}
+  Vec4T<f32>(f32x4 val) : avx(val) {}
 
   operator f32x4() const
   {
@@ -272,326 +135,224 @@ struct alignas(16) Vec4
   };
 };
 
+typedef Vec2T<u8>  Vec2u8;
+typedef Vec3T<u8>  Vec3u8;
+typedef Vec4T<u8>  Vec4u8;
+static_assert(sizeof(Vec2u8) == sizeof(u8) * 2);
+static_assert(sizeof(Vec3u8) == sizeof(u8) * 3);
+static_assert(sizeof(Vec4u8) == sizeof(u8) * 4);
+
+typedef Vec2T<u16> Vec2u16;
+typedef Vec3T<u16> Vec3u16;
+typedef Vec4T<u16> Vec4u16;
+static_assert(sizeof(Vec2u16) == sizeof(u16) * 2);
+static_assert(sizeof(Vec3u16) == sizeof(u16) * 3);
+static_assert(sizeof(Vec4u16) == sizeof(u16) * 4);
+
+typedef Vec2T<u32> Vec2u32;
+typedef Vec3T<u32> Vec3u32;
+typedef Vec4T<u32> Vec4u32;
+static_assert(sizeof(Vec2u32) == sizeof(u32) * 2);
+static_assert(sizeof(Vec3u32) == sizeof(u32) * 3);
+static_assert(sizeof(Vec4u32) == sizeof(u32) * 4);
+
+typedef Vec2u32 UVec2;
+typedef Vec3u32 UVec3;
+typedef Vec4u32 UVec4;
+
+typedef Vec2T<s8>  Vec2s8;
+typedef Vec3T<s8>  Vec3s8;
+typedef Vec4T<s8>  Vec4s8;
+static_assert(sizeof(Vec2s8) == sizeof(s8) * 2);
+static_assert(sizeof(Vec3s8) == sizeof(s8) * 3);
+static_assert(sizeof(Vec4s8) == sizeof(s8) * 4);
+
+typedef Vec2T<s16> Vec2s16;
+typedef Vec3T<s16> Vec3s16;
+typedef Vec4T<s16> Vec4s16;
+static_assert(sizeof(Vec2s16) == sizeof(s16) * 2);
+static_assert(sizeof(Vec3s16) == sizeof(s16) * 3);
+static_assert(sizeof(Vec4s16) == sizeof(s16) * 4);
+
+typedef Vec2T<s32> Vec2s32;
+typedef Vec3T<s32> Vec3s32;
+typedef Vec4T<s32> Vec4s32;
+static_assert(sizeof(Vec2s32) == sizeof(s32) * 2);
+static_assert(sizeof(Vec3s32) == sizeof(s32) * 3);
+static_assert(sizeof(Vec4s32) == sizeof(s32) * 4);
+
+typedef Vec2s32 SVec2;
+typedef Vec3s32 SVec3;
+typedef Vec4s32 SVec4;
+
+typedef Vec2T<f16> Vec2f16;
+typedef Vec3T<f16> Vec3f16;
+typedef Vec4T<f16> Vec4f16;
+static_assert(sizeof(Vec2f16) == sizeof(f16) * 2);
+static_assert(sizeof(Vec3f16) == sizeof(f16) * 3);
+static_assert(sizeof(Vec4f16) == sizeof(f16) * 4);
+
+typedef Vec2T<f32> Vec2f32;
+typedef Vec3T<f32> Vec3f32;
+typedef Vec4T<f32> Vec4f32;
+
+typedef Vec2T<f32> Vec2;
+typedef Vec3T<f32> Vec3;
+typedef Vec4T<f32> Vec4;
+
+inline s64
+modulo(s64 x, s64 mod)
+{
+  return (mod + (x % mod)) % mod;
+}
+
 ////////////////////////////////////////////////////////////////
 /// Vec2 ops
 
-inline Vec2 pass_by_register
-operator+(Vec2 a, Vec2 b)
+template <typename T>
+inline Vec2T<T>
+operator+(Vec2T<T> a, Vec2T<T> b)
 {
-  Vec2 ret;
+  Vec2T<T> ret;
   ret.x = a.x + b.x;
   ret.y = a.y + b.y;
   return ret;
 }
 
-inline Vec2 pass_by_register
-operator-(Vec2 a, Vec2 b)
+template <typename T>
+inline Vec2T<T> pass_by_register
+operator-(Vec2T<T> a, Vec2T<T> b)
 {
-  Vec2 ret;
+  Vec2T<T> ret;
   ret.x = a.x - b.x;
   ret.y = a.y - b.y;
   return ret;
 }
 
-inline Vec2& pass_by_register
-operator-(Vec2& a)
+template <typename T>
+inline Vec2T<T>& pass_by_register
+operator-(Vec2T<T>& a)
 {
   a.x = -a.x;
   a.y = -a.y;
   return a;
 }
 
-inline Vec2& pass_by_register
-operator+=(Vec2& a, Vec2 b)
+template <typename T>
+inline Vec2T<T>& pass_by_register
+operator+=(Vec2T<T>& a, Vec2T<T> b)
 {
   a.x += b.x;
   a.y += b.y;
   return a;
 }
 
-inline Vec2& pass_by_register
-operator-=(Vec2& a, Vec2 b)
+template <typename T>
+inline Vec2T<T>& pass_by_register
+operator-=(Vec2T<T>& a, Vec2T<T> b)
 {
   a.x -= b.x;
   a.y -= b.y;
   return a;
 }
 
-inline Vec2 pass_by_register
-operator*(Vec2 a, f32 scale)
+template <typename T>
+inline Vec2T<T> pass_by_register
+operator*(Vec2T<T> a, T scale)
 {
-  Vec2 ret;
+  Vec2T<T> ret;
   ret.x = a.x * scale;
   ret.y = a.y * scale;
   return ret;
 }
 
-inline Vec2& pass_by_register
-operator*=(Vec2& a, f32 scale)
+template <typename T>
+inline Vec2T<T>& pass_by_register
+operator*=(Vec2T<T>& a, T scale)
 {
   a.x *= scale;
   a.y *= scale;
   return a;
 }
 
-inline Vec2 pass_by_register
-operator/(Vec2 a, f32 scale)
+template <typename T>
+inline Vec2T<T> pass_by_register
+operator/(Vec2T<T> a, T scale)
 {
-  Vec2 ret;
+  Vec2T<T> ret;
   ret.x = a.x / scale;
   ret.y = a.y / scale;
   return ret;
 }
 
-inline Vec2& pass_by_register
-operator/=(Vec2& a, f32 scale)
+template <typename T>
+inline Vec2T<T>& pass_by_register
+operator/=(Vec2T<T>& a, T scale)
 {
   a.x /= scale;
   a.y /= scale;
   return a;
 }
 
-inline Vec2 pass_by_register
-hadamard_f32(Vec2 a, Vec2 b)
+template <typename T>
+inline Vec2T<T>
+hadamard(Vec2T<T> a, Vec2T<T> b)
 {
-  return Vec2(a.x * b.x, a.y * b.y);
+  return Vec2T<T>(a.x * b.x, a.y * b.y);
 }
 
-inline f32 pass_by_register
-dot_f32(Vec2 a, Vec2 b)
+template <typename T>
+inline T
+dot(Vec2T<T> a, Vec2T<T> b)
 {
-  Vec2 res = hadamard_f32(a, b);
+  Vec2T<T> res = hadamard(a, b);
 
   return res.x + res.y;
 }
 
-inline f32 pass_by_register 
-length_f32(Vec2 v)
+template <typename T>
+inline f32
+length(Vec2T<T> v)
 {
-  return sqrt(dot_f32(v, v));
+  return sqrt((f32)dot(v, v));
 }
 
-inline Vec2 pass_by_register
-normalize_f32(Vec2 v)
+template <typename T>
+inline Vec2f32
+normalize(Vec2T<T> v)
 {
-  return v / length_f32(v);
-}
-
-////////////////////////////////////////////////////////////////
-/// UVec2 ops
-
-inline UVec2 pass_by_register
-operator+(UVec2 a, UVec2 b)
-{
-  UVec2 ret;
-  ret.x = a.x + b.x;
-  ret.y = a.y + b.y;
-  return ret;
-}
-
-inline UVec2 pass_by_register
-operator-(UVec2 a, UVec2 b)
-{
-  UVec2 ret;
-  ret.x = a.x - b.x;
-  ret.y = a.y - b.y;
-  return ret;
-}
-
-inline UVec2& pass_by_register
-operator+=(UVec2& a, UVec2 b)
-{
-  a.x += b.x;
-  a.y += b.y;
-  return a;
-}
-
-inline UVec2& pass_by_register
-operator-=(UVec2& a, UVec2 b)
-{
-  a.x -= b.x;
-  a.y -= b.y;
-  return a;
-}
-
-inline UVec2 pass_by_register
-operator*(UVec2 a, u32 scale)
-{
-  UVec2 ret;
-  ret.x = a.x * scale;
-  ret.y = a.y * scale;
-  return ret;
-}
-
-inline UVec2& pass_by_register
-operator*=(UVec2& a, u32 scale)
-{
-  a.x *= scale;
-  a.y *= scale;
-  return a;
-}
-
-inline UVec2 pass_by_register
-operator/(UVec2 a, u32 scale)
-{
-  UVec2 ret;
-  ret.x = a.x / scale;
-  ret.y = a.y / scale;
-  return ret;
-}
-
-inline UVec2& pass_by_register
-operator/=(UVec2& a, u32 scale)
-{
-  a.x /= scale;
-  a.y /= scale;
-  return a;
-}
-
-inline UVec2 pass_by_register
-hadamard_u32(UVec2 a, UVec2 b)
-{
-  return UVec2(a.x * b.x, a.y * b.y);
-}
-
-inline u32 pass_by_register
-dot_u32(UVec2 a, UVec2 b)
-{
-  UVec2 res = hadamard_u32(a, b);
-
-  return res.x + res.y;
-}
-
-inline f32 pass_by_register 
-length_u32(UVec2 v)
-{
-  return sqrt((f32)dot_u32(v, v));
-}
-
-////////////////////////////////////////////////////////////////
-/// SVec2 ops
-
-inline SVec2 pass_by_register
-operator+(SVec2 a, SVec2 b)
-{
-  SVec2 ret;
-  ret.x = a.x + b.x;
-  ret.y = a.y + b.y;
-  return ret;
-}
-
-inline SVec2 pass_by_register
-operator-(SVec2 a, SVec2 b)
-{
-  SVec2 ret;
-  ret.x = a.x - b.x;
-  ret.y = a.y - b.y;
-  return ret;
-}
-
-inline SVec2& pass_by_register
-operator-(SVec2& a)
-{
-  a.x = -a.x;
-  a.y = -a.y;
-  return a;
-}
-
-inline SVec2& pass_by_register
-operator+=(SVec2& a, SVec2 b)
-{
-  a.x += b.x;
-  a.y += b.y;
-  return a;
-}
-
-inline SVec2& pass_by_register
-operator-=(SVec2& a, SVec2 b)
-{
-  a.x -= b.x;
-  a.y -= b.y;
-  return a;
-}
-
-inline SVec2 pass_by_register
-operator*(SVec2 a, s32 scale)
-{
-  SVec2 ret;
-  ret.x = a.x * scale;
-  ret.y = a.y * scale;
-  return ret;
-}
-
-inline SVec2& pass_by_register
-operator*=(SVec2& a, s32 scale)
-{
-  a.x *= scale;
-  a.y *= scale;
-  return a;
-}
-
-inline SVec2 pass_by_register
-operator/(SVec2 a, s32 scale)
-{
-  SVec2 ret;
-  ret.x = a.x / scale;
-  ret.y = a.y / scale;
-  return ret;
-}
-
-inline SVec2& pass_by_register
-operator/=(SVec2& a, s32 scale)
-{
-  a.x /= scale;
-  a.y /= scale;
-  return a;
-}
-
-inline SVec2 pass_by_register
-hadamard_s32(SVec2 a, SVec2 b)
-{
-  return SVec2(a.x * b.x, a.y * b.y);
-}
-
-inline s32 pass_by_register
-dot_s32(SVec2 a, SVec2 b)
-{
-  SVec2 res = hadamard_s32(a, b);
-
-  return res.x + res.y;
-}
-
-inline f32 pass_by_register 
-length_s32(SVec2 v)
-{
-  return sqrt((f32)dot_s32(v, v));
+  Vec2f32 v_f32(v.x, v.y, v.z);
+  return v_f32 / length(v_f32);
 }
 
 ////////////////////////////////////////////////////////////////
 /// Vec3 ops
 
-inline Vec3 pass_by_register
-operator+(Vec3 a, Vec3 b)
+template <typename T>
+inline Vec3T<T>
+operator+(Vec3T<T> a, Vec3T<T> b)
 {
-  Vec3 ret;
+  Vec3T<T> ret;
   ret.x = a.x + b.x;
   ret.y = a.y + b.y;
   ret.z = a.z + b.z;
   return ret;
 }
 
-inline Vec3 pass_by_register
-operator-(Vec3 a, Vec3 b)
+template <typename T>
+inline Vec3T<T>
+operator-(Vec3T<T> a, Vec3T<T> b)
 {
-  Vec3 ret;
+  Vec3T ret;
   ret.x = a.x - b.x;
   ret.y = a.y - b.y;
   ret.z = a.z - b.z;
   return ret;
 }
 
-inline Vec3& pass_by_register
-operator-(Vec3& a)
+template <typename T>
+inline Vec3T<T>&
+operator-(Vec3T<T>& a)
 {
   a.x = -a.x;
   a.y = -a.y;
@@ -599,8 +360,9 @@ operator-(Vec3& a)
   return a;
 }
 
-inline Vec3& pass_by_register
-operator+=(Vec3& a, Vec3 b)
+template <typename T>
+inline Vec3T<T>&
+operator+=(Vec3T<T>& a, Vec3T<T> b)
 {
   a.x += b.x;
   a.y += b.y;
@@ -608,8 +370,9 @@ operator+=(Vec3& a, Vec3 b)
   return a;
 }
 
-inline Vec3& pass_by_register
-operator-=(Vec3& a, Vec3 b)
+template <typename T>
+inline Vec3T<T>&
+operator-=(Vec3T<T>& a, Vec3T<T> b)
 {
   a.x -= b.x;
   a.y -= b.y;
@@ -617,18 +380,20 @@ operator-=(Vec3& a, Vec3 b)
   return a;
 }
 
-inline Vec3 pass_by_register
-operator*(Vec3 a, f32 scale)
+template <typename T>
+inline Vec3T<T>
+operator*(Vec3T<T> a, T scale)
 {
-  Vec3 ret;
+  Vec3T<T> ret;
   ret.x = a.x * scale;
   ret.y = a.y * scale;
   ret.z = a.z * scale;
   return ret;
 }
 
-inline Vec3& pass_by_register
-operator*=(Vec3& a, f32 scale)
+template <typename T>
+inline Vec3T<T>&
+operator*=(Vec3T<T>& a, T scale)
 {
   a.x *= scale;
   a.y *= scale;
@@ -636,18 +401,20 @@ operator*=(Vec3& a, f32 scale)
   return a;
 }
 
-inline Vec3 pass_by_register
-operator/(Vec3 a, f32 scale)
+template <typename T>
+inline Vec3T<T>
+operator/(Vec3T<T> a, T scale)
 {
-  Vec3 ret;
+  Vec3T<T> ret;
   ret.x = a.x / scale;
   ret.y = a.y / scale;
   ret.z = a.z / scale;
   return ret;
 }
 
-inline Vec3& pass_by_register
-operator/=(Vec3& a, f32 scale)
+template <typename T>
+inline Vec3T<T>&
+operator/=(Vec3T<T>& a, T scale)
 {
   a.x /= scale;
   a.y /= scale;
@@ -655,238 +422,173 @@ operator/=(Vec3& a, f32 scale)
   return a;
 }
 
-inline Vec3 pass_by_register
-hadamard_f32(Vec3 a, Vec3 b)
+template <typename T>
+inline Vec3T<T>
+hadamard(Vec3T<T> a, Vec3T<T> b)
 {
-  return Vec3(a.x * b.x, a.y * b.y, a.z * b.z);
+  return Vec3T<T>(a.x * b.x, a.y * b.y, a.z * b.z);
 }
 
-inline f32 pass_by_register
-dot_f32(Vec3 a, Vec3 b)
+template <typename T>
+inline T
+dot(Vec3T<T> a, Vec3T<T> b)
 {
-  Vec3 res = hadamard_f32(a, b);
+  Vec3T<T> res = hadamard(a, b);
 
   return res.x + res.y + res.z;
 }
 
-inline f32 pass_by_register 
-length_f32(Vec3 v)
+template <typename T>
+inline f32
+length(Vec3T<T> v)
 {
-  return sqrt(dot_f32(v, v));
+  return sqrt((f32)dot(v, v));
 }
 
-inline Vec3 pass_by_register
-normalize_f32(Vec3 v)
+template <typename T>
+inline Vec3f32
+normalize(Vec3T<T> v)
 {
-  return v / length_f32(v);
+  Vec3f32 v_f32(v.x, v.y, v.z);
+  return v_f32 / length(v_f32);
 }
 
 
 ////////////////////////////////////////////////////////////////
-/// UVec3 ops
+/// Vec4 ops
 
-inline UVec3 pass_by_register
-operator+(UVec3 a, UVec3 b)
+template <typename T>
+inline Vec4T<T>
+operator+(Vec4T<T> a, Vec4T<T> b)
 {
-  UVec3 ret;
+  Vec4T<T> ret;
   ret.x = a.x + b.x;
   ret.y = a.y + b.y;
   ret.z = a.z + b.z;
+  ret.w = a.w + b.w;
   return ret;
 }
 
-inline UVec3 pass_by_register
-operator-(UVec3 a, UVec3 b)
+template <typename T>
+inline Vec4T<T>
+operator-(Vec4T<T> a, Vec4T<T> b)
 {
-  UVec3 ret;
+  Vec4T ret;
   ret.x = a.x - b.x;
   ret.y = a.y - b.y;
   ret.z = a.z - b.z;
+  ret.w = a.w - b.w;
   return ret;
 }
 
-inline UVec3& pass_by_register
-operator+=(UVec3& a, UVec3 b)
-{
-  a.x += b.x;
-  a.y += b.y;
-  a.z += b.z;
-  return a;
-}
-
-inline UVec3& pass_by_register
-operator-=(UVec3& a, UVec3 b)
-{
-  a.x -= b.x;
-  a.y -= b.y;
-  a.z -= b.z;
-  return a;
-}
-
-inline UVec3 pass_by_register
-operator*(UVec3 a, u32 scale)
-{
-  UVec3 ret;
-  ret.x = a.x * scale;
-  ret.y = a.y * scale;
-  ret.z = a.z * scale;
-  return ret;
-}
-
-inline UVec3& pass_by_register
-operator*=(UVec3& a, u32 scale)
-{
-  a.x *= scale;
-  a.y *= scale;
-  a.z *= scale;
-  return a;
-}
-
-inline UVec3 pass_by_register
-operator/(UVec3 a, u32 scale)
-{
-  UVec3 ret;
-  ret.x = a.x / scale;
-  ret.y = a.y / scale;
-  ret.z = a.z / scale;
-  return ret;
-}
-
-inline UVec3& pass_by_register
-operator/=(UVec3& a, u32 scale)
-{
-  a.x /= scale;
-  a.y /= scale;
-  a.z /= scale;
-  return a;
-}
-
-inline UVec3 pass_by_register
-hadamard_u32(UVec3 a, UVec3 b)
-{
-  return UVec3(a.x * b.x, a.y * b.y, a.z * b.z);
-}
-
-inline u32 pass_by_register
-dot_u32(UVec3 a, UVec3 b)
-{
-  UVec3 res = hadamard_u32(a, b);
-
-  return res.x + res.y + res.z;
-}
-
-inline f32 pass_by_register 
-length_u32(UVec3 v)
-{
-  return sqrt((f32)dot_u32(v, v));
-}
-
-////////////////////////////////////////////////////////////////
-/// SVec3 ops
-
-inline SVec3 pass_by_register
-operator+(SVec3 a, SVec3 b)
-{
-  SVec3 ret;
-  ret.x = a.x + b.x;
-  ret.y = a.y + b.y;
-  ret.z = a.z + b.z;
-  return ret;
-}
-
-inline SVec3 pass_by_register
-operator-(SVec3 a, SVec3 b)
-{
-  SVec3 ret;
-  ret.x = a.x - b.x;
-  ret.y = a.y - b.y;
-  ret.z = a.z - b.z;
-  return ret;
-}
-
-inline SVec3& pass_by_register
-operator-(SVec3& a)
+template <typename T>
+inline Vec4T<T>&
+operator-(Vec4T<T>& a)
 {
   a.x = -a.x;
   a.y = -a.y;
   a.z = -a.z;
+  a.w = -a.w;
   return a;
 }
 
-inline SVec3& pass_by_register
-operator+=(SVec3& a, SVec3 b)
+template <typename T>
+inline Vec4T<T>&
+operator+=(Vec4T<T>& a, Vec4T<T> b)
 {
   a.x += b.x;
   a.y += b.y;
   a.z += b.z;
+  a.w += b.w;
   return a;
 }
 
-inline SVec3& pass_by_register
-operator-=(SVec3& a, SVec3 b)
+template <typename T>
+inline Vec4T<T>&
+operator-=(Vec4T<T>& a, Vec4T<T> b)
 {
   a.x -= b.x;
   a.y -= b.y;
   a.z -= b.z;
+  a.w -= b.w;
   return a;
 }
 
-inline SVec3 pass_by_register
-operator*(SVec3 a, s32 scale)
+template <typename T>
+inline Vec4T<T>
+operator*(Vec4T<T> a, T scale)
 {
-  SVec3 ret;
+  Vec4T<T> ret;
   ret.x = a.x * scale;
   ret.y = a.y * scale;
   ret.z = a.z * scale;
+  ret.w = a.w * scale;
   return ret;
 }
 
-inline SVec3& pass_by_register
-operator*=(SVec3& a, s32 scale)
+template <typename T>
+inline Vec4T<T>&
+operator*=(Vec4T<T>& a, T scale)
 {
   a.x *= scale;
   a.y *= scale;
   a.z *= scale;
+  a.w *= scale;
   return a;
 }
 
-inline SVec3 pass_by_register
-operator/(SVec3 a, s32 scale)
+template <typename T>
+inline Vec4T<T>
+operator/(Vec4T<T> a, T scale)
 {
-  SVec3 ret;
+  Vec4T<T> ret;
   ret.x = a.x / scale;
   ret.y = a.y / scale;
   ret.z = a.z / scale;
+  ret.w = a.w / scale;
   return ret;
 }
 
-inline SVec3& pass_by_register
-operator/=(SVec3& a, s32 scale)
+template <typename T>
+inline Vec4T<T>&
+operator/=(Vec4T<T>& a, T scale)
 {
   a.x /= scale;
   a.y /= scale;
   a.z /= scale;
+  a.w /= scale;
   return a;
 }
 
-inline SVec3 pass_by_register
-hadamard_s32(SVec3 a, SVec3 b)
+template <typename T>
+inline Vec4T<T>
+hadamard(Vec4T<T> a, Vec4T<T> b)
 {
-  return SVec3(a.x * b.x, a.y * b.y, a.z * b.z);
+  return Vec4T<T>(a.x * b.x, a.y * b.y, a.z * b.z);
 }
 
-inline s32 pass_by_register
-dot_s32(SVec3 a, SVec3 b)
+template <typename T>
+inline T
+dot(Vec4T<T> a, Vec4T<T> b)
 {
-  SVec3 res = hadamard_s32(a, b);
+  Vec4T<T> res = hadamard(a, b);
 
   return res.x + res.y + res.z;
 }
 
-inline f32 pass_by_register 
-length_s32(SVec3 v)
+template <typename T>
+inline f32
+length(Vec4T<T> v)
 {
-  return sqrt((f32)dot_s32(v, v));
+  return sqrt((f32)dot(v, v));
+}
+
+template <typename T>
+inline Vec4f32
+normalize(Vec4T<T> v)
+{
+  Vec4f32 v_f32(v.x, v.y, v.z);
+  return v_f32 / length(v_f32);
 }
 
 ////////////////////////////////////////////////////////////////
@@ -1033,7 +735,7 @@ dot_f32_arrays_x4(
 }
 
 ////////////////////////////////////////////////////////////////
-/// Vec4 ops
+/// Vec4f32 ops
 
 static_assert(sizeof(Vec4) == sizeof(f32) * 4);
 
@@ -1317,14 +1019,14 @@ perspective_infinite_reverse_lh(f32 fov_y_rads, f32 aspect_ratio, f32 z_near)
 inline Mat4 pass_by_register
 look_at_lh(Vec3 eye, Vec3 dir, Vec3 up)
 {
-  Vec3 z = normalize_f32(dir);
-  Vec3 x = normalize_f32(cross_f32(up, z));
+  Vec3 z = normalize(dir);
+  Vec3 x = normalize(cross_f32(up, z));
   Vec3 y = cross_f32(z, x);
   return Mat4::columns(
     Vec4(x.x, y.x, z.x, 0.0f),
     Vec4(x.y, y.y, z.y, 0.0f),
     Vec4(x.z, y.z, z.z, 0.0f),
-    Vec4(-dot_f32(x, eye), -dot_f32(y, eye), -dot_f32(z, eye), 1.0f)
+    Vec4(-dot(x, eye), -dot(y, eye), -dot(z, eye), 1.0f)
   );
 }
 

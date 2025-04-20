@@ -58,14 +58,15 @@ render_handler_frame_init(RenderContext* ctx, const RenderSettings& settings, co
   Mat4 view      = view_from_camera(&g_Renderer.camera);
 
   Viewport main_viewport;
-  main_viewport.proj              = perspective_infinite_reverse_lh(kPI / 4.0f, (f32)ctx->m_Width / (f32)ctx->m_Height, kZNear);
-  main_viewport.view              = view;
-  main_viewport.view_proj         = main_viewport.proj * view;
-  main_viewport.prev_view_proj    = main_viewport.proj * prev_view;
-  main_viewport.inverse_view_proj = inverse_mat4(main_viewport.view_proj);
-  main_viewport.camera_world_pos  = g_Renderer.camera.world_pos;
-  main_viewport.directional_light = g_Renderer.directional_light;
-  main_viewport.taa_jitter        = !settings.disable_taa ? g_Renderer.taa_jitter : Vec2(0.0f, 0.0f);
+  main_viewport.proj                  = perspective_infinite_reverse_lh(kPI / 4.0f, (f32)ctx->m_Width / (f32)ctx->m_Height, kZNear);
+  main_viewport.view                  = view;
+  main_viewport.view_proj             = main_viewport.proj * view;
+  main_viewport.prev_view_proj        = main_viewport.proj * prev_view;
+  main_viewport.inverse_view_proj     = inverse_mat4(main_viewport.view_proj);
+  main_viewport.camera_world_pos      = g_Renderer.camera.world_pos;
+  main_viewport.prev_camera_world_pos = g_Renderer.prev_camera.world_pos;
+  main_viewport.directional_light     = g_Renderer.directional_light;
+  main_viewport.taa_jitter            = !settings.disable_taa ? g_Renderer.taa_jitter : Vec2(0.0f, 0.0f);
 
   ctx->write_cpu_upload_buffer(params->viewport_buffer, &main_viewport, sizeof(main_viewport));
 
@@ -116,12 +117,12 @@ init_frame_init_pass(AllocHeap heap, RgBuilder* builder)
   FrameResources ret;
 
   ret.viewport_buffer        = rg_create_upload_buffer(builder, "Viewport Buffer",     kGpuHeapSysRAMCpuToGpu, sizeof(Viewport));
-  ret.material_buffer        = rg_create_upload_buffer(builder, "Material Buffer",     kGpuHeapSysRAMCpuToGpu, sizeof(MaterialGpu)    * kMaxSceneObjs,     sizeof(MaterialGpu));
-  ret.scene_obj_buffer       = rg_create_upload_buffer(builder, "Scene Object Buffer", kGpuHeapSysRAMCpuToGpu, sizeof(SceneObjGpu)    * kMaxSceneObjs,     sizeof(SceneObjGpu));
+  ret.material_buffer        = rg_create_upload_buffer(builder, "Material Buffer",     kGpuHeapSysRAMCpuToGpu, sizeof(MaterialGpu)    * kMaxSceneObjs);
+  ret.scene_obj_buffer       = rg_create_upload_buffer(builder, "Scene Object Buffer", kGpuHeapSysRAMCpuToGpu, sizeof(SceneObjGpu)    * kMaxSceneObjs);
 
-  ret.debug_draw_args_buffer = rg_create_buffer(builder, "Debug Draw Args Buffer",      sizeof(MultiDrawIndirectArgs) * 2,          sizeof(MultiDrawIndirectArgs));
-  ret.debug_line_vert_buffer = rg_create_buffer(builder, "Debug Lines Vertices Buffer", sizeof(DebugLinePoint) * kDebugMaxVertices, sizeof(DebugLinePoint));
-  ret.debug_sdf_buffer       = rg_create_buffer(builder, "Debug SDF Buffer",            sizeof(DebugSdf)       * kDebugMaxSdfs,     sizeof(DebugSdf));
+  ret.debug_draw_args_buffer = rg_create_buffer(builder, "Debug Draw Args Buffer",      sizeof(MultiDrawIndirectArgs) * 2);
+  ret.debug_line_vert_buffer = rg_create_buffer(builder, "Debug Lines Vertices Buffer", sizeof(DebugLinePoint) * kDebugMaxVertices);
+  ret.debug_sdf_buffer       = rg_create_buffer(builder, "Debug SDF Buffer",            sizeof(DebugSdf)       * kDebugMaxSdfs);
 
   RgPassBuilder*      pass       = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "Frame Init", params, &render_handler_frame_init, true);
   params->viewport_buffer        = RgConstantBuffer<Viewport>(pass, ret.viewport_buffer, 0, kViewportBufferSlot);
