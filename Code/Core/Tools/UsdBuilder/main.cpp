@@ -24,7 +24,7 @@ static AllocHeap g_InitHeap;
 using namespace asset_builder;
 
 
-check_return bool
+DONT_IGNORE_RETURN bool
 write_usd_model_to_asset(const char* project_root, const ImportedModel& model)
 {
   ScratchAllocator scratch_arena = alloc_scratch_arena();

@@ -13,7 +13,7 @@ asset_builder::dump_imported_material(ImportedMaterial material)
   }
 }
 
-check_return bool 
+DONT_IGNORE_RETURN bool 
 asset_builder::write_material_to_asset(const char* project_root, const ImportedMaterial& material)
 {
   size_t output_size = sizeof(MaterialAsset) + sizeof(AssetRef<TextureAsset>) * material.num_textures;

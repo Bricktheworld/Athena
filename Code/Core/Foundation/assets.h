@@ -180,7 +180,7 @@ enum struct AssetLoadResult : u32
 
 FOUNDATION_API AssetType get_asset_type(const void* buffer, size_t size);
 
-FOUNDATION_API check_return AssetLoadResult load_model(
+FOUNDATION_API DONT_IGNORE_RETURN AssetLoadResult load_model(
   AllocHeap heap,
   const void* buffer,
   size_t size,

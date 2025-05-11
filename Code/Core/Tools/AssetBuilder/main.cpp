@@ -11,7 +11,7 @@
 
 static AllocHeap g_InitHeap;
 
-static check_return bool
+static DONT_IGNORE_RETURN bool
 build_asset(const char* model_path, const char* project_root)
 {
   asset_builder::ImportedModel     imported_model;

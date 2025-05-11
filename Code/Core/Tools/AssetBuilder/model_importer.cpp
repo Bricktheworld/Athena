@@ -4,7 +4,7 @@
 #include "Core/Tools/AssetBuilder/Vendor/assimp/scene.h"
 #include "Core/Tools/AssetBuilder/Vendor/assimp/postprocess.h"
 
-check_return bool
+DONT_IGNORE_RETURN bool
 asset_builder::import_model(
   AllocHeap heap,
   const char* path,
@@ -250,7 +250,7 @@ asset_builder::dump_imported_model(ImportedModel model)
   }
 }
 
-check_return bool 
+DONT_IGNORE_RETURN bool 
 asset_builder::write_model_to_asset(const char* project_root, const ImportedModel& model)
 {
   u64 total_vertex_count = 0;

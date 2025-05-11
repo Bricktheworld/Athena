@@ -16,9 +16,9 @@ struct RingBuffer
 // number of bytes will always be size - 1
 FOUNDATION_API RingBuffer init_ring_buffer(AllocHeap heap, size_t alignment, size_t size = 0);
 
-FOUNDATION_API check_return bool try_ring_buffer_push(RingBuffer* rb, const void* data, size_t size);
+FOUNDATION_API DONT_IGNORE_RETURN bool try_ring_buffer_push(RingBuffer* rb, const void* data, size_t size);
 FOUNDATION_API void ring_buffer_push(RingBuffer* rb, const void* data, size_t size);
-FOUNDATION_API check_return bool try_ring_buffer_pop(RingBuffer* rb, size_t size, void* out = nullptr);
+FOUNDATION_API DONT_IGNORE_RETURN bool try_ring_buffer_pop(RingBuffer* rb, size_t size, void* out = nullptr);
 FOUNDATION_API void ring_buffer_pop(RingBuffer* rb, size_t size, void* out = nullptr);
 
 //bool ring_buffer_is_full(const RingBuffer& rb);
@@ -45,7 +45,7 @@ init_ring_queue(AllocHeap heap, size_t size)
 }
 
 template <typename T>
-inline check_return bool
+inline DONT_IGNORE_RETURN bool
 try_ring_queue_push(RingQueue<T>* queue, const T& data)
 {
   return try_ring_buffer_push(&queue->buffer, &data, sizeof(data));
@@ -59,7 +59,7 @@ ring_queue_push(RingQueue<T>* queue, const T& data)
 }
 
 template <typename T>
-inline check_return bool
+inline DONT_IGNORE_RETURN bool
 try_ring_queue_pop(RingQueue<T>* queue, T* out = nullptr)
 {
   return try_ring_buffer_pop(&queue->buffer, sizeof(T), out);

@@ -21,7 +21,7 @@ namespace asset_builder
 
   void dump_imported_material(ImportedMaterial material);
 
-  check_return bool write_material_to_asset(
+  DONT_IGNORE_RETURN bool write_material_to_asset(
     const char* project_root,
     const ImportedMaterial& material
   );

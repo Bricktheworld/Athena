@@ -125,7 +125,7 @@ struct CycleDetectionState
   bool        is_cyclic = false;
 };
 
-static check_return bool
+static DONT_IGNORE_RETURN bool
 dfs_has_cycle(RenderPassId pass_id, CycleDetectionState* state, AdjacencyList list)
 {
   state->in_path[pass_id] = true;

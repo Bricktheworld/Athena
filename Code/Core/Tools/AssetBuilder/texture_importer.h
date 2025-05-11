@@ -24,7 +24,7 @@ namespace asset_builder
   };
   
   
-  check_return bool import_texture(
+  DONT_IGNORE_RETURN bool import_texture(
     AllocHeap heap,
     const char* path,
     const char* project_root,
@@ -33,7 +33,7 @@ namespace asset_builder
 
   void dump_imported_texture(ImportedTexture texture);
 
-  check_return bool write_texture_to_asset(
+  DONT_IGNORE_RETURN bool write_texture_to_asset(
     ID3D12Device* device,
     const char* project_root,
     const ImportedTexture& texture

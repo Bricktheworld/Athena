@@ -15,7 +15,7 @@ init_ring_buffer(AllocHeap heap, size_t alignment, size_t size)
   return ret;
 }
 
-check_return bool
+DONT_IGNORE_RETURN bool
 try_ring_buffer_push(RingBuffer* rb, const void* data, size_t size)
 {
   size_t watermark = rb->watermark;
@@ -53,7 +53,7 @@ try_ring_buffer_push(RingBuffer* rb, const void* data, size_t size)
   return true;
 }
 
-check_return bool
+DONT_IGNORE_RETURN bool
 try_ring_buffer_pop(RingBuffer* rb, size_t size, void* out)
 {
   size_t read = rb->read;

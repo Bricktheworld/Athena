@@ -170,7 +170,7 @@ swap(T* a, T* b)
 
 #define pass_by_register __vectorcall
 
-#define check_return [[nodiscard]]
+#define DONT_IGNORE_RETURN [[nodiscard]]
 
 // This is just a useful semantic I use
 #define THREAD_SAFE
