@@ -82,7 +82,7 @@ void ray_gen()
   if (payload.t < 0.0f)
   {
     // TODO(Brandon): On miss, we'll want to use the sky radiance instead of just the directional light
-    ray_data[output_coords] = float4(directional_light.diffuse.rgb * directional_light.intensity * 0.0001f, 1e27f); 
+    ray_data[output_coords] = float4(directional_light.diffuse.rgb * directional_light.illuminance * 0.0001f, 1e27f); 
     return;
   }
 
@@ -104,11 +104,15 @@ void ray_gen()
       0.001f
     )
   );
-  float3 direct_diffuse_lighting = evaluate_lambertian(1.0f) *
-                                   evaluate_directional_radiance(directional_light.diffuse.rgb, directional_light.intensity) * 
-                                   evaluate_cos_theta(directional_light.direction.xyz, payload.normal) * 
-                                   shadow_atten;
+
+  // TODO(bshihabi): Get the material diffuse value
+  Lux3  directional_illuminance;
+  directional_illuminance.m_Value = directional_light.illuminance * directional_light.diffuse.xyz;
+
+  BSDF  directional_bsdf      = lambertian_diffuse_bsdf(payload.normal, directional_light.direction.xyz, 1.0f);
+  Nits3 directional_luminance = directional_bsdf * directional_illuminance.attenuated(shadow_atten);
   
+  #if 0
   // Indirect lighting
   float3 surface_bias = get_surface_bias(payload.normal, ray.Direction, vol_desc);
 
@@ -119,13 +123,14 @@ void ray_gen()
     vol_desc,
     probe_irradiance
   );
+  #endif
 
   // TODO(Brandon): Get this from the actual payload data
   float3 albedo = 1.0f;
 
   // Write everything back out
-  float3 radiance = (direct_diffuse_lighting + saturate(indirect));
-  ray_data[output_coords] = float4(saturate(radiance), payload.t);
+  float3 luminance = directional_luminance.m_Value; // (direct_diffuse_lighting + saturate(indirect));
+  ray_data[output_coords] = float4(saturate(luminance), payload.t);
 }
 
 [shader("closesthit")]

@@ -5,108 +5,257 @@
 #include "../include/rt_common.hlsli"
 #include "../include/math.hlsli"
 
-float distribution_ggx(float3 normal, float3 halfway_vector, float roughness)
+
+// One thing to note, lights are "pre-exposed" on the CPU
+// before any of these computations are ever reached. This can
+// make things confusing but it makes the most sense so as to not completely
+// destroy precision.
+
+// Sterdian angle
+struct SterdianAngle
+{
+  float m_Value;
+};
+
+// Meters squared
+struct MeterArea
+{
+  float m_Value;
+};
+
+// Lux (illuminance, lm/m^2)
+template <typename T>
+struct Lux_T
+{
+  T m_Value;
+
+  Lux_T<T> attenuated(float atten)
+  {
+    Lux_T<T> ret;
+    ret.m_Value = m_Value * atten;
+    return ret;
+  }
+};
+
+// Luminance (lm/sr/m^2)
+template <typename T>
+struct Nits_T
+{
+  T m_Value;
+
+  // Luminance -> Illuminance
+  // Assumes that in a hemisphere, luminance is 0 everywhere except at ω = L
+  // (not suitable for area lights, only point lights)
+  Lux_T<T> operator*(float NdotL)
+  {
+    // Let Lᵢ(ωᵢ) be the luminance in a incoming direction of light ωᵢ
+    // 
+    // dωᵢ has units dsr (aka differential sterdian) so if you integrate
+    // ∫dωᵢ that gives you units of sr
+    // 
+    // Since Lᵢ(ωᵢ) is 0 everywhere except ωᵢ = L, if you do an integral
+    //
+    // ∫ Lᵢ(ωᵢ)(ωᵢ⋅n̂)dωᵢ = Lᵢ(L)(n⋅L̂) ∫dωᵢ
+    // 
+    // This gives you units of 
+    //    Lᵢ(L) = nits = lm/sr/m^2
+    //    (n⋅L̂) = unitless
+    //    ∫dωᵢ = sr
+    // so Lᵢ(L)(n⋅L̂) ∫dωᵢ = nits * sr = lm/sr/m^2 * sr = lm/m^2
+
+    Lux_T<T> ret;
+    ret.m_Value = m_Value * NdotL;
+    return ret;
+  }
+};
+
+// Luminous Intensity (lm/sr)
+template <typename T>
+struct Candela_T
+{
+  T m_Value;
+
+  Nits_T<T> operator/(MeterArea area)
+  {
+    Nits_T<T> ret;
+    ret.m_Value = m_Value / area.m_Value;
+    return ret;
+  }
+};
+
+// Lumens (luminous power)
+template <typename T>
+struct Lumens_T
+{
+  T m_Value;
+
+  Candela_T<T> operator/(SterdianAngle angle)
+  {
+    Candela_T<T> ret;
+    ret.m_Value = m_Value / angle.m_Value;
+    return ret;
+  }
+
+  Lux_T<T> operator/(MeterArea area)
+  {
+    Lux_T<T> ret;
+    ret.m_Value = m_Value / area.m_Value;
+    return ret;
+  }
+};
+
+// BRDF
+struct BRDF
+{
+  float3 m_Fr;
+  float3 m_Fd;
+
+  float3 get_brdf()
+  {
+    return m_Fr * m_Fd;
+  }
+};
+
+// BTDF
+struct BTDF
+{
+  float3 m_Value;
+};
+
+using Lux3 = Lux_T<float3>;
+using Nits3 = Nits_T<float3>;
+using Candela3 = Candela_T<float3>;
+using Lumens3 = Lumens_T<float3>;
+
+// Bidirectional scattering distribution function
+// Ratio of illuminance to luminance percievable at a viewpoint
+// (1/sr)
+struct BSDF
+{
+  BRDF  m_BRDF;
+  BTDF  m_BTDF;
+  float m_NdotL;
+  float m_NdotH;
+  float m_NdotV;
+  float m_LdotH;
+
+  // Illuminance -> Luminance
+  Nits3 operator*(Lux3 illuminance)
+  {
+    float3 bsdf             = m_BRDF.get_brdf() * m_BTDF.m_Value;
+
+    // Amount of illuminance that is perpendicular to surface
+    float3 illuminance_perp = (illuminance.m_Value * m_NdotL);
+    Nits3 ret;
+
+    // cd   = lm/sr
+    // lux  = lm/m^2
+    // nits = cd/m^2
+    //
+    //   => lux/sr = lm/(sr*m^2) = cd/m^2 = nits
+    //   => nits = cd/m^2 = lux * 1/sr
+    ret.m_Value = bsdf * illuminance_perp;
+    return ret;
+  }
+};
+
+float distribution_ggx(float NdotH, float roughness)
 {
     float a      = roughness * roughness;
     float a2     = a * a;
-    float NdotH  = max(dot(normal, halfway_vector), 0.0);
     float NdotH2 = NdotH * NdotH;
 
-    float nom    = a2;
-    float denom  = (NdotH2 * (a2 - 1.0) + 1.0);
-    denom     = kPI * denom * denom;
-
-    return nom / max(denom, 0.0000001);
+    float f      = (NdotH * a2 - NdotH) * NdotH + 1.0f;
+    return a2 / (kPI * f * f);
 }
 
-float geometry_schlick_ggx(float NdotV, float roughness)
+float geometry_smith(float NdotV, float NdotL, float roughness)
 {
-    float r    = (roughness + 1.0);
-    float k    = (r * r) / 8.0;
-
-    float nom   = NdotV;
-    float denom = NdotV * (1.0 - k) + k;
-
-    return nom / denom;
+    float a    = roughness * roughness;
+    float a2   = a * a;
+    float GGXL = NdotV * sqrt((-NdotL * a2 + NdotL) * NdotL + a2);
+    float GGXV = NdotL * sqrt((-NdotV * a2 + NdotV) * NdotV + a2);
+    return 0.5f / (GGXV + GGXL);
 }
 
-float geometry_smith(float3 normal, float3 view_direction, float3 light_direction, float roughness)
+float3 fresnel_schlick(float HdotV, float3 f0)
 {
-    float NdotV = max(dot(normal, view_direction), 0.0);
-    float NdotL = max(dot(normal, light_direction), 0.0);
-    float ggx2  = geometry_schlick_ggx(NdotV, roughness);
-    float ggx1  = geometry_schlick_ggx(NdotL, roughness);
-
-    return ggx1 * ggx2;
+    return f0 + (float3(1.0, 1.0, 1.0) - f0) * pow(1.0 - HdotV, 5.0);
 }
 
-float3 fresnel_schlick(float cos_theta, float3 f0)
-{
-    return f0 + (float3(1.0, 1.0, 1.0) - f0) * pow(max(1.0 - cos_theta, 0.0), 5.0);
-}
-
-// Rendering Equation: ∫ fᵣ(x,ωᵢ,ωₒ,λ,t) Lᵢ(x,ωᵢ,ωₒ,λ,t) (ωᵢ⋅n̂) dωᵢ
-
-float3 evaluate_lambertian(float3 diffuse)
-{
-  return diffuse / kPI;
-}
-
-float3 evaluate_directional_radiance(float3 light_diffuse, float light_intensity)
-{
-  return light_diffuse * light_intensity;
-}
-
-float  evaluate_cos_theta(float3 light_direction, float3 normal)
-{
-  light_direction = -normalize(light_direction);
-  return max(dot(light_direction, normal), 0.0f);
-}
-
-float3 evaluate_directional_light(
+BSDF cook_torance_bsdf(
   float3 light_direction,
-  float3 light_diffuse,
-  float  light_intensity,
   float3 view_direction,
   float3 normal,
   float roughness,
   float metallic,
   float3 diffuse
 ) {
-  light_direction = -normalize(light_direction);
+  float3 N = normal;
+  float3 V = view_direction;
+  float3 L = -normalize(light_direction);
 
-  // The light direction from the fragment position
-  float3 halfway_vector  = normalize(view_direction + light_direction);
+  float3 H = normalize(view_direction + light_direction);
 
-  // Add the radiance
-  float3 radiance        = light_diffuse * light_intensity;
+  BSDF ret;
+  ret.m_NdotV = abs(dot(N, V)) + 1e-5f;
+  ret.m_NdotL = clamp(dot(N, L), 0.0f, 1.0f);
+  ret.m_NdotH = clamp(dot(N, H), 0.0f, 1.0f);
+  ret.m_LdotH = clamp(dot(L, H), 0.0f, 1.0f);
 
   // The Fresnel-Schlick approximation expects a F0 parameter which is known as the surface reflection at zero incidence
   // or how much the surface reflects if looking directly at the surface.
   //
   // The F0 varies per material and is tinted on metals as we find in large material databases.
   // In the PBR metallic workflow we make the simplifying assumption that most dielectric surfaces look visually correct with a constant F0 of 0.04.
-  float3 f0        = float3(0.04, 0.04, 0.04);
-  f0               = lerp(f0, diffuse, metallic);
+  float3 f0          = float3(0.04, 0.04, 0.04);
+  f0                 = lerp(f0, diffuse, metallic);
 
   // Cook torrance BRDF
-  float  D         = distribution_ggx(normal, halfway_vector, roughness);
-  float  G         = geometry_smith(normal, view_direction, light_direction, roughness);
-  float3 F         = fresnel_schlick(clamp(dot(halfway_vector, view_direction), 0.0, 1.0), f0);
+  float  D           = distribution_ggx(ret.m_NdotH, roughness);
+  float3 F           = fresnel_schlick(ret.m_LdotH, f0);
+  float  G           = geometry_smith(ret.m_NdotV, ret.m_NdotL, roughness);
 
-  float3 kS         = F;
-  float3 kD         = float3(1.0, 1.0, 1.0) - kS;
-  kD               *= 1.0 - metallic;
+  // Specular
+  ret.m_BRDF.m_Fr    = (D * G) * F;
+  // Diffuse
+  ret.m_BRDF.m_Fd    = diffuse / kPI;
 
-  float3 numerator  = D * G * F;
-  float denominator = 4.0 * max(dot(normal, view_direction), 0.0) * max(dot(normal, light_direction), 0.0);
-  float3 specular   = numerator / max(denominator, 0.001);
+  ret.m_BTDF.m_Value = 1.0f;
 
-  // Get the cosine theta of the light against the normal
-  float cos_theta      = max(dot(normal, light_direction), 0.0);
-  // cos_theta            = pow(cos_theta * 0.5f + 0.5f, 2.0f);
+  return ret;
+}
 
-  return (mul(1/kPI, mul(kD, diffuse)) + specular) * radiance * cos_theta;
+BSDF lambertian_diffuse_bsdf(float3 normal, float3 light_direction, float3 diffuse)
+{
+  float3 N = normal;
+  float3 L = -normalize(light_direction);
+
+  BSDF ret;
+  ret.m_NdotV = 0.0f;
+  ret.m_NdotL = clamp(dot(N, L), 0.0f, 1.0f);
+  ret.m_NdotH = 0.0f;
+  ret.m_LdotH = 0.0f;
+
+  // Entirely diffuse, no specular
+  ret.m_BRDF.m_Fr = 0.0;
+  ret.m_BRDF.m_Fd = diffuse / kPI;
+
+  ret.m_BTDF.m_Value = 1.0f;
+
+  return ret;
+}
+
+float3 evaluate_directional_light(
+  float3 light_direction,
+  float  illuminance,
+  float3 view_direction,
+  float3 normal,
+  float roughness,
+  float metallic,
+  float3 diffuse
+) {
+  return 0.0;
 }
 
 

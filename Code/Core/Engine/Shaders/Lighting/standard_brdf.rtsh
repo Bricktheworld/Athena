@@ -78,10 +78,11 @@ void ray_gen()
 
   float3 view_direction  = normalize(g_ViewportBuffer.camera_world_pos.xyz - ws_pos);
 
+  #if 0
   float3 direct_lighting = evaluate_directional_light(
     directional_light.direction.xyz,
     directional_light.diffuse.rgb, 
-    directional_light.intensity,
+    directional_light.illuminance,
     view_direction,
     normal,
     0.2f,
@@ -96,10 +97,17 @@ void ray_gen()
   float3 indirect        = get_vol_irradiance(ws_pos, surface_bias, normal, vol_desc, probe_irradiance);
 
   float3 irradiance      = direct_lighting + saturate(indirect);
+  #endif
+  Lux3   directional_illuminance;
+  directional_illuminance.m_Value = directional_light.illuminance * directional_light.diffuse.rgb;
 
-  float3 color           = payload.t < 0.0f ? float3(0.0f, 0.0f, 0.0f) : diffuse * irradiance;
+  BSDF   directional_bsdf  = cook_torance_bsdf(directional_light.direction.xyz, view_direction, normal, 0.2f, 0.0f, diffuse);
+  Nits3  luminance         = directional_bsdf * directional_illuminance.attenuated(shadow_atten);
 
-  render_target[launch_index] = float4(color, 1.0f);
+  float3 display_output    = payload.t < 0.0f ? float3(0.0f, 0.0f, 0.0f) : luminance.m_Value;
+
+
+  render_target[launch_index] = float4(display_output, 1.0f);
 }
 
 [shader("miss")]

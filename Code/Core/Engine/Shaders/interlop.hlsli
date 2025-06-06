@@ -210,7 +210,7 @@ struct DirectionalLight
 {
   Vec4 direction;
   Vec4 diffuse;
-  f32  intensity;
+  f32  illuminance;
   Vec3 __pad__;
 };
 
