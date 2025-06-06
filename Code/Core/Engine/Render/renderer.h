@@ -92,6 +92,9 @@ struct Camera
 struct RenderSettings
 {
   f32   aperture              = 5.6f;
+  f32   shutter_time          = 1.0 / 60.0f;
+  f32   iso                   = 100.0f;
+
   f32   focal_dist            = 8.0f;
   f32   focal_range           = 3.0f;
 

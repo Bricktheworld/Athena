@@ -161,7 +161,7 @@ init_scene()
 
   g_Scene->directional_light.direction = Vec4(-1.0f, -1.0f, 0.0f, 0.0f);
   g_Scene->directional_light.diffuse   = Vec4(1.0f, 1.0f, 1.0f, 0.0f);
-  g_Scene->directional_light.intensity = 5.0f;
+  g_Scene->directional_light.illuminance = 75000.0f;
 }
 
 void
@@ -187,11 +187,6 @@ init_renderer(
   init_imgui_ctx(device, kGpuFormatRGBA16Float, window, &g_Renderer.imgui_descriptor_heap);
 
   new (&g_Renderer.settings) RenderSettings();
-  g_Renderer.settings.aperture    = 5.6f;
-  g_Renderer.settings.focal_dist  = 8.0f;
-  g_Renderer.settings.focal_range = 3.0f;
-  g_Renderer.settings.dof_blur_radius  = 15.0f;
-  g_Renderer.settings.dof_sample_count = 32;
 }
 
 void

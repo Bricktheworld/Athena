@@ -49,6 +49,20 @@ Mat4 view_from_camera(Camera* camera)
   return look_at_lh(camera->world_pos, lookat, Vec3(0.0f, 1.0f, 0.0f));
 }
 
+#if 0
+static f32
+camera_params_to_ev100(f32 aperture, f32 shutter_time, f32 iso)
+{
+  return log2f(((aperture * aperture) / shutter_time) * (100.0f / iso));
+}
+
+static f32
+ev100_to_max_luminance(f32 ev100)
+{
+  return 1.2f * powf(2.0f, ev100);
+}
+#endif
+
 static void
 render_handler_frame_init(RenderContext* ctx, const RenderSettings& settings, const void* data)
 {
@@ -65,6 +79,8 @@ render_handler_frame_init(RenderContext* ctx, const RenderSettings& settings, co
   main_viewport.inverse_view_proj     = inverse_mat4(main_viewport.view_proj);
   main_viewport.camera_world_pos      = g_Renderer.camera.world_pos;
   main_viewport.prev_camera_world_pos = g_Renderer.prev_camera.world_pos;
+
+  // g_Renderer.directional_light.illuminance /= 
   main_viewport.directional_light     = g_Renderer.directional_light;
   main_viewport.taa_jitter            = !settings.disable_taa ? g_Renderer.taa_jitter : Vec2(0.0f, 0.0f);
 
@@ -119,10 +135,8 @@ init_frame_init_pass(AllocHeap heap, RgBuilder* builder)
   FrameResources ret;
 
   ret.viewport_buffer        = rg_create_upload_buffer(builder, "Viewport Buffer",     kGpuHeapSysRAMCpuToGpu, sizeof(Viewport));
-#if 0
-  ret.material_buffer        = rg_create_upload_buffer(builder, "Material Buffer",     kGpuHeapSysRAMCpuToGpu, sizeof(MaterialGpu)    * kMaxSceneObjs);
-  ret.scene_obj_buffer       = rg_create_upload_buffer(builder, "Scene Object Buffer", kGpuHeapSysRAMCpuToGpu, sizeof(SceneObjGpu)    * kMaxSceneObjs);
-#endif
+  ret.material_buffer        = rg_create_buffer(builder, "Material Buffer",     sizeof(MaterialGpu) * kMaxSceneObjs);
+  ret.scene_obj_buffer       = rg_create_buffer(builder, "Scene Object Buffer", sizeof(SceneObjGpu) * kMaxSceneObjs);
 
   ret.debug_draw_args_buffer = rg_create_buffer(builder, "Debug Draw Args Buffer",      sizeof(MultiDrawIndirectArgs) * 2);
   ret.debug_line_vert_buffer = rg_create_buffer(builder, "Debug Lines Vertices Buffer", sizeof(DebugLinePoint) * kDebugMaxVertices);
@@ -160,7 +174,7 @@ render_handler_imgui(RenderContext* ctx, const RenderSettings&, const void* data
 
   ImGui::DragFloat3("Direction", (f32*)&g_Scene->directional_light.direction, 0.02f, -1.0f, 1.0f);
   ImGui::DragFloat3("Diffuse", (f32*)&g_Scene->directional_light.diffuse, 0.1f, 0.0f, 1.0f);
-  ImGui::DragFloat ("Intensity", &g_Scene->directional_light.intensity, 0.1f, 0.0f, 100.0f);
+  ImGui::DragFloat ("Intensity", &g_Scene->directional_light.illuminance, 0.1f, 0.0f, 100.0f);
 
   ImGui::InputFloat3("Camera Position", (f32*)&g_Scene->camera.world_pos);
 
@@ -171,6 +185,8 @@ render_handler_imgui(RenderContext* ctx, const RenderSettings&, const void* data
   ImGui::Checkbox("Show Detailed Performance", &s_ShowDetailedPerformance);
 
   ImGui::DragFloat("Aperture", &g_Renderer.settings.aperture, 0.01f, 0.0f, 50.0f);
+  ImGui::DragFloat("Shutter Time", &g_Renderer.settings.shutter_time, 0.001f, 0.0f, 1.0f);
+  ImGui::DragFloat("ISO", &g_Renderer.settings.iso, 1.0f, 0.0f, 200.0f);
 
   static f32 s_FocalDistance = g_Renderer.settings.focal_dist;
   ImGui::DragFloat("Focal Distance", &s_FocalDistance, 0.01f, 0.0f, 1000.0f);
