@@ -49,7 +49,6 @@ Mat4 view_from_camera(Camera* camera)
   return look_at_lh(camera->world_pos, lookat, Vec3(0.0f, 1.0f, 0.0f));
 }
 
-#if 0
 static f32
 camera_params_to_ev100(f32 aperture, f32 shutter_time, f32 iso)
 {
@@ -61,7 +60,6 @@ ev100_to_max_luminance(f32 ev100)
 {
   return 1.2f * powf(2.0f, ev100);
 }
-#endif
 
 static void
 render_handler_frame_init(RenderContext* ctx, const RenderSettings& settings, const void* data)
@@ -80,8 +78,17 @@ render_handler_frame_init(RenderContext* ctx, const RenderSettings& settings, co
   main_viewport.camera_world_pos      = g_Renderer.camera.world_pos;
   main_viewport.prev_camera_world_pos = g_Renderer.prev_camera.world_pos;
 
-  // g_Renderer.directional_light.illuminance /= 
+
+  // TODO(bshihabi): We should really do this somewhere else...
+  // Pre-expose light values
+  f32 ev100         = camera_params_to_ev100(settings.aperture, settings.shutter_time, settings.iso);
+  f32 max_luminance = ev100_to_max_luminance(ev100);
+
+  // This just happens to work out even though the units are completely wrong, they fix themselves later
+  // in the math. TODO(bshihabi): There should be a nicer way of doing this
+  g_Renderer.directional_light.illuminance /= max_luminance;
   main_viewport.directional_light     = g_Renderer.directional_light;
+
   main_viewport.taa_jitter            = !settings.disable_taa ? g_Renderer.taa_jitter : Vec2(0.0f, 0.0f);
 
   ctx->write_cpu_upload_buffer(params->viewport_buffer, &main_viewport, sizeof(main_viewport));

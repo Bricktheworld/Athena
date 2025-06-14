@@ -3,8 +3,8 @@
 
 #include "Core/Engine/Render/renderer.h"
 #include "Core/Engine/Render/blit.h"
-#include "Core/Engine/Render/ddgi.h"
 #include "Core/Engine/Render/depth_of_field.h"
+#include "Core/Engine/Render/ddgi.h"
 #include "Core/Engine/Render/gbuffer.h"
 #include "Core/Engine/Render/lighting.h"
 #include "Core/Engine/Render/misc.h"
@@ -87,10 +87,10 @@ init_renderer_dependency_graph(
 
   init_gbuffer_static(scratch_arena, &builder, &gbuffer);
 
-  Ddgi ddgi = init_ddgi(scratch_arena, &builder);
+  init_rt_diffuse_gi(scratch_arena, &builder);
 
   RgHandle<GpuTexture> hdr_buffer  = init_hdr_buffer(&builder);
-  init_lighting(scratch_arena, &builder, gbuffer, ddgi, &hdr_buffer);
+  init_lighting(scratch_arena, &builder, gbuffer, &hdr_buffer);
 
   RgHandle<GpuTexture> taa_buffer  = init_taa_buffer(&builder);
   init_taa(scratch_arena, &builder, hdr_buffer, gbuffer, &taa_buffer);
@@ -126,11 +126,6 @@ init_renderer_psos(
   g_Renderer.standard_brdf_pso = init_ray_tracing_pipeline(device, get_engine_shader(kRT_StandardBrdf), "Standard BRDF RT");
   g_Renderer.standard_brdf_st  = init_shader_table(device, g_Renderer.standard_brdf_pso, "Standard BRDF Shader Table");
 
-  g_Renderer.ddgi_probe_trace_pso = init_ray_tracing_pipeline(device, get_engine_shader(kRT_ProbeTrace), "Probe Trace RT");
-  g_Renderer.ddgi_probe_trace_st  = init_shader_table(device, g_Renderer.ddgi_probe_trace_pso, "Probe Trace Shader Table");
-
-  g_Renderer.ddgi_probe_blend_pso = init_compute_pipeline(device, get_engine_shader(kCS_ProbeBlending), "Probe Blending");
-
 }
 
 static void
@@ -140,9 +135,6 @@ destroy_renderer_psos()
   destroy_shader_table(&g_Renderer.standard_brdf_st);
   destroy_compute_pipeline(&g_Renderer.texture_copy_pso);
   destroy_graphics_pipeline(&g_Renderer.back_buffer_blit_pso);
-  destroy_ray_tracing_pipeline(&g_Renderer.ddgi_probe_trace_pso);
-  destroy_shader_table(&g_Renderer.ddgi_probe_trace_st);
-  destroy_compute_pipeline(&g_Renderer.ddgi_probe_blend_pso);
 }
 
 static void

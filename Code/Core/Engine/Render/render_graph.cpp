@@ -804,7 +804,7 @@ init_dependency_barriers(
           dst->transition.resource_temporal_lifetime = handle.temporal_lifetime;
         }
   
-        if (states->current == D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
+        if (states->current == D3D12_RESOURCE_STATE_UNORDERED_ACCESS && states->touched)
         {
           ASSERT(temporal_frame == 0);
           RgResourceBarrier* dst = array_add(&level->barriers);

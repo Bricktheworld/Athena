@@ -14,6 +14,15 @@ struct Vec2T
   Vec2T(T all) : x(all), y(all) {}
   Vec2T(T x, T y) : x(x), y(y) {}
 
+  template <typename U>
+  explicit operator Vec2T<U>() const
+  {
+    Vec2T<U> ret;
+    ret.x = (U)x;
+    ret.y = (U)y;
+    return ret;
+  }
+
   struct
   {
     union
@@ -36,6 +45,17 @@ struct Vec3T
   Vec3T(T all) : x(all), y(all), z(all) {}
   Vec3T(T x, T y, T z) : x(x), y(y), z(z) {}
   Vec3T(Vec2T<T> v, T z = 0) : x(v.x), y(v.y), z(z) {}
+
+
+  template <typename U>
+  explicit operator Vec3T<U>() const
+  {
+    Vec3T<U> ret;
+    ret.x = (U)x;
+    ret.y = (U)y;
+    ret.z = (U)z;
+    return ret;
+  }
 
   struct
   {
@@ -64,7 +84,18 @@ struct Vec4T
   Vec4T(T all) : x(all), y(all), z(all), w(all) {}
   Vec4T(T x, T y, T z, T w) : x(x), y(y), z(z), w(w) {}
   Vec4T(Vec2T<T> v, T z = 0, T w = 0) : x(v.x), y(v.y), z(z), w(w) {}
-  Vec4T(Vec3T<T> v, T w = 0) : x(v.x), y(v.y), z(v.z), w(w) {}
+  Vec4T(Vec3T<T> v, T w = 0) : x(v.x), y(v.y), z(v.z), w(v.w) {}
+
+  template <typename U>
+  explicit operator Vec4T<U>() const
+  {
+    Vec4T<U> ret;
+    ret.x = (U)x;
+    ret.y = (U)y;
+    ret.z = (U)z;
+    ret.w = (U)w;
+    return ret;
+  }
 
   struct
   {
@@ -267,6 +298,13 @@ operator*(Vec2T<T> a, T scale)
 }
 
 template <typename T>
+inline Vec2T<T> pass_by_register
+operator*(T scale, Vec2T<T> a)
+{
+  return a * scale;
+}
+
+template <typename T>
 inline Vec2T<T>& pass_by_register
 operator*=(Vec2T<T>& a, T scale)
 {
@@ -311,6 +349,41 @@ dot(Vec2T<T> a, Vec2T<T> b)
 }
 
 template <typename T>
+inline Vec2T<T>
+operator*(Vec2T<T> a, Vec2T<T> b)
+{
+  return hadamard(a, b);
+}
+
+template <typename T>
+inline Vec2T<T>&
+operator*=(Vec2T<T>& a, Vec2T<T> b)
+{
+  a.x *= b.x;
+  a.y *= b.y;
+  return a;
+}
+
+template <typename T>
+inline Vec2T<T>
+operator/(Vec2T<T> a, Vec2T<T> b)
+{
+  Vec2T<T> ret;
+  ret.x = a.x / b.x;
+  ret.y = a.y / b.y;
+  return ret;
+}
+
+template <typename T>
+inline Vec2T<T>&
+operator/=(Vec2T<T>& a, Vec2T<T> b)
+{
+  a.x /= b.x;
+  a.y /= b.y;
+  return a;
+}
+
+template <typename T>
 inline f32
 length(Vec2T<T> v)
 {
@@ -323,6 +396,34 @@ normalize(Vec2T<T> v)
 {
   Vec2f32 v_f32(v.x, v.y, v.z);
   return v_f32 / length(v_f32);
+}
+
+template <typename T>
+inline bool
+operator==(Vec2T<T>& a, Vec2T<T> b)
+{
+  return a.x == b.x && a.y == b.y;
+}
+
+template <typename T>
+inline bool
+operator!=(Vec2T<T>& a, Vec2T<T> b)
+{
+  return !(a == b);
+}
+
+template <typename T>
+inline bool
+operator==(Vec2T<T>& a, T b)
+{
+  return a.x == b && a.y == b;
+}
+
+template <typename T>
+inline bool
+operator!=(Vec2T<T>& a, T b)
+{
+  return !(a == b);
 }
 
 ////////////////////////////////////////////////////////////////
@@ -343,7 +444,7 @@ template <typename T>
 inline Vec3T<T>
 operator-(Vec3T<T> a, Vec3T<T> b)
 {
-  Vec3T ret;
+  Vec3T<T> ret;
   ret.x = a.x - b.x;
   ret.y = a.y - b.y;
   ret.z = a.z - b.z;
@@ -392,6 +493,13 @@ operator*(Vec3T<T> a, T scale)
 }
 
 template <typename T>
+inline Vec3T<T>
+operator*(T scale, Vec3T<T> a)
+{
+  return a * scale;
+}
+
+template <typename T>
 inline Vec3T<T>&
 operator*=(Vec3T<T>& a, T scale)
 {
@@ -430,6 +538,44 @@ hadamard(Vec3T<T> a, Vec3T<T> b)
 }
 
 template <typename T>
+inline Vec3T<T>
+operator*(Vec3T<T> a, Vec3T<T> b)
+{
+  return hadamard(a, b);
+}
+
+template <typename T>
+inline Vec3T<T>&
+operator*=(Vec3T<T>& a, Vec3T<T> b)
+{
+  a.x *= b.x;
+  a.y *= b.y;
+  a.z *= b.z;
+  return a;
+}
+
+template <typename T>
+inline Vec3T<T>
+operator/(Vec3T<T> a, Vec3T<T> b)
+{
+  Vec3T<T> ret;
+  ret.x = a.x / b.x;
+  ret.y = a.y / b.y;
+  ret.z = a.z / b.z;
+  return ret;
+}
+
+template <typename T>
+inline Vec3T<T>&
+operator/=(Vec3T<T>& a, Vec3T<T> b)
+{
+  a.x /= b.x;
+  a.y /= b.y;
+  a.z /= b.z;
+  return a;
+}
+
+template <typename T>
 inline T
 dot(Vec3T<T> a, Vec3T<T> b)
 {
@@ -451,6 +597,34 @@ normalize(Vec3T<T> v)
 {
   Vec3f32 v_f32(v.x, v.y, v.z);
   return v_f32 / length(v_f32);
+}
+
+template <typename T>
+inline bool
+operator==(Vec3T<T>& a, Vec3T<T> b)
+{
+  return a.x == b.x && a.y == b.y && a.z == b.z;
+}
+
+template <typename T>
+inline bool
+operator!=(Vec3T<T>& a, Vec3T<T> b)
+{
+  return !(a == b);
+}
+
+template <typename T>
+inline bool
+operator==(Vec3T<T>& a, T b)
+{
+  return a.x == b && a.y == b && a.z == b;
+}
+
+template <typename T>
+inline bool
+operator!=(Vec3T<T>& a, T b)
+{
+  return !(a == b);
 }
 
 
@@ -527,6 +701,13 @@ operator*(Vec4T<T> a, T scale)
 }
 
 template <typename T>
+inline Vec4T<T>
+operator*(T scale, Vec4T<T> a)
+{
+  return a * scale;
+}
+
+template <typename T>
 inline Vec4T<T>&
 operator*=(Vec4T<T>& a, T scale)
 {
@@ -564,7 +745,48 @@ template <typename T>
 inline Vec4T<T>
 hadamard(Vec4T<T> a, Vec4T<T> b)
 {
-  return Vec4T<T>(a.x * b.x, a.y * b.y, a.z * b.z);
+  return Vec4T<T>(a.x * b.x, a.y * b.y, a.z * b.z, a.w, b.w);
+}
+
+template <typename T>
+inline Vec4T<T>
+operator*(Vec4T<T> a, Vec4T<T> b)
+{
+  return hadamard(a, b);
+}
+
+template <typename T>
+inline Vec4T<T>&
+operator*=(Vec4T<T>& a, Vec4T<T> b)
+{
+  a.x *= b.x;
+  a.y *= b.y;
+  a.z *= b.z;
+  a.w *= b.w;
+  return a;
+}
+
+template <typename T>
+inline Vec4T<T>
+operator/(Vec4T<T> a, Vec4T<T> b)
+{
+  Vec2T<T> ret;
+  ret.x = a.x / b.x;
+  ret.y = a.y / b.y;
+  ret.z = a.z / b.z;
+  ret.w = a.w / b.w;
+  return ret;
+}
+
+template <typename T>
+inline Vec4T<T>&
+operator/=(Vec4T<T>& a, Vec4T<T> b)
+{
+  a.x /= b.x;
+  a.y /= b.y;
+  a.z /= b.z;
+  a.w /= b.w;
+  return a;
 }
 
 template <typename T>
@@ -589,6 +811,34 @@ normalize(Vec4T<T> v)
 {
   Vec4f32 v_f32(v.x, v.y, v.z);
   return v_f32 / length(v_f32);
+}
+
+template <typename T>
+inline bool
+operator==(Vec4T<T>& a, Vec4T<T> b)
+{
+  return a.x == b.x && a.y == b.y && a.z == b.z && a.w == b.w;
+}
+
+template <typename T>
+inline bool
+operator!=(Vec4T<T>& a, Vec4T<T> b)
+{
+  return !(a == b);
+}
+
+template <typename T>
+inline bool
+operator==(Vec4T<T>& a, T b)
+{
+  return a.x == b && a.y == b && a.z == b && a.w == b;
+}
+
+template <typename T>
+inline bool
+operator!=(Vec4T<T>& a, T b)
+{
+  return !(a == b);
 }
 
 ////////////////////////////////////////////////////////////////
@@ -778,10 +1028,29 @@ operator*(Vec4 a, f32 scale)
   return a.avx * scale;
 }
 
+inline Vec4 pass_by_register
+operator*(f32 scale, Vec4 a)
+{
+  return a * scale;
+}
+
 inline Vec4& pass_by_register
 operator*=(Vec4& a, f32 scale)
 {
   a.avx = a.avx * scale;
+  return a;
+}
+
+inline Vec4 pass_by_register
+operator*(Vec4 a, Vec4 b)
+{
+  return hadamard_f32(a.avx, b.avx);
+}
+
+inline Vec4& pass_by_register
+operator*=(Vec4& a, Vec4 b)
+{
+  a.avx = hadamard_f32(a.avx, b.avx);
   return a;
 }
 

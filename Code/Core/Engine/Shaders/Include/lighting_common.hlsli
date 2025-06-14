@@ -24,6 +24,7 @@ struct MeterArea
 };
 
 // Lux (illuminance, lm/m^2)
+// "How many photons are arriving at a surface per unit area"
 template <typename T>
 struct Lux_T
 {
@@ -38,6 +39,7 @@ struct Lux_T
 };
 
 // Luminance (lm/sr/m^2)
+// "How many photons are bouncing off of a surface into my eye"
 template <typename T>
 struct Nits_T
 {
@@ -84,6 +86,9 @@ struct Candela_T
 };
 
 // Lumens (luminous power)
+// Measure of how much visible light is emitted from some light source
+// If we were to say "how many photons are coming out of that light source" this would
+// be the closest thing.
 template <typename T>
 struct Lumens_T
 {
@@ -127,6 +132,11 @@ using Nits3 = Nits_T<float3>;
 using Candela3 = Candela_T<float3>;
 using Lumens3 = Lumens_T<float3>;
 
+using Lux3f16 = Lux_T<half3>;
+using Nits3f16 = Nits_T<half3>;
+using Candela3f16 = Candela_T<half3>;
+using Lumens3f16 = Lumens_T<half3>;
+
 // Bidirectional scattering distribution function
 // Ratio of illuminance to luminance percievable at a viewpoint
 // (1/sr)
@@ -159,6 +169,10 @@ struct BSDF
   }
 };
 
+
+// Shader only stuff from here on out...
+#ifndef __cplusplus
+
 float distribution_ggx(float NdotH, float roughness)
 {
     float a      = roughness * roughness;
@@ -183,7 +197,7 @@ float3 fresnel_schlick(float HdotV, float3 f0)
     return f0 + (float3(1.0, 1.0, 1.0) - f0) * pow(1.0 - HdotV, 5.0);
 }
 
-BSDF cook_torance_bsdf(
+BSDF cook_torrance_bsdf(
   float3 light_direction,
   float3 view_direction,
   float3 normal,
@@ -246,19 +260,6 @@ BSDF lambertian_diffuse_bsdf(float3 normal, float3 light_direction, float3 diffu
   return ret;
 }
 
-float3 evaluate_directional_light(
-  float3 light_direction,
-  float  illuminance,
-  float3 view_direction,
-  float3 normal,
-  float roughness,
-  float metallic,
-  float3 diffuse
-) {
-  return 0.0;
-}
-
-
 float light_visibility(
   float3 light_direction,
   float3 ws_pos,
@@ -286,5 +287,6 @@ float light_visibility(
 
   return payload.t < 0.0f;
 }
+#endif
 
 #endif
