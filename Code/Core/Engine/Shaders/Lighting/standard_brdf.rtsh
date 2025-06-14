@@ -2,7 +2,6 @@
 #include "../root_signature.hlsli"
 #include "../include/rt_common.hlsli"
 #include "../include/lighting_common.hlsli"
-#include "../include/ddgi_common.hlsli"
 #include "../include/math.hlsli"
 
 GlobalRootSignature kBindlessRootSignature =
@@ -43,8 +42,6 @@ void ray_gen()
   Texture2D<float4>           gbuffer_normal_roughness = DEREF(g_Srt.gbuffer_normal_rgb_roughness_a);
   Texture2D<float>            gbuffer_depth            = DEREF(g_Srt.gbuffer_depth);
                                                          
-  ConstantBuffer<DDGIVolDesc> vol_desc                 = DEREF(g_Srt.ddgi_vol_desc);
-  Texture2DArray<float4>      probe_irradiance         = DEREF(g_Srt.ddgi_probe_irradiance);
   RWTexture2D<float4>         render_target            = DEREF(g_Srt.render_target);
 
   DirectionalLight            directional_light        = g_ViewportBuffer.directional_light;
@@ -60,7 +57,7 @@ void ray_gen()
   gbuffer_depth.GetDimensions(screen_size.x, screen_size.y);
 
 
-  float3 ws_pos       = screen_to_world(float3(float2(launch_index) + 0.5f, depth), screen_size).xyz;
+  float3 ws_pos = screen_to_world(float3(float2(launch_index) + 0.5f, depth), screen_size).xyz;
 
   if (material_id == 0)
   {
@@ -68,7 +65,7 @@ void ray_gen()
     return;
   }
 
-  float  shadow_atten    = light_visibility(
+  float shadow_atten = light_visibility(
     directional_light.direction.xyz,
     ws_pos,
     normal,
@@ -76,7 +73,7 @@ void ray_gen()
     0.001f
   );
 
-  float3 view_direction  = normalize(g_ViewportBuffer.camera_world_pos.xyz - ws_pos);
+  float3 view_direction = normalize(g_ViewportBuffer.camera_world_pos.xyz - ws_pos);
 
   #if 0
   float3 direct_lighting = evaluate_directional_light(
@@ -101,7 +98,7 @@ void ray_gen()
   Lux3   directional_illuminance;
   directional_illuminance.m_Value = directional_light.illuminance * directional_light.diffuse.rgb;
 
-  BSDF   directional_bsdf  = cook_torance_bsdf(directional_light.direction.xyz, view_direction, normal, 0.2f, 0.0f, diffuse);
+  BSDF   directional_bsdf  = cook_torrance_bsdf(directional_light.direction.xyz, view_direction, normal, 0.8f, 0.0f, diffuse);
   Nits3  luminance         = directional_bsdf * directional_illuminance.attenuated(shadow_atten);
 
   float3 display_output    = payload.t < 0.0f ? float3(0.0f, 0.0f, 0.0f) : luminance.m_Value;
@@ -115,3 +112,4 @@ void miss(inout Payload payload)
 {
   payload.t = -1.0f;
 }
+

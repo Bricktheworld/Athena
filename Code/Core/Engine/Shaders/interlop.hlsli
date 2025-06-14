@@ -34,6 +34,7 @@ typedef int2      SVec2;
 typedef int3      SVec3;
 typedef int4      SVec4;
 typedef uint      u32;
+typedef uint16_t  u16;
 typedef int       s32;
 typedef float     f32;
 typedef float16_t f16;
@@ -338,67 +339,12 @@ struct DoFCompositeSrt
   RWTexture2DPtr<float4> render_target;
 };
 
-
-#define kProbeNumIrradianceInteriorTexels 14
-#define kProbeNumIrradianceTexels 16
-#define kProbeNumDistanceInteriorTexels 14
-#define kProbeNumDistanceTexels 16
-
-static const UVec3 kProbeCountPerClipmap = UVec3(16, 16, 16);
-static const u32   kProbeClipmapCount    = 3;
-static const u32   kProbeMaxActiveCount  = kProbeCountPerClipmap.x * kProbeCountPerClipmap.y * kProbeCountPerClipmap.z * kProbeClipmapCount;
-static const u32   kProbeMaxRayCount     = 64 * kProbeMaxActiveCount; // 32768; // This is 8 rays per probe in a 16 x 16 x 16 grid, choose wisely!
-
-struct GiProbeRayAllocSrt
-{
-  RWBufferPtr<half> gi_probe_radiance;
-};
-
-struct GiProbeRayRadiance
-{
-};
-
-struct DDGIVolDesc
-{
-  Vec4  origin;
-  Vec4  probe_spacing;
-
-  Mat4  probe_ray_rotation;
-
-  UVec3 probe_count;
-
-  u32   probe_num_rays;
-
-  f32   probe_hysteresis;
-  f32   probe_max_ray_distance;
-
-  u32   debug_ray_probe;
-};
-
-struct ProbeTraceSrt
-{
-  ConstantBufferPtr<DDGIVolDesc> vol_desc;
-  Texture2DArrayPtr<float4>      probe_irradiance;
-
-  RWTexture2DArrayPtr<float4>    ray_data;
-};
-
-struct ProbeBlendingSrt
-{
-  ConstantBufferPtr<DDGIVolDesc> vol_desc;
-  Texture2DArrayPtr<float4>      ray_data;
-  RWTexture2DArrayPtr<float4>    irradiance;
-};
-
 struct StandardBrdfSrt
 {
   Texture2DPtr<uint>             gbuffer_material_ids;
   Texture2DPtr<float4>           gbuffer_diffuse_rgb_metallic_a;
   Texture2DPtr<float4>           gbuffer_normal_rgb_roughness_a;
   Texture2DPtr<float>            gbuffer_depth;
-
-  ConstantBufferPtr<DDGIVolDesc> ddgi_vol_desc;
-  Texture2DArrayPtr<float4>      ddgi_probe_irradiance;
 
   RWTexture2DPtr<float4>         render_target;
 };

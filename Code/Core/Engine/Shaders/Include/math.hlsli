@@ -2,6 +2,7 @@
 #define __MATH__
 #include "../root_signature.hlsli"
 
+#ifndef __cplusplus
 static const float kPI  = 3.14159265359;
 static const float k2PI = 6.2831853071795864f;
 
@@ -31,5 +32,6 @@ float4 screen_to_world(float3 screen, float2 screen_size)
 
   return world;
 }
+#endif
 
 #endif

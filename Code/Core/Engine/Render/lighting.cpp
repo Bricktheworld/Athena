@@ -16,7 +16,6 @@ struct LightingParams
 {
   RgRWTexture2D<float4> hdr_buffer;
   ReadGBuffer           gbuffer;
-  ReadDdgi              ddgi;
 };
 
 static void
@@ -29,8 +28,6 @@ render_handler_lighting(RenderContext* ctx, const RenderSettings&, const void* d
   srt.gbuffer_diffuse_rgb_metallic_a = params->gbuffer.diffuse_metallic;
   srt.gbuffer_normal_rgb_roughness_a = params->gbuffer.normal_roughness;
   srt.gbuffer_depth                  = params->gbuffer.depth;
-  srt.ddgi_vol_desc                  = params->ddgi.desc;
-  srt.ddgi_probe_irradiance          = params->ddgi.irradiance;
   srt.render_target                  = params->hdr_buffer;
 
   ctx->set_ray_tracing_pso(&g_Renderer.standard_brdf_pso);
@@ -43,7 +40,6 @@ init_lighting(
   AllocHeap heap,
   RgBuilder* builder,
   const GBuffer& gbuffer,
-  const Ddgi& ddgi,
   RgHandle<GpuTexture>* hdr_buffer
 ) {
   LightingParams* params = HEAP_ALLOC(LightingParams, g_InitHeap, 1);
@@ -51,6 +47,5 @@ init_lighting(
 
   params->hdr_buffer     = RgRWTexture2D<float4>(pass, hdr_buffer);
   params->gbuffer        = read_gbuffer(pass, gbuffer);
-  params->ddgi           = read_ddgi(pass, ddgi);
 }
 

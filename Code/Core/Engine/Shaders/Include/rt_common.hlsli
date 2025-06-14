@@ -5,13 +5,14 @@
 // TODO(Brandon): Eventually when we do full material's we will want to include more data than this...
 struct Payload
 {
-        float  t;
-        uint   hit_kind;
-        float3 ws_pos;
-  unorm float3 normal;
-  unorm	float2 uv;
+  float  t;
+  uint   hit_kind;
+  float3 ws_pos;
+  float3 normal;
+  float2 uv;
 };
 
+#ifndef __cplusplus
 Vertex interpolate_vertex(Vertex vertices[3], float3 barycentrics)
 {
   Vertex ret = (Vertex)0;
@@ -45,5 +46,6 @@ Vertex get_vertex(BuiltInTriangleIntersectionAttributes attr)
   float3 barycentrics = float3((1.0f - attr.barycentrics.x - attr.barycentrics.y), attr.barycentrics.x, attr.barycentrics.y);
   return interpolate_vertex(vertices, barycentrics);
 }
+#endif
 
 #endif
