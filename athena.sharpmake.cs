@@ -71,7 +71,6 @@ namespace Athena
       BuiltShaderHeaders = new Strings();
     }
 
-    [Configure]
     public override void ConfigureAll(Project.Configuration conf, Target target)
     {
       base.ConfigureAll(conf, target);
@@ -81,7 +80,6 @@ namespace Athena
 
   abstract class AthenaToolProject : AthenaProject
   {
-    [Configure]
     public override void ConfigureAll(Project.Configuration conf, Target target)
     {
       base.ConfigureAll(conf, target);
@@ -91,7 +89,6 @@ namespace Athena
 
   abstract class AthenaToolQtProject : AthenaToolProject
   {
-    [Configure]
     public override void ConfigureAll(Project.Configuration conf, Target target)
     {
       base.ConfigureAll(conf, target);
@@ -200,7 +197,6 @@ namespace Athena
       SourceRootPath = @"[project.SharpmakeCsPath]\Code\Core\Foundation";
     }
 
-    [Configure]
     public override void ConfigureAll(Configuration conf, Target target)
     {
       base.ConfigureAll(conf, target);
@@ -266,7 +262,6 @@ namespace Athena
       }
     }
 
-    [Configure]
     public override void ConfigureAll(Configuration conf, Target target)
     {
       base.ConfigureAll(conf, target);
@@ -728,7 +723,6 @@ namespace Athena
       SourceRootPath = @"[project.SharpmakeCsPath]\Code\Core\Tools\MaterialGraphEditor";
     }
 
-    [Configure]
     public override void ConfigureAll(Configuration conf, Target target)
     {
       base.ConfigureAll(conf, target);
