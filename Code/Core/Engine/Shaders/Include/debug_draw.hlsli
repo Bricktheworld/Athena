@@ -31,10 +31,33 @@ void debug_draw_sphere(float3 center, float radius, float3 color)
   }
 
   DebugSdf sdf;
-  sdf.position = center;
-  sdf.radius   = radius;
-  sdf.color    = color;
-  sdf.type     = kSdfTypeSphere;
+  sdf.position  = center;
+  sdf.radius    = radius;
+  sdf.color     = color;
+  sdf.type      = kSdfTypeSphere;
+  sdf.luminance = SH::L2_F16_RGB::Zero();
+  sdf.pad       = 0.0;
+
+  g_DebugSdfBuffer[instance_offset] = sdf;
+}
+
+void debug_draw_spherical_harmonic(float3 center, float radius, SH::L2_F16_RGB luminance)
+{
+  uint instance_offset = 0;
+  InterlockedAdd(g_DebugArgsBuffer[1].instance_count, 1, instance_offset);
+
+  if (instance_offset >= kDebugMaxSdfs)
+  {
+    return;
+  }
+
+  DebugSdf sdf;
+  sdf.position  = center;
+  sdf.radius    = radius;
+  sdf.color     = 1.0f;
+  sdf.type      = kSdfTypeSphericalHarmonic;
+  sdf.luminance = luminance;
+  sdf.pad       = 0.0;
 
   g_DebugSdfBuffer[instance_offset] = sdf;
 }

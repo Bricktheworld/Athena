@@ -45,6 +45,8 @@ typedef half4     Vec4f16;
 #define kQNaN (asfloat(0x7FC00000))
 #endif
 
+#include "Include/spherical_harmonics.hlsli"
+
 struct MultiDrawIndirectArgs
 {
   u32 vertex_count_per_instance;
@@ -364,16 +366,22 @@ struct TemporalAASrt
 
 enum SdfType
 {
-  kSdfTypeSphere,
+  kSdfTypeSphere = 0,
+  kSdfTypeSphericalHarmonic = 1,
 };
 
 struct DebugSdf
 {
-  Vec3    position;
-  f32     radius;
+  Vec3           position;
+  f32            radius;
 
-  Vec3    color;
-  SdfType type;
+  // TODO(bshihabi): We don't need both here... we want some kind of union
+  Vec3           color;
+
+  uint           type;
+
+  SH::L2_F16_RGB luminance;
+  f16            pad;
 };
 
 struct DebugLinePoint

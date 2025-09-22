@@ -9,6 +9,7 @@ kRayTracingShader = 3
 
 kDxcShaderTypeString = ['vs_6_6', 'ps_6_6', 'cs_6_6', 'lib_6_6']
 kEntryPointPrefix = ['VS_', 'PS_', 'CS_', 'RT_']
+kShaderDefines = ['SHADER_VERTEX', 'SHADER_PIXEL', 'SHADER_COMPUTE', 'SHADER_RAYTRACE']
 
 def main():
   parser = argparse.ArgumentParser(
@@ -66,6 +67,8 @@ def main():
           args.source.name,
           '-Zi',
           '-Qembed_debug',
+          '-D',
+          kShaderDefines[shader_type],
           '-HV',
           '2021',
           '-enable-16bit-types',

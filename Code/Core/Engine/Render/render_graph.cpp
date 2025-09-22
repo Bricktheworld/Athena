@@ -392,7 +392,6 @@ init_physical_resources(
       GpuBufferDesc desc = {0};
       desc.size          = resource_desc->buffer_desc.size;
       desc.flags         = *hash_table_find(&physical_flags, resource.id);
-      desc.initial_state = D3D12_RESOURCE_STATE_COMMON;
 
       if (resource_desc->temporal_lifetime > 0 && resource_desc->temporal_lifetime < kInfiniteLifetime)
       {

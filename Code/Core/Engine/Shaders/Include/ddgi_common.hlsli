@@ -15,6 +15,12 @@
 struct DiffuseGiProbe
 {
   SH::L2_F16_RGB luminance;
+
+  Vec3f16 mean;
+  Vec3f16 short_mean;
+  f16     vbbr;
+  Vec3f16 variance;
+  f16     inconsistency;
 };
 
 struct GiRayLuminance
@@ -39,6 +45,21 @@ struct RtDiffuseGiProbeReprojectSrt
   RWStructuredBufferPtr<DiffuseGiProbe>  probe_buffer;
   Texture2DArrayPtr<u16>                 page_table_prev;
   ConstantBufferPtr<RtDiffuseGiSettings> settings;
+};
+
+struct RtDiffuseGiTraceRaySrt
+{
+  Mat4                                   rotation;
+  Texture2DArrayPtr<u16>                 page_table;
+  RWStructuredBufferPtr<GiRayLuminance>  ray_output_buffer;
+  ConstantBufferPtr<RtDiffuseGiSettings> settings;
+};
+
+struct RtDiffuseGiProbeBlendSrt
+{
+  ConstantBufferPtr<RtDiffuseGiSettings> settings;
+  StructuredBufferPtr<GiRayLuminance>    ray_buffer;
+  RWStructuredBufferPtr<DiffuseGiProbe>  probe_buffer;
 };
 
 #endif

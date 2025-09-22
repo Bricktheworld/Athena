@@ -1,5 +1,6 @@
 #include "../root_signature.hlsli"
 #include "../interlop.hlsli"
+#include "../Include/math.hlsli"
 
 [RootSignature(BINDLESS_ROOT_SIGNATURE)]
 float4 PS_DebugDrawLine(in float4 position: SV_Position, in float4 color: COLOR0) : SV_TARGET
@@ -14,7 +15,7 @@ float sdf_sphere(float3 sphere_center, float sphere_radius, float3 position)
 
 float sdf_eval(DebugSdf sdf, float3 position)
 {
-  if (sdf.type == kSdfTypeSphere)
+  if (sdf.type == kSdfTypeSphere || sdf.type == kSdfTypeSphericalHarmonic)
   {
     return sdf_sphere(sdf.position, sdf.radius, position);
   }
@@ -52,6 +53,17 @@ float4 PS_DebugDrawSdf(in float4 position: SV_Position, in float3 ray_dir: RayDi
     return 0.0;
   }
 
-  float3 hit = ray_origin + ray_dir * d;
-  return float4(sdf.color, 1.0);
+  float3 hit    = ray_origin + ray_dir * d;
+
+  if (sdf.type == kSdfTypeSphericalHarmonic)
+  {
+    half3  normal  = (half3)normalize(hit - sdf.position);
+    float3 diffuse = SH::CalculateIrradiance(sdf.luminance, normal) / kPI;
+    return float4(normal, 1.0);
+  }
+  else
+  {
+    return float4(sdf.color, 1.0);
+  }
+
 }
