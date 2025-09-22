@@ -65,7 +65,7 @@ struct SH
 {
   static constexpr s32 NumCoefficients = (L + 1) * ( L + 1);
 
-  T C[N * L];
+  T C[N * NumCoefficients];
 };
 
 template<typename T, int32_t N = 1> using L1_Generic = SH<T, N, 1>;

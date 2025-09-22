@@ -273,6 +273,7 @@ float light_visibility(
   ray.TMin      = 0.01f;
   ray.TMax      = t_max;
 
+#ifdef SHADER_RAYTRACE
   Payload payload = (Payload)0;
   TraceRay(
     g_AccelerationStructure,
@@ -286,7 +287,18 @@ float light_visibility(
   );
 
   return payload.t < 0.0f;
+#else
+  RayQuery<RAY_FLAG_CULL_NON_OPAQUE | 
+           RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES |
+           RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> query;
+
+  query.TraceRayInline(g_AccelerationStructure, RAY_FLAG_NONE, 0xFF, ray);
+  query.Proceed();
+
+  return query.CommittedStatus() != COMMITTED_TRIANGLE_HIT;
+#endif
 }
+
 #endif
 
 #endif

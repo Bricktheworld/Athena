@@ -31,21 +31,27 @@ Vertex interpolate_vertex(Vertex vertices[3], float3 barycentrics)
 
 void load_vertices(uint primitive_index, out Vertex vertices[3])
 {
-  uint3 indices = g_IndexBuffer.Load3(PrimitiveIndex() * 3 * 4);
+  uint3 indices = g_IndexBuffer.Load3(primitive_index * 3 * 4);
   for (uint i = 0; i < 3; i++)
   {
     vertices[i] = g_VertexBuffer[indices[i]];
   }
 }
 
-Vertex get_vertex(BuiltInTriangleIntersectionAttributes attr)
+Vertex get_traced_vertex(uint primitive_idx, float2 in_barycentrics)
 {
   Vertex vertices[3];
-  load_vertices(PrimitiveIndex(), vertices);
+  load_vertices(primitive_idx, vertices);
 
-  float3 barycentrics = float3((1.0f - attr.barycentrics.x - attr.barycentrics.y), attr.barycentrics.x, attr.barycentrics.y);
+  float3 barycentrics = float3((1.0f - in_barycentrics.x - in_barycentrics.y), in_barycentrics.x, in_barycentrics.y);
   return interpolate_vertex(vertices, barycentrics);
 }
+
+Vertex get_traced_vertex(BuiltInTriangleIntersectionAttributes attr)
+{
+  return get_traced_vertex(PrimitiveIndex(), attr.barycentrics);
+}
+
 #endif
 
 #endif

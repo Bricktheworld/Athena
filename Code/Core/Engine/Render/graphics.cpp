@@ -918,7 +918,7 @@ alloc_gpu_buffer_no_heap(
       &heap_props,
       D3D12_HEAP_FLAG_NONE,
       &resource_desc,
-      desc.initial_state,
+      D3D12_RESOURCE_STATE_COMMON,
       nullptr,
       IID_PPV_ARGS(&ret.d3d12_buffer)
     )
@@ -968,7 +968,7 @@ alloc_gpu_buffer(
       allocation.d3d12_heap,
       allocation.offset,
       &resource_desc,
-      desc.initial_state,
+      D3D12_RESOURCE_STATE_COMMON,
       nullptr,
       IID_PPV_ARGS(&ret.d3d12_buffer)
     )
