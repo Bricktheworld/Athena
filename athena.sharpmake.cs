@@ -757,6 +757,8 @@ namespace Athena
       conf.AddProject<AssetBuilderProject>(target);
       conf.AddProject<UsdBuilderProject>(target);
       conf.AddProject<MaterialGraphEditorProject>(target);
+
+      conf.SetStartupProject<EngineProject>();
     }
   }
 
