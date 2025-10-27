@@ -10,9 +10,8 @@ struct Pool
   {
     T   value;
     u32 next_free;
-
-    static_assert(offsetof(PoolItem, value) == 0);
   };
+  static_assert(offsetof(PoolItem, value) == 0);
 
   PoolItem* memory       = nullptr;
   u32       size       = 0;
@@ -40,11 +39,12 @@ init_pool(AllocHeap heap, u32 size)
   }
 #endif
   ASSERT(size > 0);
+  using PoolItem = typename Pool<T>::PoolItem;
 
   Pool<T> ret = {0};
-  ret.memory = HEAP_ALLOC(Pool<T>::PoolItem, heap, size); // push_memory_arena<T>(MEMORY_ARENA_FWD, size);
+  ret.memory = HEAP_ALLOC(PoolItem, heap, size); // push_memory_arena<T>(MEMORY_ARENA_FWD, size);
 
-  zero_memory(ret.memory, sizeof(Pool<T>::PoolItem) * size);
+  zero_memory(ret.memory, sizeof(PoolItem) * size);
   for (u32 i = 0; i < size; i++)
   {
     ret.memory[i].next_free = i + 1;
@@ -74,8 +74,9 @@ template <typename T>
 void pool_free(Pool<T>* pool, T* memory)
 {
   ASSERT(pool->memory <= memory && pool->memory + pool->size > memory);
+  using PoolItem = typename Pool<T>::PoolItem;
 
-  auto* item       = (Pool<T>::PoolItem*)memory;
+  auto* item       = (PoolItem*)memory;
   u32   idx        = (u32)(item - pool->memory);
 
   item->next_free = pool->first_free;

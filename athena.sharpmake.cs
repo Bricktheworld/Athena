@@ -45,6 +45,7 @@ namespace Athena
         new Options.Vc.Compiler.DisableSpecificWarnings(
           "4201", // Nonstandard extension used: nameless struct/union
           "5054", // Deprecated & between enumrations of different types
+          "4456", // Shadow variables
           "4530"  // TODO(bshihabi): Exception handler used
         )
       );
@@ -318,6 +319,24 @@ namespace Athena
         conf.LibraryFiles.Add(@"[project.SourceRootPath]\Lib\Release\assimp-vc143-mtd.lib");
         conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Release\assimp-vc143-mtd.dll");
       }
+    }
+  }
+
+  [Sharpmake.Generate]
+  class AssetServerProject : AthenaToolProject
+  {
+    public AssetServerProject()
+    {
+      Name = "AssetServer";
+      SourceRootPath = @"[project.SharpmakeCsPath]\Code\Core\Tools\AssetServer";
+    }
+
+    public override void ConfigureAll(Configuration conf, Target target)
+    {
+      base.ConfigureAll(conf, target);
+      conf.Output = Configuration.OutputType.Exe;
+      conf.AddPublicDependency<FoundationProject>(target);
+      conf.IncludePaths.Add(@"[project.SourceRootPath]\Vendor");
     }
   }
 
@@ -732,6 +751,62 @@ namespace Athena
   }
 
   [Sharpmake.Generate]
+  public class ViewerSln : Sharpmake.Solution
+  {
+    public ViewerSln()
+    {
+      Name = "Viewer";
+
+      AddTargets(
+        new Target(
+          Platform.win64,
+          DevEnv.vs2022,
+          Optimization.Debug | Optimization.Release
+        )
+      );
+    }
+
+    [Configure]
+    public void ConfigureAll(Configuration conf, Target target)
+    {
+      conf.SolutionFileName = "[solution.Name]";
+      conf.SolutionPath = @"[solution.SharpmakeCsPath]\VS";
+      conf.AddProject<EngineProject>(target);
+      conf.AddProject<FoundationProject>(target);
+
+      conf.SetStartupProject<EngineProject>();
+    }
+  }
+
+  [Sharpmake.Generate]
+  public class AssetServerSln : Sharpmake.Solution
+  {
+    public AssetServerSln()
+    {
+      Name = "AssetServer";
+
+      AddTargets(
+        new Target(
+          Platform.win64,
+          DevEnv.vs2022,
+          Optimization.Debug | Optimization.Release
+        )
+      );
+    }
+
+    [Configure]
+    public void ConfigureAll(Configuration conf, Target target)
+    {
+      conf.SolutionFileName = "[solution.Name]";
+      conf.SolutionPath = @"[solution.SharpmakeCsPath]\VS";
+      conf.AddProject<AssetServerProject>(target);
+      conf.AddProject<FoundationProject>(target);
+
+      conf.SetStartupProject<AssetServerProject>();
+    }
+  }
+
+  [Sharpmake.Generate]
   public class AthenaSln : Sharpmake.Solution
   {
     public AthenaSln()
@@ -755,6 +830,7 @@ namespace Athena
       conf.AddProject<EngineProject>(target);
       conf.AddProject<FoundationProject>(target);
       conf.AddProject<AssetBuilderProject>(target);
+      conf.AddProject<AssetServerProject>(target);
       conf.AddProject<UsdBuilderProject>(target);
       conf.AddProject<MaterialGraphEditorProject>(target);
 
@@ -768,6 +844,8 @@ namespace Athena
     public static void SharpmakeMain(Sharpmake.Arguments arguments)
     {
       arguments.Generate<AthenaSln>();
+      arguments.Generate<ViewerSln>();
+      arguments.Generate<AssetServerSln>();
     }
   }
 }

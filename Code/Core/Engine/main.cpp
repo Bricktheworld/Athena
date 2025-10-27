@@ -8,6 +8,7 @@
 #include "Core/Engine/memory.h"
 #include "Core/Engine/job_system.h"
 #include "Core/Engine/asset_streaming.h"
+#include "Core/Engine/asset_server.h"
 #include "Core/Engine/material_manager.h"
 
 #include "Core/Engine/Render/graphics.h"
@@ -30,7 +31,8 @@
 extern IMGUI_IMPL_API LRESULT
 ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-Window* g_MainWindow = nullptr;
+Window*      g_MainWindow  = nullptr;
+AssetServer* g_AssetServer = nullptr;
 
 static bool g_EnableFullscreen = false;
 
@@ -162,6 +164,15 @@ application_entry(HINSTANCE instance, int show_code)
 
   g_MainWindow->swap_chain = init_swap_chain(window, g_GpuDevice);
   defer { destroy_swap_chain(&g_MainWindow->swap_chain); };
+
+  g_AssetServer = HEAP_ALLOC(AssetServer, g_InitHeap, 1);
+  Result<AssetServer, SocketErr> res = init_asset_server("127.0.0.1", 8000);
+  if (!res)
+  {
+    return;
+  }
+  *g_AssetServer = res.value();
+  defer { destroy_asset_server(g_AssetServer); };
 
   init_global_upload_context(g_GpuDevice);
   defer { destroy_global_upload_context(); };
