@@ -236,6 +236,16 @@ FOUNDATION_API void print_backtrace(const char* fmt, ...);
     } \
   } while(0)
 
+#define ASSERT_MSG(expr, msg, ...)  \
+  do \
+  { \
+    if (expr) { } \
+    else \
+    { \
+      print_backtrace("Assertion failed: " msg, ##__VA_ARGS__); \
+    } \
+  } while(0)
+
 #include <comdef.h>
 #define HASSERT(hres) \
   do \
@@ -253,6 +263,7 @@ FOUNDATION_API void print_backtrace(const char* fmt, ...);
 #define DEBUG_BREAK() do { } while(0)
 #define ASSERT(expr) do { if (expr) { } } while(0)
 #define ASSERT_MSG_FATAL(expr, msg, ...) do { if (expr) { } } while(0)
+#define ASSERT_MSG(expr, msg, ...) do { if (expr) { } } while(0)
 #define HASSERT(hres) hres
 #endif
 

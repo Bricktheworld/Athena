@@ -52,6 +52,13 @@ struct Array
     return *this;
   }
 
+  Array<T, static_size>& operator=(const Array<T, static_size>& rhs)
+  {
+    size = rhs.size;
+    memcpy(memory, rhs.memory, sizeof(T) * static_size);
+    return *this;
+  }
+
   Array(const Span<T>& span)
   { 
     ASSERT(span.size <= capacity);

@@ -612,10 +612,13 @@ void init_bvh_srv(GpuDescriptor* descriptor, const GpuBvh* bvh);
 struct GpuShader
 {
   ID3DBlob* d3d12_shader = nullptr;
+  u32       generation   = 0;
+  u32       __padding__  = 0;
 };
 
 GpuShader load_shader_from_file  (const GpuDevice* device, const wchar_t* path);
 GpuShader load_shader_from_memory(const GpuDevice* device, const u8* src, size_t size);
+void reload_shader_from_memory(GpuShader* shader, const u8* src, size_t size);
 void destroy_shader(GpuShader* shader);
 
 enum PrimitiveTopologyType : u8
@@ -646,43 +649,60 @@ enum DepthFunc : u8
 
 struct GraphicsPipelineDesc
 {
-  const GpuShader* vertex_shader;
-  const GpuShader* pixel_shader;
-  Array<GpuFormat, 8> rtv_formats;
-  GpuFormat dsv_format = kGpuFormatUnknown;
-  DepthFunc depth_func = kDepthFuncGreater;
-  PrimitiveTopologyType topology = kPrimitiveTopologyTriangle;
-  bool stencil_enable:  1 = false;
-  bool blend_enable:    1 = false;
-  bool depth_read_only: 1 = false;
-  u8 __padding__[2]{0};
+  const GpuShader*      vertex_shader           = nullptr;
+  const GpuShader*      pixel_shader            = nullptr;
+  Array<GpuFormat, 8>   rtv_formats;            
+  GpuFormat             dsv_format              = kGpuFormatUnknown;
+  DepthFunc             depth_func              = kDepthFuncGreater;
+  PrimitiveTopologyType topology                = kPrimitiveTopologyTriangle;
+  bool                  stencil_enable:  1      = false;
+  bool                  blend_enable:    1      = false;
+  bool                  depth_read_only: 1      = false;
+  u8                    __padding__[2]{0};
 
   auto operator<=>(const GraphicsPipelineDesc& rhs) const = default;
 };
 
 struct GraphicsPSO
 {
-  ID3D12PipelineState* d3d12_pso = nullptr;
+  ID3D12PipelineState* d3d12_pso                = nullptr;
+  const char*          name                     = nullptr;
+  u32                  vertex_shader_generation = 0;
+  u32                  pixel_shader_generation  = 0;
+  GraphicsPipelineDesc desc;
+
 };
 GraphicsPSO init_graphics_pipeline(
   const GpuDevice* device,
   const GraphicsPipelineDesc& desc,
   const char* name
 );
+void reload_graphics_pipeline(GraphicsPSO* pipeline);
 void destroy_graphics_pipeline(GraphicsPSO* pipeline);
 
 struct ComputePSO
 {
-  ID3D12PipelineState* d3d12_pso = nullptr;
+  ID3D12PipelineState* d3d12_pso                 = nullptr;
+  const char*          name                      = nullptr;
+  const GpuShader*     compute_shader            = nullptr;
+  u32                  compute_shader_generation = 0;
+  u32                  __padding__               = 0;
 };
 
 ComputePSO init_compute_pipeline(const GpuDevice* device, const GpuShader* compute_shader, const char* name);
+// Handle shader hot reloading
+void reload_compute_pipeline(ComputePSO* pipeline);
 void destroy_compute_pipeline(ComputePSO* pipeline);
 
 struct RayTracingPSO
 {
-  ID3D12StateObject* d3d12_pso = nullptr;
-  ID3D12StateObjectProperties* d3d12_properties = nullptr;
+  ID3D12StateObject*           d3d12_pso                      = nullptr;
+  ID3D12StateObjectProperties* d3d12_properties               = nullptr;
+  const char*                  name                           = nullptr;
+  const GpuShader*             ray_tracing_library            = nullptr;
+  u32                          ray_tracing_library_generation = 0;
+  u32                          __padding__                    = 0;
+
 };
 
 RayTracingPSO init_ray_tracing_pipeline(
@@ -690,6 +710,7 @@ RayTracingPSO init_ray_tracing_pipeline(
   const GpuShader* ray_tracing_library,
   const char* name
 );
+void reload_ray_tracing_pipeline(RayTracingPSO* pipeline);
 void destroy_ray_tracing_pipeline(RayTracingPSO* pipeline);
 
 struct ShaderTable

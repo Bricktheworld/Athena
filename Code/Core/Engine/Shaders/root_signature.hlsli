@@ -46,8 +46,8 @@
   "UAV(u125),"\
   "UAV(u126),"\
   "UAV(u127),"\
-  "DescriptorTable(CBV(b112, numDescriptors=16)),"\
-  "DescriptorTable(SRV(t128, numDescriptors=32), UAV(u128, numDescriptors=16))"
+  "DescriptorTable(CBV(b112, numDescriptors=16, flags = DESCRIPTORS_VOLATILE)),"\
+  "DescriptorTable(SRV(t128, numDescriptors=32, flags = DESCRIPTORS_VOLATILE), UAV(u128, numDescriptors=16, flags = DESCRIPTORS_VOLATILE))"
 
   // These will always be static
 SamplerState                              g_BilinearSamplerWrap   : register(s0);

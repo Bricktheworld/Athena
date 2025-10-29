@@ -70,6 +70,7 @@ render_handler_frame_init(RenderContext* ctx, const RenderSettings& settings, co
 
   ctx->write_cpu_upload_buffer(params->viewport_buffer, &main_viewport, sizeof(main_viewport));
 
+#if 0
   {
     spin_acquire(&g_MaterialManager->spin_lock);
     defer { spin_release(&g_MaterialManager->spin_lock); };
@@ -85,6 +86,7 @@ render_handler_frame_init(RenderContext* ctx, const RenderSettings& settings, co
 
     g_MaterialManager->material_upload_count = 0;
   }
+#endif
 
   // For global resources you need to put manual resource barriers since they aren't tracked at compile time (assumed that everyone is going to use them)
   ctx->uav_barrier(params->debug_draw_args_buffer);
@@ -117,8 +119,10 @@ init_frame_init_pass(AllocHeap heap, RgBuilder* builder)
   FrameResources ret;
 
   ret.viewport_buffer        = rg_create_upload_buffer(builder, "Viewport Buffer",     kGpuHeapSysRAMCpuToGpu, sizeof(Viewport));
+#if 0
   ret.material_buffer        = rg_create_upload_buffer(builder, "Material Buffer",     kGpuHeapSysRAMCpuToGpu, sizeof(MaterialGpu)    * kMaxSceneObjs);
   ret.scene_obj_buffer       = rg_create_upload_buffer(builder, "Scene Object Buffer", kGpuHeapSysRAMCpuToGpu, sizeof(SceneObjGpu)    * kMaxSceneObjs);
+#endif
 
   ret.debug_draw_args_buffer = rg_create_buffer(builder, "Debug Draw Args Buffer",      sizeof(MultiDrawIndirectArgs) * 2);
   ret.debug_line_vert_buffer = rg_create_buffer(builder, "Debug Lines Vertices Buffer", sizeof(DebugLinePoint) * kDebugMaxVertices);
@@ -126,8 +130,10 @@ init_frame_init_pass(AllocHeap heap, RgBuilder* builder)
 
   RgPassBuilder*      pass       = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "Frame Init", params, &render_handler_frame_init, true);
   params->viewport_buffer        = RgConstantBuffer<Viewport>(pass, ret.viewport_buffer, 0, kViewportBufferSlot);
+#if 0
   params->material_buffer        = RgStructuredBuffer<MaterialGpu>(pass, ret.material_buffer, 0, kMaterialBufferSlot);
   params->scene_obj_buffer       = RgStructuredBuffer<SceneObjGpu>(pass, ret.scene_obj_buffer, 0, kSceneObjBufferSlot);
+#endif
   params->debug_draw_args_buffer = RgRWStructuredBuffer<MultiDrawIndirectArgs>(pass, &ret.debug_draw_args_buffer, kDebugArgsBufferSlot);
   params->debug_line_vert_buffer = RgRWStructuredBuffer<DebugLinePoint>(pass, &ret.debug_line_vert_buffer, kDebugVertexBufferSlot);
   params->debug_sdf_buffer       = RgRWStructuredBuffer<DebugSdf>(pass, &ret.debug_sdf_buffer, kDebugSdfBufferSlot);

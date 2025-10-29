@@ -2,8 +2,6 @@
 
 setlocal
 
-set SLN=%ATHENA_ROOT%\vs\athena.sln
-
-if "%1" == "Athena" set SLN=%ATHENA_ROOT%\vs\athena.sln
+set SLN=%ATHENA_ROOT%\vs\%1.sln
 
 call devenv %SLN%

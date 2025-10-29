@@ -319,9 +319,9 @@ hash_table_erase(HashTable<K, V>* table, const K& key)
   u64 group_index = start_index;
   do
   {
-    auto* group = table->groups + group_index;
-    u16 mask = _mm_movemask_epi8(_mm_cmpeq_epi8(_mm_set1_epi8(h.meta), group->ctrls_sse));
-    u16 empty_mask = _mm_movemask_epi8(_mm_cmpeq_epi8(_mm_set1_epi8(kHashTableCtrlEmpty), group->ctrls_sse));
+    auto* group      = table->groups + group_index;
+    u16   mask       = (u16)_mm_movemask_epi8(_mm_cmpeq_epi8(_mm_set1_epi8(h.meta), group->ctrls_sse));
+    u16   empty_mask = (u16)_mm_movemask_epi8(_mm_cmpeq_epi8(_mm_set1_epi8(kHashTableCtrlEmpty), group->ctrls_sse));
     for (u8 i = 0; i < 16; i++)
     {
       if ((mask & (1 << i)) == 0)

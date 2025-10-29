@@ -4,7 +4,7 @@ set ls=dir
 set ATHENA_ROOT=%~dp0
 
 :: Add scripts folder to path (has things like build and vsgen)
-set PATH=%PATH%;%ATHENA_ROOT%Bin
+set PATH=%ATHENA_ROOT%Bin;%ATHENA_ROOT%Bin\python-3.12.0;%PATH%
 
 :: Move the user into the root directory in case they aren't already
 cd %ATHENA_ROOT%

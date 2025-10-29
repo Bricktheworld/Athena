@@ -32,9 +32,9 @@ using AssetRef = AssetId;
 
 static constexpr u32 kAssetMagicNumber = CRC32_STR("ATHENA_ASSET");
 
-static constexpr u32 kModelAssetVersion    = 2;
-static constexpr u32 kTextureAssetVersion  = 2;
-static constexpr u32 kMaterialAssetVersion = 3;
+static constexpr u32 kModelAssetVersion    = 3;
+static constexpr u32 kTextureAssetVersion  = 3;
+static constexpr u32 kMaterialAssetVersion = 4;
 
 struct U8Color4
 {

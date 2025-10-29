@@ -1,9 +1,10 @@
 #pragma once
-#include "types.h"
+#include "Core/Foundation/types.h"
 
-template <typename V>
+template <typename V = void>
 struct Ok
 {
+  Ok(void) = delete;
   Ok(const V& val)
   {
     memmove(buffer, &val, sizeof(V));
@@ -15,6 +16,7 @@ struct Ok
 template <>
 struct Ok<void>
 {
+  Ok(void) = default;
 };
 
 template <typename E>
@@ -84,7 +86,7 @@ template <typename E>
 struct Result<void, E>
 {
   Result() = default;
-  Result(Ok<void> _) {}
+  Result(Ok<void>) {}
   Result(const Err<E>& e)
   {
     memmove(m_Err, e.buffer, sizeof(E));
