@@ -124,15 +124,9 @@ struct ReallocFreeHeap
 FOUNDATION_API void* linear_alloc(void* linear_allocator, size_t size, size_t alignment);
 struct LinearAllocator
 {
-  struct FilledBuffer
-  {
-    FilledBuffer* prev = nullptr;
-  };
-
   uintptr_t     start        = 0x0;
   uintptr_t     pos          = 0x0;
   size_t        size         = 0;
-  FilledBuffer* prev         = nullptr;
 
   // A typical setup might be to back a linear allocator with a pool allocator with pages
   // to allow for overflow.

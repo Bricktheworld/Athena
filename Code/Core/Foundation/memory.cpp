@@ -53,7 +53,6 @@ init_linear_allocator(void* memory, size_t size)
   ret.start           = (uintptr_t)memory;
   ret.pos             = ret.start;
   ret.size            = size;
-  ret.prev            = nullptr;
   ret.backing_heap    = {0};
   return ret;
 }
@@ -67,7 +66,6 @@ init_linear_allocator(FreeHeap heap, size_t size)
   ret.start           = (uintptr_t)memory;
   ret.pos             = ret.start;
   ret.size            = size;
-  ret.prev            = nullptr;
   ret.backing_heap    = heap;
 
   return ret;
@@ -86,7 +84,9 @@ destroy_linear_allocator(LinearAllocator* self)
   ASSERT(self->pos >= self->start);
 
   if (!self->backing_heap.allocator)
+  {
     return;
+  }
 
   HEAP_FREE(self->backing_heap, (void*)self->start);
 }

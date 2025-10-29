@@ -1376,6 +1376,15 @@ load_shader_from_memory(const GpuDevice* device, const u8* src, size_t size)
 }
 
 void
+reload_shader_from_memory(GpuShader* shader, const u8* src, size_t size)
+{
+  destroy_shader(shader);
+  GpuShader new_shader = load_shader_from_memory(g_GpuDevice, src, size);
+  shader->d3d12_shader = new_shader.d3d12_shader;
+  shader->generation++;
+}
+
+void
 destroy_shader(GpuShader* shader)
 {
   COM_RELEASE(shader->d3d12_shader);
@@ -1482,7 +1491,18 @@ init_graphics_pipeline(
   mbstowcs_s(nullptr, wname, name, 1024);
   ret.d3d12_pso->SetName(wname);
 
+  ret.name                     = name;
+  ret.vertex_shader_generation = desc.vertex_shader->generation;
+  ret.pixel_shader_generation  = desc.pixel_shader->generation;
+  ret.desc                     = desc;
+
   return ret;
+}
+void
+reload_graphics_pipeline(GraphicsPSO* pipeline)
+{
+  COM_RELEASE(pipeline->d3d12_pso);
+  *pipeline = init_graphics_pipeline(g_GpuDevice, pipeline->desc, pipeline->name);
 }
 
 void
@@ -1495,13 +1515,13 @@ destroy_graphics_pipeline(GraphicsPSO* pipeline)
 ComputePSO
 init_compute_pipeline(const GpuDevice* device, const GpuShader* compute_shader, const char* name)
 {
-  ComputePSO ret;
+  ComputePSO ret = {0};
   D3D12_COMPUTE_PIPELINE_STATE_DESC desc;
-  desc.pRootSignature = g_RootSignature;
-  desc.CS = CD3DX12_SHADER_BYTECODE(compute_shader->d3d12_shader);
-  desc.NodeMask = 0;
-  desc.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
-  desc.CachedPSO.pCachedBlob = nullptr;
+  desc.pRootSignature                  = g_RootSignature;
+  desc.CS                              = CD3DX12_SHADER_BYTECODE(compute_shader->d3d12_shader);
+  desc.NodeMask                        = 0;
+  desc.Flags                           = D3D12_PIPELINE_STATE_FLAG_NONE;
+  desc.CachedPSO.pCachedBlob           = nullptr;
   desc.CachedPSO.CachedBlobSizeInBytes = 0;
   HASSERT(device->d3d12->CreateComputePipelineState(&desc, IID_PPV_ARGS(&ret.d3d12_pso)));
 
@@ -1509,7 +1529,18 @@ init_compute_pipeline(const GpuDevice* device, const GpuShader* compute_shader, 
   mbstowcs_s(nullptr, wname, name, 1024);
   ret.d3d12_pso->SetName(wname);
 
+  ret.name                             = name;
+  ret.compute_shader                   = compute_shader;
+  ret.compute_shader_generation        = compute_shader->generation;
+
   return ret;
+}
+
+void
+reload_compute_pipeline(ComputePSO* pipeline)
+{
+  COM_RELEASE(pipeline->d3d12_pso);
+  *pipeline = init_compute_pipeline(g_GpuDevice, pipeline->compute_shader, pipeline->name);
 }
 
 void
@@ -1678,7 +1709,7 @@ destroy_acceleration_structure(GpuBvh* bvh)
 RayTracingPSO
 init_ray_tracing_pipeline(const GpuDevice* device, const GpuShader* ray_tracing_library, const char* name)
 {
-  RayTracingPSO ret;
+  RayTracingPSO ret = {0};
 
   CD3DX12_STATE_OBJECT_DESC desc = {D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE};
 
@@ -1692,6 +1723,9 @@ init_ray_tracing_pipeline(const GpuDevice* device, const GpuShader* ray_tracing_
   wchar_t wname[1024];
   mbstowcs_s(nullptr, wname, name, 1024);
   ret.d3d12_pso->SetName(wname);
+  ret.name                           = name;
+  ret.ray_tracing_library            = ray_tracing_library;
+  ret.ray_tracing_library_generation = ray_tracing_library->generation;
 
   return ret;
 }

@@ -52,6 +52,7 @@ struct ShaderManager
 void init_shader_manager(const GpuDevice* device);
 void destroy_shader_manager();
 const GpuShader* get_engine_shader(u32 index);
+void reload_engine_shader(const char* entry_point_name, const u8* bin, u64 bin_size);
 
 
 struct RenderModelSubset

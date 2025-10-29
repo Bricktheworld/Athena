@@ -489,8 +489,13 @@ init_physical_descriptors(
 
     for (const RgPassBuilder::ResourceAccessData& desc : pass_builder.read_resources)
     {
-      RgResourceKey   resource_key = {0};
-      resource_key.id              = desc.handle.id;
+      RgResourceKey   resource_key  = {0};
+      resource_key.id               = desc.handle.id;
+      const char*     resource_name = "Unknown";
+      if (TransientResourceDesc* resource_desc = hash_table_find(&builder.resource_descs, desc.handle.id))
+      {
+        resource_name               = resource_desc->name;
+      }
 
       u8 temporal_lifetime = get_temporal_lifetime(desc.handle.temporal_lifetime);
       for (u32 iframe = 0; iframe <= temporal_lifetime; iframe++)
@@ -504,7 +509,7 @@ init_physical_descriptors(
           {
             GpuDescriptor* dst = desc.is_grv ? grv_descriptors + desc.descriptor_idx : &pass->descriptors[desc.descriptor_idx + iframe];
 
-            ASSERT_MSG_FATAL(!desc.is_grv || temporal_lifetime == 0, "GRV descriptor attached to SRV buffer which is temporal. Not supported!");
+            ASSERT_MSG_FATAL(!desc.is_grv || temporal_lifetime == 0, "GRV descriptor attached to SRV buffer (%s) which is temporal. Not supported!", resource_name);
             *dst = desc.is_grv ? alloc_table_descriptor(g_DescriptorCbvSrvUavPool, kGrvTemporalCount * kBackBufferCount + desc.descriptor_idx) : alloc_descriptor(g_DescriptorCbvSrvUavPool);
             init_buffer_srv(dst, buffer, desc.buffer_srv);
           }
@@ -518,7 +523,7 @@ init_physical_descriptors(
           else
           {
             // This means that it's a vertex/index buffer
-            ASSERT_MSG_FATAL(!desc.is_grv, "GRV descriptor attached to unsupported resource type %u", desc.handle.type);
+            ASSERT_MSG_FATAL(!desc.is_grv, "GRV descriptor attached to unsupported resource (%s) type %u", resource_name, desc.handle.type);
           }
         }
         else if(desc.handle.type == kResourceTypeTexture)
@@ -1112,10 +1117,11 @@ execute_render_graph(const GpuTexture* back_buffer, const RenderSettings& settin
     begin_gpu_profiler_timestamp(cmd_buffer, kTotalFrameGpuMarker);
     defer { end_gpu_profiler_timestamp(cmd_buffer, kTotalFrameGpuMarker); };
 
+    set_descriptor_heaps(&cmd_buffer, {g_DescriptorCbvSrvUavPool});
+
     set_graphics_root_signature(&cmd_buffer);
     set_compute_root_signature(&cmd_buffer);
 
-    set_descriptor_heaps(&cmd_buffer, {g_DescriptorCbvSrvUavPool});
     // TODO(bshihabi): This is a hack. Because the D3D12 validation layers are so slow,
     // we can't just do this between every pass, so we do it once and hope that no one resets these as that would fuck us.
     set_descriptor_table(&cmd_buffer, g_DescriptorCbvSrvUavPool, (g_FrameId % kBackBufferCount) * kGrvTemporalCount, kGrvTemporalTableSlot);
@@ -1825,12 +1831,28 @@ RenderContext::clear_render_target_view(
 void
 RenderContext::set_graphics_pso(const GraphicsPSO* pso)
 {
+  // Hot reloads need to be handled carefully here...
+  if (pso->desc.vertex_shader->generation != pso->vertex_shader_generation || pso->desc.pixel_shader->generation != pso->pixel_shader_generation)
+  {
+    // Not sure if there is a nicer way of handling this other than const_cast
+    // In general it's only an issue for development builds so this entire bit of code
+    // will just go away so I think it's okay.
+    reload_graphics_pipeline(const_cast<GraphicsPSO*>(pso));
+  }
   m_CmdBuffer.d3d12_list->SetPipelineState(pso->d3d12_pso);
 }
 
 void
 RenderContext::set_compute_pso(const ComputePSO* pso)
 {
+  // Hot reloads need to be handled carefully here...
+  if (pso->compute_shader->generation != pso->compute_shader_generation)
+  {
+    // Not sure if there is a nicer way of handling this other than const_cast
+    // In general it's only an issue for development builds so this entire bit of code
+    // will just go away so I think it's okay.
+    reload_compute_pipeline(const_cast<ComputePSO*>(pso));
+  }
   m_CmdBuffer.d3d12_list->SetPipelineState(pso->d3d12_pso);
 }
 

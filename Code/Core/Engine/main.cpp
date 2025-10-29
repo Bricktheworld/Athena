@@ -32,7 +32,6 @@ extern IMGUI_IMPL_API LRESULT
 ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 Window*      g_MainWindow  = nullptr;
-AssetServer* g_AssetServer = nullptr;
 
 static bool g_EnableFullscreen = false;
 
@@ -165,14 +164,12 @@ application_entry(HINSTANCE instance, int show_code)
   g_MainWindow->swap_chain = init_swap_chain(window, g_GpuDevice);
   defer { destroy_swap_chain(&g_MainWindow->swap_chain); };
 
-  g_AssetServer = HEAP_ALLOC(AssetServer, g_InitHeap, 1);
-  Result<AssetServer, SocketErr> res = init_asset_server("127.0.0.1", 8000);
+  Result<void, SocketErr> res = init_asset_server("127.0.0.1", 8000);
   if (!res)
   {
     return;
   }
-  *g_AssetServer = res.value();
-  defer { destroy_asset_server(g_AssetServer); };
+  defer { destroy_asset_server(); };
 
   init_global_upload_context(g_GpuDevice);
   defer { destroy_global_upload_context(); };
@@ -260,6 +257,8 @@ application_entry(HINSTANCE instance, int show_code)
         lpp_agent.Restart(lpp::LPP_RESTART_BEHAVIOUR_INSTANT_TERMINATION, 0u);
       }
     }
+
+    asset_server_update();
 
     reset_frame_heap();
 

@@ -30,19 +30,21 @@ def main():
   
 
   shader_enums = ''
+  shader_names = ''
   shader_binary_variables = ''
   shader_binary_sizes = ''
   for shader_name in shader_binaries:
     shader_enums += '  k' + shader_name + ',\n'
+    shader_names += '  "' + shader_name + '",\n'
     shader_binary_variables += '  __kShaderSource__' + shader_name + ',\n'
     shader_binary_sizes += '  sizeof(__kShaderSource__' + shader_name + '),\n'
 
-  output_header_lines = '#pragma once\nenum EngineShaderIndex\n{\n' + shader_enums + '  kEngineShaderCount,\n};\nextern const unsigned char* kEngineShaderBinSrcs[];\nextern const size_t kEngineShaderBinSizes[];'
+  output_header_lines = '#pragma once\nenum EngineShaderIndex\n{\n' + shader_enums + '  kEngineShaderCount,\n};\nextern const unsigned char* kEngineShaderBinSrcs[];\nextern const size_t kEngineShaderBinSizes[];\nextern const char* kEngineShaderNames[];\n'
 
   local_header_name = os.path.basename(args.output_header.name)
 
   
-  output_source_lines = '#include "' + local_header_name +'"\n' + built_includes + '\nconst unsigned char* kEngineShaderBinSrcs[] = \n{\n' + shader_binary_variables + '};\nconst size_t kEngineShaderBinSizes[] = \n{\n' + shader_binary_sizes + '};\n'
+  output_source_lines = '#include "' + local_header_name +'"\n' + built_includes + '\nconst unsigned char* kEngineShaderBinSrcs[] = \n{\n' + shader_binary_variables + '};\nconst size_t kEngineShaderBinSizes[] = \n{\n' + shader_binary_sizes + '};\nconst char* kEngineShaderNames[] = \n{\n' + shader_names + '};\n'
   args.output_header.write(output_header_lines)
   args.output_source.write(output_source_lines)
 

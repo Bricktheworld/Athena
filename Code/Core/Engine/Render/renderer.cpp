@@ -50,6 +50,21 @@ destroy_shader_manager()
   zero_memory(g_ShaderManager, sizeof(ShaderManager));
 }
 
+void
+reload_engine_shader(const char* entry_point_name, const u8* bin, u64 bin_size)
+{
+  for (u32 i = 0; i < kEngineShaderCount; i++)
+  {
+    if (_stricmp(entry_point_name, kEngineShaderNames[i]) == 0)
+    {
+      reload_shader_from_memory(g_ShaderManager->shaders + i, bin, bin_size);
+      dbgln("Hot reloaded shader %s", entry_point_name);
+      return;
+    }
+  }
+  ASSERT_MSG(false, "Failed to reload engine shader %s, not found!", entry_point_name);
+}
+
 const GpuShader*
 get_engine_shader(u32 index)
 {
