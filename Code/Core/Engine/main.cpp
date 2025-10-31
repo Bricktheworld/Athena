@@ -307,6 +307,12 @@ application_entry(HINSTANCE instance, int show_code)
       g_Scene->camera.pitch -= delta.y;
       g_Scene->camera.yaw   += delta.x;
     }
+    else if (mouse.positionMode == DirectX::Mouse::MODE_ABSOLUTE)
+    {
+      Vec2 pos = Vec2(f32(mouse.x), f32(mouse.y)) / Vec2((f32)g_MainWindow->swap_chain.width, (f32)g_MainWindow->swap_chain.height);
+      dbgln("Mouse pos %f, %f", pos.x, pos.y);
+      g_Renderer.settings.mouse_pos = pos;
+    }
     d3d12_mouse.SetMode(mouse.rightButton ? DirectX::Mouse::MODE_RELATIVE : DirectX::Mouse::MODE_ABSOLUTE);
 
     Vec3 move;

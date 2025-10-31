@@ -3,5 +3,19 @@
 
 #include "Core/Engine/Render/ddgi.h"
 
+#include "Core/Engine/Shaders/Include/ddgi_common.hlsli"
 
-void init_rt_diffuse_gi(AllocHeap heap, RgBuilder* builder);
+struct DiffuseGiResources
+{
+  RgHandle<GpuTexture> probe_page_table;
+  RgHandle<GpuBuffer>  probe_buffer;
+};
+
+struct ReadDiffuseGi
+{
+  RgStructuredBuffer<DiffuseGiProbe>    diffuse_probes;
+  RgTexture2DArray<u16>                 page_table;
+};
+
+DiffuseGiResources init_rt_diffuse_gi(AllocHeap heap, RgBuilder* builder);
+ReadDiffuseGi      read_diffuse_gi(RgPassBuilder* pass, const DiffuseGiResources& resources);

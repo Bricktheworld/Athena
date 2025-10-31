@@ -89,29 +89,54 @@ struct Camera
   f32  yaw       = 0;
 };
 
+// !!WARNING!! !!WARNING!! !!WARNING!!
+// MUST BE KEPT IN SYNC WITH GpuRenderSettings and to_gpu_render_settings
 struct RenderSettings
 {
-  f32   aperture              = 5.6f;
-  f32   shutter_time          = 1.0 / 60.0f;
-  f32   iso                   = 100.0f;
+  // !!WARNING!! !!WARNING!! !!WARNING!!
+  f32   focal_dist               = 8.0f;
+  f32   focal_range              = 3.0f;
+  f32   dof_blur_radius          = 15.0f;
+  u32   dof_sample_count         = 32;
 
-  f32   focal_dist            = 8.0f;
-  f32   focal_range           = 3.0f;
+  f32   aperture                 = 16.0f;
+  f32   shutter_time             = 1.0 / 60.0f;
+  f32   iso                      = 500.0f;
+  u32   __pad0__;
 
-  f32   dof_blur_radius       = 15.0f;
-  u32   dof_sample_count      = 32;
+  Vec2  mouse_pos                = Vec2(0.0f, 0.0f);
+  u32   __pad1__;
+  u32   __pad2__;
 
-  u32   debug_probe_ray_idx   = U32_MAX;
-
-  Vec3  probe_spacing         = Vec3(1.0f, 1.8f, 1.0f);
-
-  bool  disable_taa           = false;
-  bool  debug_gi_probes       = false;
-  bool  disable_hdr           = false;
-  bool  disable_dof           = false;
-  bool  enabled_debug_draw    = false;
-  bool  freeze_probe_rotation = false;
+  Vec3  diffuse_gi_probe_spacing = Vec3(1.0f, 1.8f, 1.0f);
+  bool  disable_taa              = false;
+  bool  debug_gi_probes          = false;
+  bool  disable_hdr              = false;
+  bool  disable_dof              = false;
+  bool  enabled_debug_draw       = false;
+  bool  freeze_probe_rotation    = false;
 };
+
+inline RenderSettingsGpu to_gpu_render_settings(const RenderSettings& settings)
+{
+  RenderSettingsGpu ret;
+  ret.focal_dist               = settings.focal_dist;
+  ret.focal_range              = settings.focal_range;
+  ret.dof_blur_radius          = settings.dof_blur_radius;
+  ret.dof_sample_count         = settings.dof_sample_count;
+  ret.aperture                 = settings.aperture;
+  ret.shutter_time             = settings.shutter_time;
+  ret.iso                      = settings.iso;
+  ret.diffuse_gi_probe_spacing = settings.diffuse_gi_probe_spacing;
+  ret.disable_taa              = settings.disable_taa;
+  ret.debug_gi_probes          = settings.debug_gi_probes;
+  ret.disable_hdr              = settings.disable_hdr;
+  ret.disable_dof              = settings.disable_dof;
+  ret.enabled_debug_draw       = settings.enabled_debug_draw;
+  ret.freeze_gi_probe_rotation = settings.freeze_probe_rotation;
+  ret.mouse_pos                = settings.mouse_pos;
+  return ret;
+}
 
 struct Renderer
 {
@@ -128,9 +153,6 @@ struct Renderer
   RenderSettings settings;
 
   DirectionalLight directional_light;
-
-  RayTracingPSO standard_brdf_pso;
-  ShaderTable   standard_brdf_st;
 
   GraphicsPSO   back_buffer_blit_pso;
   ComputePSO    texture_copy_pso;

@@ -1162,10 +1162,14 @@ execute_render_graph(const GpuTexture* back_buffer, const RenderSettings& settin
       for (RenderPassId pass_id : level.render_passes)
       {
         set_descriptor_heaps(&cmd_buffer, {g_DescriptorCbvSrvUavPool});
+
         RG_DBGLN("%s", g_RenderGraph->render_passes[pass_id].name);
 
         set_graphics_root_signature(&cmd_buffer);
         set_compute_root_signature(&cmd_buffer);
+
+        set_descriptor_table(&cmd_buffer, g_DescriptorCbvSrvUavPool, (g_FrameId % kBackBufferCount) * kGrvTemporalCount, kGrvTemporalTableSlot);
+        set_descriptor_table(&cmd_buffer, g_DescriptorCbvSrvUavPool, kBackBufferCount * kGrvTemporalCount, kGrvTableSlot);
 
         g_HandlerId = pass_id;
         const RenderPass& pass = g_RenderGraph->render_passes[pass_id];

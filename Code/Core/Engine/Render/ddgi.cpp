@@ -3,8 +3,6 @@
 #include "Core/Engine/Render/ddgi.h"
 #include "Core/Engine/Render/renderer.h"
 
-#include "Core/Engine/Shaders/Include/ddgi_common.hlsli"
-
 struct RtDiffuseGiPageInitParams
 {
   ComputePSO probe_init_pso;
@@ -13,11 +11,10 @@ struct RtDiffuseGiPageInitParams
   RgRWTexture2DArray<u16>               page_table;
   RgRWStructuredBuffer<DiffuseGiProbe>  probe_buffer;
   RgTexture2DArray<u16>                 page_table_prev;
-  RgConstantBuffer<RtDiffuseGiSettings> settings;
 };
 
 static void
-render_handler_probe_init(RenderContext* ctx, const RenderSettings& settings, const void* data)
+render_handler_probe_init(RenderContext* ctx, const RenderSettings&, const void* data)
 {
   RtDiffuseGiPageInitParams* params = (RtDiffuseGiPageInitParams*)data;
 
@@ -30,25 +27,17 @@ render_handler_probe_init(RenderContext* ctx, const RenderSettings& settings, co
     srt.page_table      = params->page_table;
     ctx->compute_bind_srt(srt);
     ctx->set_compute_pso(&params->probe_init_pso);
-    ctx->dispatch(1, kProbeCountPerClipmap.y * kProbeClipmapCount, 1);
+    ctx->dispatch(ALIGN_POW2(kProbeCountPerClipmap.x, 8) / 8, kProbeCountPerClipmap.y * kProbeClipmapCount, ALIGN_POW2(kProbeCountPerClipmap.z, 8) / 8);
     return;
   }
-
-  RtDiffuseGiSettings gi_settings;
-  gi_settings.probe_spacing[0] = settings.probe_spacing;
-  gi_settings.probe_spacing[1] = 1.5f * gi_settings.probe_spacing[0];
-  gi_settings.probe_spacing[2] = 1.5f * gi_settings.probe_spacing[1];
-
-  ctx->write_cpu_upload_buffer(params->settings, &gi_settings, sizeof(gi_settings));
 
   RtDiffuseGiProbeReprojectSrt srt;
   srt.page_table      = params->page_table;
   srt.probe_buffer    = params->probe_buffer;
   srt.page_table_prev = params->page_table_prev;
-  srt.settings        = params->settings;
   ctx->compute_bind_srt(srt);
   ctx->set_compute_pso(&params->probe_reproj_pso);
-  ctx->dispatch(kProbeCountPerClipmap.x / 8, kProbeCountPerClipmap.y * kProbeClipmapCount, kProbeCountPerClipmap.z / 8);
+  ctx->dispatch(ALIGN_POW2(kProbeCountPerClipmap.x, 8) / 8, kProbeCountPerClipmap.y * kProbeClipmapCount, ALIGN_POW2(kProbeCountPerClipmap.z, 8) / 8);
 }
 
 static void
@@ -65,7 +54,7 @@ struct RtDiffuseGiTraceRayParams
 
   RgTexture2DArray<u16>                 page_table;
   RgRWStructuredBuffer<GiRayLuminance>  ray_output_buffer;
-  RgConstantBuffer<RtDiffuseGiSettings> settings;
+  RgStructuredBuffer<DiffuseGiProbe>    probe_buffer;
 };
 
 static void
@@ -77,22 +66,36 @@ render_handler_probe_trace_rays(RenderContext* ctx, const RenderSettings&, const
   srt.rotation          = generate_random_rotation();
   srt.page_table        = params->page_table;
   srt.ray_output_buffer = params->ray_output_buffer;
-  srt.settings          = params->settings;
+  srt.probe_buffer      = params->probe_buffer;
 
   ctx->compute_bind_srt(srt);
   ctx->set_compute_pso(&params->probe_trace_ray_pso);
   ctx->dispatch(kProbeCountPerClipmap.x, kProbeCountPerClipmap.y * kProbeClipmapCount, kProbeCountPerClipmap.z);
 }
 
-static void
-render_handler_probe_blend(RenderContext* ctx, const RenderSettings& settings, const void* data)
+struct RtDiffuseGiProbeBlendParams
 {
-  UNREFERENCED_PARAMETER(ctx);
-  UNREFERENCED_PARAMETER(settings);
-  UNREFERENCED_PARAMETER(data);
+  ComputePSO probe_blend_pso;
+
+  RgStructuredBuffer<GiRayLuminance>    ray_buffer;
+  RgRWStructuredBuffer<DiffuseGiProbe>  probe_buffer;
+};
+
+static void
+render_handler_probe_blend(RenderContext* ctx, const RenderSettings&, const void* data)
+{
+  RtDiffuseGiProbeBlendParams* params = (RtDiffuseGiProbeBlendParams*)data;
+
+  RtDiffuseGiProbeBlendSrt srt;
+  srt.ray_buffer   = params->ray_buffer;
+  srt.probe_buffer = params->probe_buffer;
+
+  ctx->compute_bind_srt(srt);
+  ctx->set_compute_pso(&params->probe_blend_pso);
+  ctx->dispatch(ALIGN_POW2(kProbeMaxActiveCount, 64) / 64, 1, 1);
 }
 
-void
+DiffuseGiResources
 init_rt_diffuse_gi(AllocHeap heap, RgBuilder* builder)
 {
   RgHandle<GpuTexture> probe_page_table = rg_create_texture_array_ex(
@@ -105,7 +108,6 @@ init_rt_diffuse_gi(AllocHeap heap, RgBuilder* builder)
     1 // Need previous frame to copy to current frame
   );
 
-  RgHandle<GpuBuffer> rt_diffuse_gi_settings = rg_create_upload_buffer(builder, "RT Diffuse GI - Settings", kGpuHeapSysRAMCpuToGpu, sizeof(RtDiffuseGiSettings));
   RgHandle<GpuBuffer> probe_buffer           = rg_create_buffer(builder, "RT Diffuse GI - Luminance Probe Buffer", sizeof(DiffuseGiProbe) * kProbeMaxActiveCount);
   RgHandle<GpuBuffer> ray_luminance          = rg_create_buffer(builder, "RT Diffuse GI - Ray Luminance Data",     sizeof(GiRayLuminance) * kProbeMaxRayCount);
 
@@ -119,7 +121,6 @@ init_rt_diffuse_gi(AllocHeap heap, RgBuilder* builder)
     params->page_table       = RgRWTexture2DArray<u16>(pass, &probe_page_table);
     params->probe_buffer     = RgRWStructuredBuffer<DiffuseGiProbe>(pass, &probe_buffer);
     params->page_table_prev  = RgTexture2DArray<u16>(pass, probe_page_table, -1);
-    params->settings         = RgConstantBuffer<RtDiffuseGiSettings>(pass, rt_diffuse_gi_settings);
   }
   {
     RtDiffuseGiTraceRayParams* params = HEAP_ALLOC(RtDiffuseGiTraceRayParams, g_InitHeap, 1);
@@ -128,7 +129,31 @@ init_rt_diffuse_gi(AllocHeap heap, RgBuilder* builder)
 
     RgPassBuilder* pass       = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "RT Diffuse GI - Probe Trace Ray", params, &render_handler_probe_trace_rays);
     params->page_table        = RgTexture2DArray<u16>(pass, probe_page_table);
+    params->probe_buffer      = RgStructuredBuffer<DiffuseGiProbe>(pass, probe_buffer);
     params->ray_output_buffer = RgRWStructuredBuffer<GiRayLuminance>(pass, &ray_luminance);
-    params->settings          = RgConstantBuffer<RtDiffuseGiSettings>(pass, rt_diffuse_gi_settings);
   }
+  {
+    RtDiffuseGiProbeBlendParams* params = HEAP_ALLOC(RtDiffuseGiProbeBlendParams, g_InitHeap, 1);
+
+    params->probe_blend_pso   = init_compute_pipeline(g_GpuDevice, get_engine_shader(kCS_RtDiffuseGiProbeBlend),  "RT Diffuse GI Probe Blend");
+
+    RgPassBuilder* pass       = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "RT Diffuse GI - Probe Blend", params, &render_handler_probe_blend);
+    params->ray_buffer        = RgStructuredBuffer<GiRayLuminance>(pass, ray_luminance);
+    params->probe_buffer      = RgRWStructuredBuffer<DiffuseGiProbe>(pass, &probe_buffer);
+  }
+
+  DiffuseGiResources ret;
+  ret.probe_buffer     = probe_buffer;
+  ret.probe_page_table = probe_page_table;
+
+  return ret;
+}
+
+ReadDiffuseGi
+read_diffuse_gi(RgPassBuilder* pass, const DiffuseGiResources& resources)
+{
+  ReadDiffuseGi ret;
+  ret.diffuse_probes = RgStructuredBuffer<DiffuseGiProbe>(pass, resources.probe_buffer);
+  ret.page_table     = RgTexture2DArray<u16>(pass, resources.probe_page_table);
+  return ret;
 }

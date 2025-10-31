@@ -52,6 +52,12 @@ Vertex get_traced_vertex(BuiltInTriangleIntersectionAttributes attr)
   return get_traced_vertex(PrimitiveIndex(), attr.barycentrics);
 }
 
+template <uint flags>
+Vertex get_traced_vertex(RayQuery<flags> query)
+{
+  return get_traced_vertex(query.CommittedPrimitiveIndex(), query.CommittedTriangleBarycentrics());
+}
+
 #endif
 
 #endif

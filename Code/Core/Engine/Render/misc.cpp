@@ -17,6 +17,7 @@
 struct FrameInitParams
 {
   RgConstantBuffer<Viewport>                  viewport_buffer;
+  RgConstantBuffer<RenderSettingsGpu>         render_settings;
   RgStructuredBuffer<SceneObjGpu>             scene_obj_buffer;
   RgStructuredBuffer<MaterialGpu>             material_buffer;
   RgRWStructuredBuffer<MultiDrawIndirectArgs> debug_draw_args_buffer;
@@ -91,7 +92,11 @@ render_handler_frame_init(RenderContext* ctx, const RenderSettings& settings, co
 
   main_viewport.taa_jitter            = !settings.disable_taa ? g_Renderer.taa_jitter : Vec2(0.0f, 0.0f);
 
+
   ctx->write_cpu_upload_buffer(params->viewport_buffer, &main_viewport, sizeof(main_viewport));
+
+  RenderSettingsGpu render_settings_gpu = to_gpu_render_settings(settings);
+  ctx->write_cpu_upload_buffer(params->render_settings, &render_settings_gpu, sizeof(render_settings_gpu));
 
 #if 0
   {
@@ -142,6 +147,7 @@ init_frame_init_pass(AllocHeap heap, RgBuilder* builder)
   FrameResources ret;
 
   ret.viewport_buffer        = rg_create_upload_buffer(builder, "Viewport Buffer",     kGpuHeapSysRAMCpuToGpu, sizeof(Viewport));
+  ret.render_settings        = rg_create_upload_buffer(builder, "Render Settings",     kGpuHeapSysRAMCpuToGpu, sizeof(RenderSettingsGpu));
   ret.material_buffer        = rg_create_buffer(builder, "Material Buffer",     sizeof(MaterialGpu) * kMaxSceneObjs);
   ret.scene_obj_buffer       = rg_create_buffer(builder, "Scene Object Buffer", sizeof(SceneObjGpu) * kMaxSceneObjs);
 
@@ -150,7 +156,8 @@ init_frame_init_pass(AllocHeap heap, RgBuilder* builder)
   ret.debug_sdf_buffer       = rg_create_buffer(builder, "Debug SDF Buffer",            sizeof(DebugSdf)       * kDebugMaxSdfs);
 
   RgPassBuilder*      pass       = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "Frame Init", params, &render_handler_frame_init, true);
-  params->viewport_buffer        = RgConstantBuffer<Viewport>(pass, ret.viewport_buffer, 0, kViewportBufferSlot);
+  params->viewport_buffer        = RgConstantBuffer<Viewport>         (pass, ret.viewport_buffer, 0, kViewportBufferSlot);
+  params->render_settings        = RgConstantBuffer<RenderSettingsGpu>(pass, ret.render_settings, 0, kRenderSettingsSlot);
 #if 0
   params->material_buffer        = RgStructuredBuffer<MaterialGpu>(pass, ret.material_buffer, 0, kMaterialBufferSlot);
   params->scene_obj_buffer       = RgStructuredBuffer<SceneObjGpu>(pass, ret.scene_obj_buffer, 0, kSceneObjBufferSlot);
@@ -193,7 +200,7 @@ render_handler_imgui(RenderContext* ctx, const RenderSettings&, const void* data
 
   ImGui::DragFloat("Aperture", &g_Renderer.settings.aperture, 0.01f, 0.0f, 50.0f);
   ImGui::DragFloat("Shutter Time", &g_Renderer.settings.shutter_time, 0.001f, 0.0f, 1.0f);
-  ImGui::DragFloat("ISO", &g_Renderer.settings.iso, 1.0f, 0.0f, 200.0f);
+  ImGui::DragFloat("ISO", &g_Renderer.settings.iso, 1.0f, 0.0f, 10000.0f);
 
   static f32 s_FocalDistance = g_Renderer.settings.focal_dist;
   ImGui::DragFloat("Focal Distance", &s_FocalDistance, 0.01f, 0.0f, 1000.0f);
@@ -204,8 +211,8 @@ render_handler_imgui(RenderContext* ctx, const RenderSettings&, const void* data
   ImGui::DragInt("DoF Sample Count", (s32*)&g_Renderer.settings.dof_sample_count, 1.0f, 0, 256);
   ImGui::DragFloat("DoF Blur Radius", &g_Renderer.settings.dof_blur_radius, 0.1f, 0.0f, 40.0f);
 
-  ImGui::DragFloat3("Probe Spacing", (f32*)&g_Renderer.settings.probe_spacing, 0.01f, 0.0, 25.0);
-  ImGui::DragInt("Probe Debug Rays", (s32*)&g_Renderer.settings.debug_probe_ray_idx, 1.0f, -1, 0x1000);
+  ImGui::DragFloat3("Probe Spacing", (f32*)&g_Renderer.settings.diffuse_gi_probe_spacing, 0.01f, 0.0, 25.0);
+  // ImGui::DragInt("Probe Debug Rays", (s32*)&g_Renderer.settings.debug_probe_ray_idx, 1.0f, -1, 0x1000);
   ImGui::Checkbox("Probe Freeze Rotation", &g_Renderer.settings.freeze_probe_rotation);
 
   ImGui::End();

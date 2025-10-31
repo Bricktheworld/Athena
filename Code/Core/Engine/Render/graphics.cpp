@@ -918,7 +918,7 @@ alloc_gpu_buffer_no_heap(
       &heap_props,
       D3D12_HEAP_FLAG_NONE,
       &resource_desc,
-      D3D12_RESOURCE_STATE_COMMON,
+      desc.initial_state,
       nullptr,
       IID_PPV_ARGS(&ret.d3d12_buffer)
     )
@@ -968,7 +968,7 @@ alloc_gpu_buffer(
       allocation.d3d12_heap,
       allocation.offset,
       &resource_desc,
-      D3D12_RESOURCE_STATE_COMMON,
+      desc.initial_state,
       nullptr,
       IID_PPV_ARGS(&ret.d3d12_buffer)
     )
@@ -1566,7 +1566,7 @@ init_gpu_bvh(
 
   D3D12_RAYTRACING_GEOMETRY_DESC geometry_desc = {};
   geometry_desc.Type                                 = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
-  geometry_desc.Flags                                = D3D12_RAYTRACING_GEOMETRY_FLAG_NONE;
+  geometry_desc.Flags                                = D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
   geometry_desc.Triangles.IndexBuffer                = index_uber_buffer.gpu_addr;
   geometry_desc.Triangles.IndexCount                 = index_count;
   geometry_desc.Triangles.IndexFormat                = DXGI_FORMAT_R32_UINT;

@@ -30,6 +30,11 @@ struct Lux_T
 {
   T m_Value;
 
+  static Lux_T<T> zero()
+  {
+    return (Lux_T<T>) 0;
+  }
+
   Lux_T<T> attenuated(float atten)
   {
     Lux_T<T> ret;
@@ -44,6 +49,11 @@ template <typename T>
 struct Nits_T
 {
   T m_Value;
+
+  static Nits_T<T> zero()
+  {
+    return (Nits_T<T>) 0;
+  }
 
   // Luminance -> Illuminance
   // Assumes that in a hemisphere, luminance is 0 everywhere except at ω = L
@@ -117,7 +127,7 @@ struct BRDF
 
   float3 get_brdf()
   {
-    return m_Fr * m_Fd;
+    return m_Fr + m_Fd;
   }
 };
 
@@ -175,26 +185,36 @@ struct BSDF
 
 float distribution_ggx(float NdotH, float roughness)
 {
-    float a      = roughness * roughness;
-    float a2     = a * a;
-    float NdotH2 = NdotH * NdotH;
+  float a      = roughness * roughness;
+  float a2     = a * a;
 
-    float f      = (NdotH * a2 - NdotH) * NdotH + 1.0f;
-    return a2 / (kPI * f * f);
+  float f      = (NdotH * a2 - NdotH) * NdotH + 1.0f;
+  return a2 / (f * f);
 }
 
 float geometry_smith(float NdotV, float NdotL, float roughness)
 {
-    float a    = roughness * roughness;
-    float a2   = a * a;
-    float GGXL = NdotV * sqrt((-NdotL * a2 + NdotL) * NdotL + a2);
-    float GGXV = NdotL * sqrt((-NdotV * a2 + NdotV) * NdotV + a2);
-    return 0.5f / (GGXV + GGXL);
+  float a    = roughness * roughness;
+  float a2   = a * a;
+  float GGXV = NdotL * sqrt((-NdotV * a2 + NdotV) * NdotV + a2);
+  float GGXL = NdotV * sqrt((-NdotL * a2 + NdotL) * NdotL + a2);
+  return 0.5f / (GGXV + GGXL);
 }
 
-float3 fresnel_schlick(float HdotV, float3 f0)
+float3 fresnel_schlick(float LdotH, float3 f0)
 {
-    return f0 + (float3(1.0, 1.0, 1.0) - f0) * pow(1.0 - HdotV, 5.0);
+  return f0 + (float3(1.0, 1.0, 1.0) - f0) * pow(1.0 - LdotH, 5.0);
+}
+
+float frostbite_diffuse(float NdotV, float NdotL, float LdotH, float roughness)
+{
+  float energy_bias   = lerp(0.0f, 0.5f,         roughness);
+  float energy_factor = lerp(1.0f, 1.0f / 1.51f, roughness);
+  float f0            = 1.0f;
+  float light_scatter = fresnel_schlick(f0, NdotL).r;
+  float view_scatter  = fresnel_schlick(f0, NdotV).r;
+  
+  return light_scatter * view_scatter * energy_factor;
 }
 
 BSDF cook_torrance_bsdf(
@@ -213,9 +233,9 @@ BSDF cook_torrance_bsdf(
 
   BSDF ret;
   ret.m_NdotV = abs(dot(N, V)) + 1e-5f;
-  ret.m_NdotL = clamp(dot(N, L), 0.0f, 1.0f);
-  ret.m_NdotH = clamp(dot(N, H), 0.0f, 1.0f);
-  ret.m_LdotH = clamp(dot(L, H), 0.0f, 1.0f);
+  ret.m_NdotL = saturate(dot(N, L));
+  ret.m_NdotH = saturate(dot(N, H));
+  ret.m_LdotH = saturate(dot(L, H));
 
   // The Fresnel-Schlick approximation expects a F0 parameter which is known as the surface reflection at zero incidence
   // or how much the surface reflects if looking directly at the surface.
@@ -231,10 +251,11 @@ BSDF cook_torrance_bsdf(
   float  G           = geometry_smith(ret.m_NdotV, ret.m_NdotL, roughness);
 
   // Specular
-  ret.m_BRDF.m_Fr    = (D * G) * F;
+  ret.m_BRDF.m_Fr    = diffuse * ((D * G) * F) / kPI ;
   // Diffuse
-  ret.m_BRDF.m_Fd    = diffuse / kPI;
+  ret.m_BRDF.m_Fd    = diffuse * frostbite_diffuse(ret.m_NdotV, ret.m_NdotL, ret.m_LdotH, roughness) / kPI;
 
+  // No transmittance
   ret.m_BTDF.m_Value = 1.0f;
 
   return ret;
@@ -242,7 +263,7 @@ BSDF cook_torrance_bsdf(
 
 BSDF lambertian_diffuse_bsdf(float3 normal, float3 light_direction, float3 diffuse)
 {
-  float3 N = normal;
+  float3 N = normalize(normal);
   float3 L = -normalize(light_direction);
 
   BSDF ret;

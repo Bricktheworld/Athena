@@ -231,6 +231,33 @@ struct Viewport
   DirectionalLight directional_light;
 };
 
+struct RenderSettingsGpu
+{
+  f32    focal_dist;                    // In meters
+  f32    focal_range;                   // In meters
+  f32    dof_blur_radius;               //
+  u32    dof_sample_count;              //
+
+  f32    aperture;                      // In f-stops (aperture 16 => f/16)
+  f32    shutter_time;                  // In seconds
+  f32    iso;                           // (100, 200, etc.)
+  u32    __pad0__;
+
+  Vec2   mouse_pos;
+  u32    __pad1__;
+  u32    __pad2__;
+
+  Vec3   diffuse_gi_probe_spacing;
+  // Flags
+  u32    disable_taa:              1;
+  u32    debug_gi_probes:          1;
+  u32    disable_hdr:              1;
+  u32    disable_dof:              1;
+  u32    enabled_debug_draw:       1;
+  u32    freeze_gi_probe_rotation: 1;
+  u32    freeze_gi_probe_clipmap:  1;
+};
+
 struct Transform
 {
   Mat4 model;
@@ -339,16 +366,6 @@ struct DoFCompositeSrt
   Texture2DPtr<float4>   blur_buffer;
 
   RWTexture2DPtr<float4> render_target;
-};
-
-struct StandardBrdfSrt
-{
-  Texture2DPtr<uint>             gbuffer_material_ids;
-  Texture2DPtr<float4>           gbuffer_diffuse_rgb_metallic_a;
-  Texture2DPtr<float4>           gbuffer_normal_rgb_roughness_a;
-  Texture2DPtr<float>            gbuffer_depth;
-
-  RWTexture2DPtr<float4>         render_target;
 };
 
 struct TemporalAASrt

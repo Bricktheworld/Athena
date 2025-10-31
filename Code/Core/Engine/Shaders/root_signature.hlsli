@@ -3,10 +3,14 @@
 
 #include "interlop.hlsli"
 
+// GRV temporals
 #define kViewportBufferSlot 0
+#define kRenderSettingsSlot 1
 
+// GRV globals
 #define kSceneObjBufferSlot 0
 #define kMaterialBufferSlot 1
+#define kRaytracingAccelerationStructureSlot 2
 
 #define kDebugArgsBufferSlot 32
 #define kDebugVertexBufferSlot 33
@@ -19,8 +23,8 @@
 #define kGrvTemporalTableSlot     10
 #define kGrvTableSlot             11
 
-#define kDebugMaxVertices       8192
-#define kDebugMaxSdfs           8192
+#define kDebugMaxVertices       (1 << 16)
+#define kDebugMaxSdfs           (1 << 16)
 
 #define kBindlessParamsSlot        b0
 
@@ -54,7 +58,6 @@ SamplerState                              g_BilinearSamplerWrap   : register(s0)
 SamplerState                              g_BilinearSamplerClamp  : register(s1);
 
 // Can't move these to GRVs for now because of stupid reasons
-RaytracingAccelerationStructure           g_AccelerationStructure : register(t0);
 ByteAddressBuffer                         g_IndexBuffer           : register(t1);
 StructuredBuffer<Vertex>                  g_VertexBuffer          : register(t2);
 
@@ -62,9 +65,11 @@ StructuredBuffer<Vertex>                  g_VertexBuffer          : register(t2)
 
 StructuredBuffer<SceneObjGpu>             g_SceneObjs             : register(t128);
 StructuredBuffer<MaterialGpu>             g_Materials             : register(t129);
+RaytracingAccelerationStructure           g_AccelerationStructure : register(t130);
 
 //////////// Temporal ////////////
 ConstantBuffer<Viewport>                  g_ViewportBuffer        : register(b112);
+ConstantBuffer<RenderSettingsGpu>         g_RenderSettings        : register(b113);
 
 RWStructuredBuffer<MultiDrawIndirectArgs> g_DebugArgsBuffer       : register(u128);
 RWStructuredBuffer<DebugLinePoint>        g_DebugLineVertexBuffer : register(u129);

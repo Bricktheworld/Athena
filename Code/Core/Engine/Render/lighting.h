@@ -9,6 +9,7 @@ void init_lighting(
   AllocHeap heap,
   RgBuilder* builder,
   const GBuffer& gbuffer,
+  const DiffuseGiResources diffuse_gi,
   RgHandle<GpuTexture>* hdr_buffer
 );
 

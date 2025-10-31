@@ -120,7 +120,8 @@ struct RgPassBuilder
     s8             temporal_frame  = 0;
     DescriptorType descriptor_type = kDescriptorTypeCbv;
     bool           is_write: 1     = false;
-    bool           is_grv: 1       = false;
+    bool           is_grv:   1     = false;
+    bool           is_bvh:   1     = false;
     u8             __pad__         = 0;
     u32            descriptor_idx  = 0;
 
