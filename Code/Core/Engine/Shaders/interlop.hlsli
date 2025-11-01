@@ -254,10 +254,11 @@ struct RenderSettingsGpu
   Vec3   diffuse_gi_probe_spacing;
   // Flags
   u32    disable_taa:              1;
-  u32    debug_gi_probes:          1;
-  u32    debug_gi_sample_probes:   1;
+  u32    disable_diffuse_gi:       1;
   u32    disable_hdr:              1;
   u32    disable_dof:              1;
+  u32    debug_gi_probes:          1;
+  u32    debug_gi_sample_probes:   1;
   u32    enabled_debug_draw:       1;
   u32    freeze_gi_probe_rotation: 1;
   u32    freeze_gi_probe_clipmap:  1;
@@ -402,8 +403,7 @@ struct DebugSdf
 
   uint           type;
 
-  SH::L2_F16_RGB luminance;
-  f16            pad;
+  SH::L1_F16_RGB luminance;
 };
 
 struct DebugLinePoint

@@ -60,7 +60,11 @@ void CS_StandardBrdf(uint2 dispatch_thread_id : SV_DispatchThreadID)
 
   bool   is_hovering_debug_mouse = all((uint2)(g_RenderSettings.mouse_pos * screen_size) == dispatch_thread_id);
 
-  Nits3  indirect_luminance = sample_indirect_luminance(ws_pos, normal, diffuse, diffuse_gi_page_table, diffuse_gi_probes, is_hovering_debug_mouse && g_RenderSettings.debug_gi_sample_probes);
+  Nits3  indirect_luminance = Nits3::zero();
+  if (!g_RenderSettings.disable_diffuse_gi)
+  {
+    indirect_luminance      = sample_indirect_luminance(ws_pos, normal, diffuse, diffuse_gi_page_table, diffuse_gi_probes, is_hovering_debug_mouse && g_RenderSettings.debug_gi_sample_probes);
+  }
 
   Nits3 luminance;
   luminance.m_Value         = direct_luminance.m_Value + indirect_luminance.m_Value;

@@ -109,11 +109,14 @@ struct RenderSettings
   u32   __pad2__;
 
   Vec3  diffuse_gi_probe_spacing = Vec3(1.0f, 1.8f, 1.0f);
+
   bool  disable_taa              = false;
-  bool  debug_gi_probes          = false;
-  bool  debug_gi_sample_probes   = false;
+  bool  disable_diffuse_gi       = false;
   bool  disable_hdr              = false;
   bool  disable_dof              = false;
+
+  bool  debug_gi_probes          = false;
+  bool  debug_gi_sample_probes   = false;
   bool  enabled_debug_draw       = false;
   bool  freeze_probe_rotation    = false;
 };
@@ -129,11 +132,14 @@ inline RenderSettingsGpu to_gpu_render_settings(const RenderSettings& settings)
   ret.shutter_time             = settings.shutter_time;
   ret.iso                      = settings.iso;
   ret.diffuse_gi_probe_spacing = settings.diffuse_gi_probe_spacing;
+
   ret.disable_taa              = settings.disable_taa;
-  ret.debug_gi_probes          = settings.debug_gi_probes;
-  ret.debug_gi_sample_probes   = settings.debug_gi_sample_probes;
+  ret.disable_diffuse_gi       = settings.disable_diffuse_gi;
   ret.disable_hdr              = settings.disable_hdr;
   ret.disable_dof              = settings.disable_dof;
+
+  ret.debug_gi_probes          = settings.debug_gi_probes;
+  ret.debug_gi_sample_probes   = settings.debug_gi_sample_probes;
   ret.enabled_debug_draw       = settings.enabled_debug_draw;
   ret.freeze_gi_probe_rotation = settings.freeze_probe_rotation;
   ret.mouse_pos                = settings.mouse_pos;

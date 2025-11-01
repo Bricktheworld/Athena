@@ -14,7 +14,7 @@ struct RtDiffuseGiPageInitParams
 };
 
 static void
-render_handler_probe_init(RenderContext* ctx, const RenderSettings&, const void* data)
+render_handler_probe_init(RenderContext* ctx, const RenderSettings& settings, const void* data)
 {
   RtDiffuseGiPageInitParams* params = (RtDiffuseGiPageInitParams*)data;
 
@@ -28,6 +28,11 @@ render_handler_probe_init(RenderContext* ctx, const RenderSettings&, const void*
     ctx->compute_bind_srt(srt);
     ctx->set_compute_pso(&params->probe_init_pso);
     ctx->dispatch(ALIGN_POW2(kProbeCountPerClipmap.x, 8) / 8, kProbeCountPerClipmap.y * kProbeClipmapCount, ALIGN_POW2(kProbeCountPerClipmap.z, 8) / 8);
+    return;
+  }
+
+  if (settings.disable_diffuse_gi)
+  {
     return;
   }
 
@@ -58,8 +63,13 @@ struct RtDiffuseGiTraceRayParams
 };
 
 static void
-render_handler_probe_trace_rays(RenderContext* ctx, const RenderSettings&, const void* data)
+render_handler_probe_trace_rays(RenderContext* ctx, const RenderSettings& settings, const void* data)
 {
+  if (settings.disable_diffuse_gi)
+  {
+    return;
+  }
+
   RtDiffuseGiTraceRayParams* params = (RtDiffuseGiTraceRayParams*)data;
 
   RtDiffuseGiTraceRaySrt srt;
@@ -82,8 +92,13 @@ struct RtDiffuseGiProbeBlendParams
 };
 
 static void
-render_handler_probe_blend(RenderContext* ctx, const RenderSettings&, const void* data)
+render_handler_probe_blend(RenderContext* ctx, const RenderSettings& settings, const void* data)
 {
+  if (settings.disable_diffuse_gi)
+  {
+    return;
+  }
+
   RtDiffuseGiProbeBlendParams* params = (RtDiffuseGiProbeBlendParams*)data;
 
   RtDiffuseGiProbeBlendSrt srt;

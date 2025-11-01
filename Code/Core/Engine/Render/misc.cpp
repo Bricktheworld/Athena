@@ -197,6 +197,7 @@ render_handler_imgui(RenderContext* ctx, const RenderSettings&, const void* data
   ImGui::InputFloat3("Camera Position", (f32*)&g_Scene->camera.world_pos);
 
   ImGui::Checkbox("Disable TAA", &g_Renderer.settings.disable_taa);
+  ImGui::Checkbox("Disable Diffuse GI", &g_Renderer.settings.disable_diffuse_gi);
   ImGui::Checkbox("Disable HDR", &g_Renderer.settings.disable_hdr);
   ImGui::Checkbox("Disable DoF", &g_Renderer.settings.disable_dof);
   ImGui::Checkbox("Enable Debug Draw", &g_Renderer.settings.enabled_debug_draw);

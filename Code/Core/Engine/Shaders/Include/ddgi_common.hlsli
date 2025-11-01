@@ -15,17 +15,16 @@
 
 struct DiffuseGiProbe
 {
-  SH::L2_F16_RGB luminance;
+  SH::L1_F16_RGB luminance;
+
   Vec3f16 mean;
+  f16     backface_percentage;
 
   Vec3f16 short_mean;
   f16     vbbr;
 
   Vec3f16 variance;
   f16     inconsistency;
-
-  Vec3f16 pad;
-  f16     backface_percentage;
 };
 
 struct GiRayLuminance

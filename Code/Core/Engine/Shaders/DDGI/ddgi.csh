@@ -92,7 +92,7 @@ void CS_RtDiffuseGiPageTableReproject(uint3 thread_id : SV_DispatchThreadID)
     u32 reset_probe = page_table_prev[src_tex_coord];
 
     // Reset the probe
-    probe_buffer[reset_probe].luminance = SH::L2_F16_RGB::Zero();
+    probe_buffer[reset_probe].luminance = SH::L1_F16_RGB::Zero();
   }
 
   // Reproject with overwrite logic for "new" probes (probes that were reset)
@@ -262,7 +262,7 @@ void CS_RtDiffuseGiProbeBlend(uint thread_id : SV_DispatchThreadID, uint group_i
   // TODO(bshihabi): Add dynamic ray allocation
   uint           src_idx        = probe_idx * 64;
   uint           backface_count = 0;
-  SH::L2_F16_RGB luminance = SH::L2_F16_RGB::Zero();
+  SH::L1_F16_RGB luminance = SH::L1_F16_RGB::Zero();
   for (u32 isample = 0; isample < 64; isample++)
   {
     GiRayLuminance sample = ray_buffer[src_idx + isample];
@@ -272,7 +272,7 @@ void CS_RtDiffuseGiProbeBlend(uint thread_id : SV_DispatchThreadID, uint group_i
     }
     else
     {
-      luminance = luminance + SH::ProjectOntoL2(sample.direction, sample.luminance.m_Value);
+      luminance = luminance + SH::ProjectOntoL1(sample.direction, sample.luminance.m_Value);
     }
   }
   const float kUniformSpherePDF = 1.0f / 4 * kPI;
