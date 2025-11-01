@@ -201,18 +201,19 @@ float geometry_smith(float NdotV, float NdotL, float roughness)
   return 0.5f / (GGXV + GGXL);
 }
 
-float3 fresnel_schlick(float LdotH, float3 f0)
+float3 fresnel_schlick(float LdotH, float3 f0, float3 f90)
 {
-  return f0 + (float3(1.0, 1.0, 1.0) - f0) * pow(1.0 - LdotH, 5.0);
+  return f0 + (f90 - f0) * pow(max(1.0 - LdotH, 0.001f), 5.0);
 }
 
 float frostbite_diffuse(float NdotV, float NdotL, float LdotH, float roughness)
 {
   float energy_bias   = lerp(0.0f, 0.5f,         roughness);
   float energy_factor = lerp(1.0f, 1.0f / 1.51f, roughness);
+  float f90           = energy_bias + 2.0f * LdotH * LdotH * roughness;
   float f0            = 1.0f;
-  float light_scatter = fresnel_schlick(f0, NdotL).r;
-  float view_scatter  = fresnel_schlick(f0, NdotV).r;
+  float light_scatter = fresnel_schlick(NdotL, f0, f90).r;
+  float view_scatter  = fresnel_schlick(NdotV, f0, f90).r;
   
   return light_scatter * view_scatter * energy_factor;
 }
@@ -244,10 +245,11 @@ BSDF cook_torrance_bsdf(
   // In the PBR metallic workflow we make the simplifying assumption that most dielectric surfaces look visually correct with a constant F0 of 0.04.
   float3 f0          = float3(0.04, 0.04, 0.04);
   f0                 = lerp(f0, diffuse, metallic);
+  float3 f90         = 1.0f;
 
   // Cook torrance BRDF
   float  D           = distribution_ggx(ret.m_NdotH, roughness);
-  float3 F           = fresnel_schlick(ret.m_LdotH, f0);
+  float3 F           = fresnel_schlick(ret.m_LdotH, f0, f90);
   float  G           = geometry_smith(ret.m_NdotV, ret.m_NdotL, roughness);
 
   // Specular

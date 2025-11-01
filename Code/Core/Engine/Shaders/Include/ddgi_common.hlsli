@@ -196,7 +196,7 @@ Nits3 sample_indirect_luminance(float3 ws_pos, float3 normal, float3 diffuse, Te
         debug_draw_line(biased_ws_pos, adj_probe_ws_pos, float3(1.0f, 0.0f, 0.0f));
       }
 
-      indirect_illuminance.m_Value += SH::CalculateIrradiance(probe.luminance, (half3)normal) * weight;
+      indirect_illuminance.m_Value += SH::CalculateIrradianceGeomerics(probe.luminance, (half3)normalize(normal)) * weight;
       total_weights                += weight;
     }
 

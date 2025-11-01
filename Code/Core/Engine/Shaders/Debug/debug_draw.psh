@@ -82,7 +82,7 @@ float4 PS_DebugDrawSdf(in float4 position: SV_Position, in float3 ray_dir: RayDi
   {
     half3  normal  = (half3)normalize(hit - sdf.position);
 
-    float3 diffuse = SH::CalculateIrradiance(sdf.luminance, normal) * 0.8f / kPI;
+    float3 diffuse = SH::CalculateIrradianceGeomerics(sdf.luminance, normal) * 0.8f / kPI;
     return float4(linear_to_pq(aces_rec2020_1000nits_odt(diffuse)), 1.0);
   }
   else

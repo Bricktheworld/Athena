@@ -380,17 +380,17 @@ template<typename T, int32_t N> vector<T, N> CalculateIrradianceGeomerics(L1_Gen
 
     for(int32_t i = 0; i < N; ++i)
     {
-        T R0 = max(sh.C[0][i], T(0.00001));
+        float R0 = max(sh.C[0][i], 0.00001f);
 
-        vector<T, 3> R1 = vector<T, 1>(0.5) * vector<T, 3>(sh.C[3][i], sh.C[1][i], sh.C[2][i]);
-        T lenR1 = max(length(R1), T(0.00001));
+        vector<float, 3> R1 = vector<float, 1>(0.5) * vector<float, 3>(sh.C[3][i], sh.C[1][i], sh.C[2][i]);
+        float lenR1 = max(length(R1), 0.00001f);
 
-        T q = T(0.5) * (T(1.0) + dot(R1 / lenR1, normal));
+        float q = 0.5f * (1.0f + dot(R1 / lenR1, normal));
 
-        T p = T(1.0) + T(2.0) * lenR1 / R0;
-        T a = (T(1.0) - lenR1 / R0) / (T(1.0) + lenR1 / R0);
+        float p = 1.0f + 2.0f * lenR1 / R0;
+        float a = (1.0f - lenR1 / R0) / (1.0f + lenR1 / R0);
 
-        result[i] = R0 * (a + (T(1.0) - a) * (p + T(1.0)) * pow(abs(q), p));
+        result[i] = T(R0 * (a + (1.0f - a) * (p + 1.0f) * pow(abs(q), p)));
     }
 
     return result;
