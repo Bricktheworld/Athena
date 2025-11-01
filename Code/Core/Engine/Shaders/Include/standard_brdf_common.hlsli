@@ -13,7 +13,7 @@ struct StandardBrdfSrt
 
   // Diffuse GI resources
   StructuredBufferPtr<DiffuseGiProbe>    diffuse_gi_probes;
-  Texture2DArrayPtr<u16>                 diffuse_gi_page_table;
+  Texture2DArrayPtr<u32>                 diffuse_gi_page_table;
 
   // Output
   RWTexture2DPtr<float4>                 render_target;

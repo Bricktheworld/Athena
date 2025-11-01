@@ -2,6 +2,25 @@
 #define __DEBUG_DRAW__
 #include "../interlop.hlsli"
 #include "../root_signature.hlsli"
+#include "../Include/math.hlsli"
+
+#if !defined(__cplusplus)
+
+bool mouse_intersect_sphere(float3 center_ws, float radius)
+{
+  float3 mouse_pos_ws     = screen_to_world(float3(g_RenderSettings.mouse_pos, 1.0f), 1.0f).xyz;
+  float3 ray_origin_ws    = g_ViewportBuffer.camera_world_pos.xyz;
+  float3 ray_dir          = normalize(mouse_pos_ws - ray_origin_ws);
+
+  float3 center_ls        = center_ws - ray_origin_ws;
+  float3 n_parallel       = dot(center_ls, ray_dir) * ray_dir;
+  float3 n_perpendicular  = center_ls - n_parallel;
+
+  float  radius_squared   = radius * radius;
+  float  perp_len_squared = dot(n_perpendicular, n_perpendicular);
+  float  discriminant     = radius_squared - perp_len_squared;
+  return discriminant >= 0.0f;
+}
 
 void debug_draw_line(float3 start, float3 end, float3 color)
 {
@@ -61,5 +80,6 @@ void debug_draw_spherical_harmonic(float3 center, float radius, SH::L2_F16_RGB l
 
   g_DebugSdfBuffer[instance_offset] = sdf;
 }
+#endif
 
 #endif

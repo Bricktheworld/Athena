@@ -111,6 +111,7 @@ struct RenderSettings
   Vec3  diffuse_gi_probe_spacing = Vec3(1.0f, 1.8f, 1.0f);
   bool  disable_taa              = false;
   bool  debug_gi_probes          = false;
+  bool  debug_gi_sample_probes   = false;
   bool  disable_hdr              = false;
   bool  disable_dof              = false;
   bool  enabled_debug_draw       = false;
@@ -130,6 +131,7 @@ inline RenderSettingsGpu to_gpu_render_settings(const RenderSettings& settings)
   ret.diffuse_gi_probe_spacing = settings.diffuse_gi_probe_spacing;
   ret.disable_taa              = settings.disable_taa;
   ret.debug_gi_probes          = settings.debug_gi_probes;
+  ret.debug_gi_sample_probes   = settings.debug_gi_sample_probes;
   ret.disable_hdr              = settings.disable_hdr;
   ret.disable_dof              = settings.disable_dof;
   ret.enabled_debug_draw       = settings.enabled_debug_draw;

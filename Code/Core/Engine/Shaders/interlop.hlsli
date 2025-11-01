@@ -211,10 +211,14 @@ struct Meshlet
 
 struct DirectionalLight
 {
-  Vec4 direction;
-  Vec4 diffuse;
+  Vec3 direction;
   f32  illuminance;
-  Vec3 __pad__;
+
+  Vec3 diffuse;
+  u32  __pad__;
+
+  Vec3 sky_diffuse;
+  f32  sky_illuminance;
 };
 
 struct Viewport
@@ -251,6 +255,7 @@ struct RenderSettingsGpu
   // Flags
   u32    disable_taa:              1;
   u32    debug_gi_probes:          1;
+  u32    debug_gi_sample_probes:   1;
   u32    disable_hdr:              1;
   u32    disable_dof:              1;
   u32    enabled_debug_draw:       1;

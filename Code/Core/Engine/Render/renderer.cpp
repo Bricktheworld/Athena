@@ -146,8 +146,8 @@ init_scene()
     kSceneObjectHeapSize
   );
 
-  g_Scene->directional_light.direction = Vec4(-1.0f, -1.0f, 0.0f, 0.0f);
-  g_Scene->directional_light.diffuse   = Vec4(1.0f, 1.0f, 1.0f, 0.0f);
+  g_Scene->directional_light.diffuse   = Vec3(1.0f, 1.0f, 1.0f);
+  g_Scene->directional_light.direction = Vec3(-1.0f, -1.0f, 0.0f);
   g_Scene->directional_light.illuminance = 75000.0f;
 }
 

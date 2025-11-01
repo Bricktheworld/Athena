@@ -14,7 +14,7 @@ struct DiffuseGiResources
 struct ReadDiffuseGi
 {
   RgStructuredBuffer<DiffuseGiProbe>    diffuse_probes;
-  RgTexture2DArray<u16>                 page_table;
+  RgTexture2DArray<u32>                 page_table;
 };
 
 DiffuseGiResources init_rt_diffuse_gi(AllocHeap heap, RgBuilder* builder);

@@ -232,6 +232,8 @@ application_entry(HINSTANCE instance, int show_code)
   g_Scene->directional_light.direction.x = -0.380f;
   g_Scene->directional_light.direction.y = -1.0f;
   g_Scene->directional_light.direction.z = -0.180f;
+  g_Scene->directional_light.sky_diffuse     = Vec3(0.529, 0.807, 0.921);
+  g_Scene->directional_light.sky_illuminance = 20000;
 
   bool done = false;
   while (!done)
@@ -310,7 +312,6 @@ application_entry(HINSTANCE instance, int show_code)
     else if (mouse.positionMode == DirectX::Mouse::MODE_ABSOLUTE)
     {
       Vec2 pos = Vec2(f32(mouse.x), f32(mouse.y)) / Vec2((f32)g_MainWindow->swap_chain.width, (f32)g_MainWindow->swap_chain.height);
-      dbgln("Mouse pos %f, %f", pos.x, pos.y);
       g_Renderer.settings.mouse_pos = pos;
     }
     d3d12_mouse.SetMode(mouse.rightButton ? DirectX::Mouse::MODE_RELATIVE : DirectX::Mouse::MODE_ABSOLUTE);

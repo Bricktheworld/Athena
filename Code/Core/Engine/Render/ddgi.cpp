@@ -8,9 +8,9 @@ struct RtDiffuseGiPageInitParams
   ComputePSO probe_init_pso;
   ComputePSO probe_reproj_pso;
 
-  RgRWTexture2DArray<u16>               page_table;
+  RgRWTexture2DArray<u32>               page_table;
   RgRWStructuredBuffer<DiffuseGiProbe>  probe_buffer;
-  RgTexture2DArray<u16>                 page_table_prev;
+  RgTexture2DArray<u32>                 page_table_prev;
 };
 
 static void
@@ -52,7 +52,7 @@ struct RtDiffuseGiTraceRayParams
 {
   ComputePSO probe_trace_ray_pso;
 
-  RgTexture2DArray<u16>                 page_table;
+  RgTexture2DArray<u32>                 page_table;
   RgRWStructuredBuffer<GiRayLuminance>  ray_output_buffer;
   RgStructuredBuffer<DiffuseGiProbe>    probe_buffer;
 };
@@ -104,7 +104,7 @@ init_rt_diffuse_gi(AllocHeap heap, RgBuilder* builder)
     kProbeCountPerClipmap.x,
     kProbeCountPerClipmap.z,
     (u16)(kProbeCountPerClipmap.y * kProbeClipmapCount),
-    kGpuFormatR16Uint,
+    kGpuFormatR32Uint,
     1 // Need previous frame to copy to current frame
   );
 
@@ -118,9 +118,9 @@ init_rt_diffuse_gi(AllocHeap heap, RgBuilder* builder)
     params->probe_reproj_pso = init_compute_pipeline(g_GpuDevice, get_engine_shader(kCS_RtDiffuseGiPageTableReproject), "RT Diffuse GI Page Table Reproject");
 
     RgPassBuilder* pass      = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "RT Diffuse GI - Probe Init",  params, &render_handler_probe_init);
-    params->page_table       = RgRWTexture2DArray<u16>(pass, &probe_page_table);
+    params->page_table       = RgRWTexture2DArray<u32>(pass, &probe_page_table);
     params->probe_buffer     = RgRWStructuredBuffer<DiffuseGiProbe>(pass, &probe_buffer);
-    params->page_table_prev  = RgTexture2DArray<u16>(pass, probe_page_table, -1);
+    params->page_table_prev  = RgTexture2DArray<u32>(pass, probe_page_table, -1);
   }
   {
     RtDiffuseGiTraceRayParams* params = HEAP_ALLOC(RtDiffuseGiTraceRayParams, g_InitHeap, 1);
@@ -128,7 +128,7 @@ init_rt_diffuse_gi(AllocHeap heap, RgBuilder* builder)
     params->probe_trace_ray_pso = init_compute_pipeline(g_GpuDevice, get_engine_shader(kCS_RtDiffuseGiTraceRays), "RT Diffuse GI Trace Ray");
 
     RgPassBuilder* pass       = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "RT Diffuse GI - Probe Trace Ray", params, &render_handler_probe_trace_rays);
-    params->page_table        = RgTexture2DArray<u16>(pass, probe_page_table);
+    params->page_table        = RgTexture2DArray<u32>(pass, probe_page_table);
     params->probe_buffer      = RgStructuredBuffer<DiffuseGiProbe>(pass, probe_buffer);
     params->ray_output_buffer = RgRWStructuredBuffer<GiRayLuminance>(pass, &ray_luminance);
   }
@@ -154,6 +154,6 @@ read_diffuse_gi(RgPassBuilder* pass, const DiffuseGiResources& resources)
 {
   ReadDiffuseGi ret;
   ret.diffuse_probes = RgStructuredBuffer<DiffuseGiProbe>(pass, resources.probe_buffer);
-  ret.page_table     = RgTexture2DArray<u16>(pass, resources.probe_page_table);
+  ret.page_table     = RgTexture2DArray<u32>(pass, resources.probe_page_table);
   return ret;
 }

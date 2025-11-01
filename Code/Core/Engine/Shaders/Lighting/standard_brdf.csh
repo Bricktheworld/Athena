@@ -17,7 +17,7 @@ void CS_StandardBrdf(uint2 dispatch_thread_id : SV_DispatchThreadID)
   Texture2D<float>                    gbuffer_depth            = DEREF(g_Srt.gbuffer_depth);
 
   StructuredBuffer<DiffuseGiProbe>    diffuse_gi_probes        = DEREF(g_Srt.diffuse_gi_probes);
-  Texture2DArray<u16>                 diffuse_gi_page_table    = DEREF(g_Srt.diffuse_gi_page_table);
+  Texture2DArray<u32>                 diffuse_gi_page_table    = DEREF(g_Srt.diffuse_gi_page_table);
 
   RWTexture2D<float4>                 render_target            = DEREF(g_Srt.render_target);
 
@@ -58,7 +58,9 @@ void CS_StandardBrdf(uint2 dispatch_thread_id : SV_DispatchThreadID)
   BSDF   directional_bsdf   = cook_torrance_bsdf(directional_light.direction.xyz, view_direction, normal, 0.8f, 0.0f, diffuse);
   Nits3  direct_luminance   = directional_bsdf * directional_illuminance.attenuated(shadow_atten);
 
-  Nits3  indirect_luminance = sample_indirect_luminance(ws_pos, normal, diffuse, diffuse_gi_page_table, diffuse_gi_probes);
+  bool   is_hovering_debug_mouse = all((uint2)(g_RenderSettings.mouse_pos * screen_size) == dispatch_thread_id);
+
+  Nits3  indirect_luminance = sample_indirect_luminance(ws_pos, normal, diffuse, diffuse_gi_page_table, diffuse_gi_probes, is_hovering_debug_mouse && g_RenderSettings.debug_gi_sample_probes);
 
   Nits3 luminance;
   luminance.m_Value         = direct_luminance.m_Value + indirect_luminance.m_Value;

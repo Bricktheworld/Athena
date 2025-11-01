@@ -87,10 +87,11 @@ render_handler_frame_init(RenderContext* ctx, const RenderSettings& settings, co
 
   // This just happens to work out even though the units are completely wrong, they fix themselves later
   // in the math. TODO(bshihabi): There should be a nicer way of doing this
-  g_Renderer.directional_light.illuminance /= max_luminance;
-  main_viewport.directional_light     = g_Renderer.directional_light;
+  g_Renderer.directional_light.illuminance     /= max_luminance;
+  g_Renderer.directional_light.sky_illuminance /= max_luminance;
+  main_viewport.directional_light               = g_Renderer.directional_light;
 
-  main_viewport.taa_jitter            = !settings.disable_taa ? g_Renderer.taa_jitter : Vec2(0.0f, 0.0f);
+  main_viewport.taa_jitter                      = !settings.disable_taa ? g_Renderer.taa_jitter : Vec2(0.0f, 0.0f);
 
 
   ctx->write_cpu_upload_buffer(params->viewport_buffer, &main_viewport, sizeof(main_viewport));
@@ -186,9 +187,12 @@ render_handler_imgui(RenderContext* ctx, const RenderSettings&, const void* data
   ImGui::Begin("Rendering");
   static bool s_ShowDetailedPerformance = false;
 
-  ImGui::DragFloat3("Direction", (f32*)&g_Scene->directional_light.direction, 0.02f, -1.0f, 1.0f);
-  ImGui::DragFloat3("Diffuse", (f32*)&g_Scene->directional_light.diffuse, 0.1f, 0.0f, 1.0f);
-  ImGui::DragFloat ("Intensity", &g_Scene->directional_light.illuminance, 0.1f, 0.0f, 100.0f);
+  ImGui::DragFloat3("Sun Direction", (f32*)&g_Scene->directional_light.direction, 0.02f, -1.0f, 1.0f);
+  ImGui::DragFloat3("Sun Diffuse", (f32*)&g_Scene->directional_light.diffuse, 0.1f, 0.0f, 1.0f);
+  ImGui::DragFloat ("Sun Intensity (Lux)", &g_Scene->directional_light.illuminance, 10.0f, 0.0f, 200000.0f);
+
+  ImGui::DragFloat3("Sky Diffuse",         (f32*)&g_Scene->directional_light.sky_diffuse, 0.1f, 0.0f, 1.0f);
+  ImGui::DragFloat ("Sky Intensity (Lux)", &g_Scene->directional_light.sky_illuminance, 10.0f, 0.0f, 100000.0f);
 
   ImGui::InputFloat3("Camera Position", (f32*)&g_Scene->camera.world_pos);
 
@@ -214,6 +218,7 @@ render_handler_imgui(RenderContext* ctx, const RenderSettings&, const void* data
   ImGui::DragFloat3("Probe Spacing", (f32*)&g_Renderer.settings.diffuse_gi_probe_spacing, 0.01f, 0.0, 25.0);
   // ImGui::DragInt("Probe Debug Rays", (s32*)&g_Renderer.settings.debug_probe_ray_idx, 1.0f, -1, 0x1000);
   ImGui::Checkbox("Probe Freeze Rotation", &g_Renderer.settings.freeze_probe_rotation);
+  ImGui::Checkbox("Debug Sampled Probes (Hover with Mouse)", &g_Renderer.settings.debug_gi_sample_probes);
 
   ImGui::End();
 
