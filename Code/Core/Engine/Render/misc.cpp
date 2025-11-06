@@ -62,6 +62,56 @@ ev100_to_max_luminance(f32 ev100)
   return 1.2f * powf(2.0f, ev100);
 }
 
+// https://tannerhelland.com/2012/09/18/convert-temperature-rgb-algorithm-code.html
+// http://www.vendian.org/mncharity/dir3/blackbody/UnstableURLs/bbr_color.html
+// Fitted curve for kelvin to RGB that I did not come up with
+static Vec3
+diffuse_from_temperature(f32 temperature)
+{
+  Vec3 ret = 0.0f;
+
+  temperature /= 100.0f;
+
+  if (temperature <= 66)
+  {
+    ret.r = 255.0f;
+
+    ret.g = temperature;
+    ret.g = 99.4708025861f * logf(ret.g) - 161.1195681661f;
+    ret.g = CLAMP(ret.g, 0.0f, 255.0f);
+  }
+  else
+  {
+    ret.r = (temperature - 60.0f) / 255.0f;
+    ret.r = 329.698727446f * powf(ret.r, -0.1332047592f);
+    ret.r = CLAMP(ret.r, 0.0f, 255.0f);
+
+    ret.g = temperature - 60.0f;
+    ret.g = 288.1221695283f * powf(ret.g, -0.0755148492f);
+    ret.g = CLAMP(ret.g, 0.0f, 255.0f);
+  }
+
+  if (temperature >= 66)
+  {
+    ret.b = 255.0f;
+  }
+  else
+  {
+    if (temperature <= 19)
+    {
+      ret.b = 0.0f;
+    }
+    else
+    {
+      ret.b = temperature - 10.0f;
+      ret.b = 138.5177312231f * logf(ret.b) - 305.0447927307f;
+      ret.b = CLAMP(ret.b, 0.0f, 255.0f);
+    }
+  }
+
+  return ret / 255.0f;
+}
+
 static void
 render_handler_frame_init(RenderContext* ctx, const RenderSettings& settings, const void* data)
 {
@@ -89,6 +139,7 @@ render_handler_frame_init(RenderContext* ctx, const RenderSettings& settings, co
   // in the math. TODO(bshihabi): There should be a nicer way of doing this
   g_Renderer.directional_light.illuminance     /= max_luminance;
   g_Renderer.directional_light.sky_illuminance /= max_luminance;
+  g_Renderer.directional_light.diffuse          = diffuse_from_temperature((f32)g_Renderer.directional_light.temperature);
   main_viewport.directional_light               = g_Renderer.directional_light;
 
   main_viewport.taa_jitter                      = !settings.disable_taa ? g_Renderer.taa_jitter : Vec2(0.0f, 0.0f);
@@ -188,7 +239,8 @@ render_handler_imgui(RenderContext* ctx, const RenderSettings&, const void* data
   static bool s_ShowDetailedPerformance = false;
 
   ImGui::DragFloat3("Sun Direction", (f32*)&g_Scene->directional_light.direction, 0.02f, -1.0f, 1.0f);
-  ImGui::DragFloat3("Sun Diffuse", (f32*)&g_Scene->directional_light.diffuse, 0.1f, 0.0f, 1.0f);
+  // ImGui::DragFloat3("Sun Diffuse", (f32*)&g_Scene->directional_light.diffuse, 0.1f, 0.0f, 1.0f);
+  ImGui::DragInt   ("Sun Temperature (Kelvin)", (s32*)&g_Scene->directional_light.temperature, 10.0f, 1000, 40000);
   ImGui::DragFloat ("Sun Intensity (Lux)", &g_Scene->directional_light.illuminance, 10.0f, 0.0f, 200000.0f);
 
   ImGui::DragFloat3("Sky Diffuse",         (f32*)&g_Scene->directional_light.sky_diffuse, 0.1f, 0.0f, 1.0f);

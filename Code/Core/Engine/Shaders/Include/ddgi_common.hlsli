@@ -8,7 +8,7 @@
 #define kProbeCountPerClipmapX (32)
 #define kProbeCountPerClipmapY (4)
 #define kProbeCountPerClipmapZ (32)
-#define kProbeCountPerClipmap (UVec3(kProbeCountPerClipmapX, kProbeCountPerClipmapY, kProbeCountPerClipmapZ))
+#define kProbeCountPerClipmap (SVec3(kProbeCountPerClipmapX, kProbeCountPerClipmapY, kProbeCountPerClipmapZ))
 #define kProbeClipmapCount (2)
 #define kProbeMaxActiveCount (kProbeCountPerClipmapX * kProbeCountPerClipmapY * kProbeCountPerClipmapZ * kProbeClipmapCount)
 #define kProbeMaxRayCount (64 * kProbeMaxActiveCount) // 32768; // This is 8 rays per probe in a 16 x 16 x 16 grid, choose wisely!
@@ -115,8 +115,8 @@ int3 get_probe_floor(float3 ws_pos, inout uint clipmap_idx)
 
     float3 ls_pos            = ws_pos - clipmap_origin_ws;
     int3   floor_coords      = int3(ls_pos / probe_spacing);
-    // Guard band of 1
-    if (all(floor_coords >= 0) && all(floor_coords < kProbeCountPerClipmap))
+    // Guard band of 1 to give the probes a chance to resolve as you traverse
+    if (all(floor_coords.xz >= 1) && all(floor_coords.xz < kProbeCountPerClipmap.xz - 1))
     {
       clipmap_idx = iclipmap;
       return floor_coords;

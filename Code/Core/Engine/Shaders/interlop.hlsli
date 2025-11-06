@@ -215,7 +215,7 @@ struct DirectionalLight
   f32  illuminance;
 
   Vec3 diffuse;
-  u32  __pad__;
+  u32  temperature;
 
   Vec3 sky_diffuse;
   f32  sky_illuminance;
