@@ -221,13 +221,16 @@ build_acceleration_structures(GpuDevice* device)
 void
 begin_renderer_recording()
 {
-  g_Renderer.meshes = init_array<RenderModelSubset>(g_FrameHeap, 128);
+  g_Renderer.meshes = init_array<RenderModelSubset>(g_FrameHeap, 1024);
 }
 
 void
 submit_mesh(RenderModelSubset mesh)
 {
-  *array_add(&g_Renderer.meshes) = mesh;
+  if (g_Renderer.meshes.size < g_Renderer.meshes.capacity)
+  {
+    *array_add(&g_Renderer.meshes) = mesh;
+  }
 }
 
 void

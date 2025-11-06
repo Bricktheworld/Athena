@@ -37,7 +37,7 @@ asset_builder::write_material_to_asset(const char* project_root, const ImportedM
   for (u32 itexture = 0; itexture < material.num_textures; itexture++)
   {
     AssetRef<TextureAsset> texture = kNullAssetId;
-    if (material.texture_paths[itexture] != 0)
+    if (material.texture_paths[itexture] != 0 && file_exists(material.texture_paths[itexture]))
     {
       texture = path_to_asset_id(material.texture_paths[itexture]);
     }

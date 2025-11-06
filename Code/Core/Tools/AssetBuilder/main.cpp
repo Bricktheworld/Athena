@@ -41,6 +41,8 @@ build_asset(const char* model_path, const char* project_root)
     return false;
   }
 
+  asset_builder::free_imported_model(&imported_model);
+
   for (u32 imaterial = 0; imaterial < imported_material_count; imaterial++)
   {
     const asset_builder::ImportedMaterial* mat = imported_materials + imaterial;
@@ -77,15 +79,15 @@ build_asset(const char* model_path, const char* project_root)
       res = asset_builder::import_texture(texture_allocator, texture_path, project_root, &imported_texture);
       if (!res)
       {
-        printf("Failed to import texture!\n");
-        return false;
+        printf("Failed to import texture! Skipping...\n");
+        continue;
       }
 
       res = asset_builder::write_texture_to_asset(device, project_root, imported_texture);
       if (!res)
       {
         printf("Failed to write texture to asset!\n");
-        return false;
+        continue;
       }
     }
   }

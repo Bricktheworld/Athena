@@ -1,6 +1,7 @@
 #include "Core/Tools/AssetBuilder/texture_importer.h"
 
 #include "Core/Tools/AssetBuilder/Vendor/StbImage/stb_image.h"
+#include "Core/Tools/AssetBuilder/Vendor/DirectXTex/DirectXTex.h"
 
 #include "Core/Vendor/D3D12/d3d12.h"
 #include <dxgidebug.h>
@@ -21,38 +22,133 @@ asset_builder::import_texture(
   {
     return false;
   }
-  AssetId asset_id = path_to_asset_id(path);
 
+  AssetId asset_id = path_to_asset_id(path);
   char full_path[kMaxPathLength];
   snprintf(full_path, kMaxPathLength, "%s/%s", project_root, path);
 
-  s32 width, height, channels;
-  stbi_set_flip_vertically_on_load(true);
+  const char* extension = path + get_file_extension(path, (u32)strlen(path));
 
-  u8* buf = stbi_load(full_path, &width, &height, &channels, STBI_rgb_alpha);
-
-  if (buf == nullptr)
+  // Use DirecXTex for certain file types
+  if (_stricmp(extension, ".dds") == 0)
   {
-    printf("Failed to import texture %s through STBI!\n", full_path);
-    return false;
+    wchar_t wpath[kMaxPathLength];
+    mbstowcs_s(nullptr, wpath, path, 1024);
+
+    DirectX::ScratchImage scratch_img;
+    DirectX::TexMetadata metadata;
+    HRESULT hres = DirectX::LoadFromDDSFile(wpath, DirectX::DDS_FLAGS_NONE, &metadata, scratch_img);
+    if (FAILED(hres))
+    {
+      printf("Failed to import DDS texture %s through DirectXTex!\n", full_path);
+      HASSERT(hres);
+      return false;
+    }
+
+    if (scratch_img.GetImageCount() == 0)
+    {
+      printf("Unsupported image count %llu\n", scratch_img.GetImageCount());
+      return false;
+    }
+
+    const DirectX::Image* img = scratch_img.GetImage(0, 0, 0);
+
+    if (DirectX::IsCompressed(img->format))
+    {
+      DirectX::ScratchImage uncompressed_img;
+      hres = DirectX::Decompress(*img, DXGI_FORMAT_R8G8B8A8_UNORM, uncompressed_img);
+      if (FAILED(hres))
+      {
+        printf("Failed to uncompress texture with DXGI format %u\n", img->format);
+        HASSERT(hres);
+        return false;
+      }
+
+      scratch_img = std::move(uncompressed_img);
+      img         = scratch_img.GetImage(0, 0, 0);
+    }
+
+    if (img->format != DXGI_FORMAT_R8G8B8A8_UNORM)
+    {
+      DirectX::ScratchImage formatted_img;
+      hres = DirectX::Convert(*img, DXGI_FORMAT_R8G8B8A8_UNORM, DirectX::TEX_FILTER_DEFAULT, DirectX::TEX_THRESHOLD_DEFAULT, formatted_img);
+
+      if (FAILED(hres))
+      {
+        printf("Failed to convert DXGI format %u to DXGI_FORMAT_R8G8B8A8_UNORM\n", img->format);
+        HASSERT(hres);
+        return false;
+      }
+      scratch_img = std::move(formatted_img);
+      img         = scratch_img.GetImage(0, 0, 0);
+    }
+
+    if (img->format != DXGI_FORMAT_R8G8B8A8_UNORM)
+    {
+      printf("Unsupported image format %u!\n", img->format);
+      return false;
+    }
+
+    u32 width  = (u32)img->width;
+    u32 height = (u32)img->height;
+
+    u32 size   = 4 * width * height;
+
+    out_imported_texture->hash        = asset_id;
+    memcpy(out_imported_texture->path, path, strlen(path) + 1);
+    out_imported_texture->width       = width;
+    out_imported_texture->height      = height;
+    out_imported_texture->color_space = ColorSpaceName::kRec709;
+    out_imported_texture->format      = TextureFormat::kRGBA8Unorm;
+    out_imported_texture->buf         = HEAP_ALLOC(u8, heap, size);
+
+    const u32 row_pitch = (u32)img->rowPitch;
+    for (u32 y = 0; y < height; y++)
+    {
+      for (u32 x = 0; x < width; x++)
+      {
+        const u8* src = img->pixels + y * row_pitch + x * 4;
+              u8* dst = out_imported_texture->buf + (y * width + x) * 4;
+        dst[0] = src[0];
+        dst[1] = src[1];
+        dst[2] = src[2];
+        dst[3] = src[3];
+      }
+    }
+
+    return true;
   }
+  // Use stbimage for others
+  else
+  {
+    s32 width    = 0;
+    s32 height   = 0;
+    s32 channels = 0;
+    stbi_set_flip_vertically_on_load(true);
 
-  u32 size = 4 * width * height;
+    u8* buf      = stbi_load(full_path, &width, &height, &channels, STBI_rgb_alpha);
+    if (buf == nullptr)
+    {
+      printf("Failed to import texture %s through STBI!\n", full_path);
+      return false;
+    }
 
-  out_imported_texture->hash              = asset_id;
-  memcpy(out_imported_texture->path, path, strlen(path) + 1);
+    u32 size = 4 * width * height;
 
-  out_imported_texture->width       = width;
-  out_imported_texture->height      = height;
-  out_imported_texture->color_space = ColorSpaceName::kRec709;
-  out_imported_texture->format      = TextureFormat::kRGBA8Unorm;
-  out_imported_texture->buf         = HEAP_ALLOC(u8, heap, size);
+    out_imported_texture->hash        = asset_id;
+    memcpy(out_imported_texture->path, path, strlen(path) + 1);
 
-  memcpy(out_imported_texture->buf, buf, size);
+    out_imported_texture->width       = width;
+    out_imported_texture->height      = height;
+    out_imported_texture->color_space = ColorSpaceName::kRec709;
+    out_imported_texture->format      = TextureFormat::kRGBA8Unorm;
+    out_imported_texture->buf         = HEAP_ALLOC(u8, heap, size);
 
-  stbi_image_free(buf);
+    memcpy(out_imported_texture->buf, buf, size);
 
-  return true;
+    stbi_image_free(buf);
+    return true;
+  }
 }
 
 void

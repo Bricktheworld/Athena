@@ -310,15 +310,17 @@ namespace Athena
       conf.IncludePaths.Add(@"[project.SourceRootPath]\Vendor");
       if (target.Optimization == Optimization.Debug)
       {
+        conf.LibraryFiles.Add(@"[project.SourceRootPath]\Lib\Debug\DirectXTex.lib");
         conf.LibraryFiles.Add(@"[project.SourceRootPath]\Lib\Debug\DirectXMesh.lib");
         conf.LibraryFiles.Add(@"[project.SourceRootPath]\Lib\Debug\assimp-vc143-mtd.lib");
         conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Debug\assimp-vc143-mtd.dll");
       }
       else if (target.Optimization == Optimization.Release)
       {
+        conf.LibraryFiles.Add(@"[project.SourceRootPath]\Lib\Release\DirectXTex.lib");
         conf.LibraryFiles.Add(@"[project.SourceRootPath]\Lib\Release\DirectXMesh.lib");
-        conf.LibraryFiles.Add(@"[project.SourceRootPath]\Lib\Release\assimp-vc143-mtd.lib");
-        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Release\assimp-vc143-mtd.dll");
+        conf.LibraryFiles.Add(@"[project.SourceRootPath]\Lib\Release\assimp-vc143-mt.lib");
+        conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\Release\assimp-vc143-mt.dll");
       }
     }
   }

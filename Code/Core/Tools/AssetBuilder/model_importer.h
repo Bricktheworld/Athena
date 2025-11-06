@@ -39,6 +39,8 @@ namespace asset_builder
     u32* out_material_count
   );
 
+  void free_imported_model(ImportedModel* imported_model);
+
   void dump_imported_model(ImportedModel model);
 
   DONT_IGNORE_RETURN bool write_model_to_asset(

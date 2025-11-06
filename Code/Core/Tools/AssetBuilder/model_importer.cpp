@@ -16,6 +16,7 @@ asset_builder::import_model(
   AssetId asset_id = path_to_asset_id(path);
   char full_path[512];
   snprintf(full_path, 512, "%s/%s", project_root, path);
+  printf("Importing model with assimp (it is normal for this to take a second depending on how big the model is)...\n");
 
   Assimp::Importer importer;
   const aiScene* assimp_model = importer.ReadFile(
@@ -151,8 +152,8 @@ asset_builder::import_model(
 
     ImportedModelSubset* model_subset = imported_model.model_subsets + imesh;
 
-    VertexAsset* vertices = HEAP_ALLOC(VertexAsset, heap, num_vertices);
-    u32*         indices  = HEAP_ALLOC(u32,         heap, num_indices );
+    VertexAsset* vertices = HEAP_ALLOC(VertexAsset, GLOBAL_HEAP, num_vertices);
+    u32*         indices  = HEAP_ALLOC(u32,         GLOBAL_HEAP, num_indices );
 
 
     const aiVector3D kAssimpZero3D(0.0f, 0.0f, 0.0f);
@@ -325,4 +326,15 @@ asset_builder::write_model_to_asset(const char* project_root, const ImportedMode
   }
 
   return true;
+}
+
+void
+asset_builder::free_imported_model(ImportedModel* imported_model)
+{
+  for (u32 imodel_subset = 0; imodel_subset < imported_model->num_model_subsets; imodel_subset++)
+  {
+    ImportedModelSubset* imported_model_subset = imported_model->model_subsets + imodel_subset;
+    HEAP_FREE(GLOBAL_HEAP, imported_model_subset->indices);
+    HEAP_FREE(GLOBAL_HEAP, imported_model_subset->vertices);
+  }
 }

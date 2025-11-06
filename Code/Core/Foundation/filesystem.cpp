@@ -96,6 +96,13 @@ read_file(FileStream file_stream, void* dst, u64 size, u64 offset)
   return ReadFile(file_stream.handle, dst, (u32)size, NULL, NULL);
 }
 
+bool
+file_exists(const char* path)
+{
+  DWORD attributes = GetFileAttributesA(path);
+  return (attributes != INVALID_FILE_ATTRIBUTES && !(attributes & FILE_ATTRIBUTE_DIRECTORY));
+}
+
 u64
 get_file_size(FileStream file_stream)
 {
@@ -116,6 +123,21 @@ get_parent_dir(const char* path, u32 len)
     if (path[i] == '/' || path[i] == '\\')
     {
       return i + 1;
+    }
+  }
+
+  return len;
+}
+
+u32
+get_file_extension(const char* path, u32 len)
+{
+  ASSERT_MSG_FATAL(len >= 2, "Path length must be greater than 0");
+  for (s64 i = len - 1; i >= 0; i--)
+  {
+    if (path[i] == '.')
+    {
+      return (u32)i;
     }
   }
 
