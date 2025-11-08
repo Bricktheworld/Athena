@@ -1569,7 +1569,7 @@ init_gpu_bvh(
   geometry_desc.Flags                                = D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
   geometry_desc.Triangles.IndexBuffer                = index_uber_buffer.gpu_addr;
   geometry_desc.Triangles.IndexCount                 = index_count;
-  geometry_desc.Triangles.IndexFormat                = DXGI_FORMAT_R32_UINT;
+  geometry_desc.Triangles.IndexFormat                = DXGI_FORMAT_R16_UINT;
   geometry_desc.Triangles.Transform3x4               = 0;
   geometry_desc.Triangles.VertexFormat               = DXGI_FORMAT_R32G32B32_FLOAT;
   geometry_desc.Triangles.VertexCount                = vertex_count;

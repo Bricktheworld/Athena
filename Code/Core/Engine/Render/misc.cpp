@@ -112,10 +112,48 @@ diffuse_from_temperature(f32 temperature)
   return ret / 255.0f;
 }
 
+static Vec2
+get_taa_jitter()
+{
+  static const Vec2 kHaltonSequence[] =
+  {
+    Vec2(0.500000f, 0.333333f),
+    Vec2(0.250000f, 0.666667f),
+    Vec2(0.750000f, 0.111111f),
+    Vec2(0.125000f, 0.444444f),
+    Vec2(0.625000f, 0.777778f),
+    Vec2(0.375000f, 0.222222f),
+    Vec2(0.875000f, 0.555556f),
+    Vec2(0.062500f, 0.888889f),
+    Vec2(0.562500f, 0.037037f),
+    Vec2(0.312500f, 0.370370f),
+    Vec2(0.812500f, 0.703704f),
+    Vec2(0.187500f, 0.148148f),
+    Vec2(0.687500f, 0.481481f),
+    Vec2(0.437500f, 0.814815f),
+    Vec2(0.937500f, 0.259259f),
+    Vec2(0.031250f, 0.592593f),
+  };
+
+  u32  idx = g_FrameId % ARRAY_LENGTH(kHaltonSequence);
+  Vec2 ret = kHaltonSequence[idx] - Vec2(0.5f, 0.5f);
+  ret.x   /= (f32)g_RenderGraph->width;
+  ret.y   /= (f32)g_RenderGraph->height;
+
+  ret     *= 2.0f;
+  return ret;
+}
+
 static void
 render_handler_frame_init(RenderContext* ctx, const RenderSettings& settings, const void* data)
 {
   FrameInitParams* params = (FrameInitParams*)data;
+
+  g_Renderer.taa_jitter   = get_taa_jitter();
+
+  memcpy(&g_Renderer.prev_camera,       &g_Renderer.camera,            sizeof(g_Renderer.prev_camera));
+  memcpy(&g_Renderer.camera,            get_scene_camera(),            sizeof(g_Renderer.camera));
+  memcpy(&g_Renderer.directional_light, get_scene_directional_light(), sizeof(g_Renderer.directional_light));
 
   Mat4 prev_view = view_from_camera(&g_Renderer.prev_camera);
   Mat4 view      = view_from_camera(&g_Renderer.camera);
@@ -175,11 +213,9 @@ render_handler_frame_init(RenderContext* ctx, const RenderSettings& settings, co
 
   ctx->set_graphics_root_shader_resource_view(kIndexBufferSlot ,           &g_UnifiedGeometryBuffer.index_buffer);
   ctx->set_graphics_root_shader_resource_view(kVertexBufferSlot,           &g_UnifiedGeometryBuffer.vertex_buffer);
-  ctx->set_graphics_root_shader_resource_view(kAccelerationStructureSlot,  &g_UnifiedGeometryBuffer.bvh.top_bvh);
 
   ctx->set_compute_root_shader_resource_view(kIndexBufferSlot ,           &g_UnifiedGeometryBuffer.index_buffer);
   ctx->set_compute_root_shader_resource_view(kVertexBufferSlot,           &g_UnifiedGeometryBuffer.vertex_buffer);
-  ctx->set_compute_root_shader_resource_view(kAccelerationStructureSlot,  &g_UnifiedGeometryBuffer.bvh.top_bvh);
 
   // Clear/initialize the multi draw indirect args
   ctx->set_compute_pso(&params->init_debug_draw_buffers_pso);
@@ -200,8 +236,6 @@ init_frame_init_pass(AllocHeap heap, RgBuilder* builder)
 
   ret.viewport_buffer        = rg_create_upload_buffer(builder, "Viewport Buffer",     kGpuHeapSysRAMCpuToGpu, sizeof(Viewport));
   ret.render_settings        = rg_create_upload_buffer(builder, "Render Settings",     kGpuHeapSysRAMCpuToGpu, sizeof(RenderSettingsGpu));
-  ret.material_buffer        = rg_create_buffer(builder, "Material Buffer",     sizeof(MaterialGpu) * kMaxSceneObjs);
-  ret.scene_obj_buffer       = rg_create_buffer(builder, "Scene Object Buffer", sizeof(SceneObjGpu) * kMaxSceneObjs);
 
   ret.debug_draw_args_buffer = rg_create_buffer(builder, "Debug Draw Args Buffer",      sizeof(MultiDrawIndirectArgs) * 2);
   ret.debug_line_vert_buffer = rg_create_buffer(builder, "Debug Lines Vertices Buffer", sizeof(DebugLinePoint) * kDebugMaxVertices);
@@ -238,15 +272,17 @@ render_handler_imgui(RenderContext* ctx, const RenderSettings&, const void* data
   ImGui::Begin("Rendering");
   static bool s_ShowDetailedPerformance = false;
 
-  ImGui::DragFloat3("Sun Direction", (f32*)&g_Scene->directional_light.direction, 0.02f, -1.0f, 1.0f);
+  Camera*           camera            = get_scene_camera();
+  DirectionalLight* directional_light = get_scene_directional_light();
+  ImGui::DragFloat3("Sun Direction", (f32*)&directional_light->direction, 0.02f, -1.0f, 1.0f);
   // ImGui::DragFloat3("Sun Diffuse", (f32*)&g_Scene->directional_light.diffuse, 0.1f, 0.0f, 1.0f);
-  ImGui::DragInt   ("Sun Temperature (Kelvin)", (s32*)&g_Scene->directional_light.temperature, 10.0f, 1000, 40000);
-  ImGui::DragFloat ("Sun Intensity (Lux)", &g_Scene->directional_light.illuminance, 10.0f, 0.0f, 200000.0f);
+  ImGui::DragInt   ("Sun Temperature (Kelvin)", (s32*)&directional_light->temperature, 10.0f, 1000, 40000);
+  ImGui::DragFloat ("Sun Intensity (Lux)", &directional_light->illuminance, 10.0f, 0.0f, 200000.0f);
 
-  ImGui::DragFloat3("Sky Diffuse",         (f32*)&g_Scene->directional_light.sky_diffuse, 0.1f, 0.0f, 1.0f);
-  ImGui::DragFloat ("Sky Intensity (Lux)", &g_Scene->directional_light.sky_illuminance, 10.0f, 0.0f, 100000.0f);
+  ImGui::DragFloat3("Sky Diffuse",         (f32*)&directional_light->sky_diffuse, 0.1f, 0.0f, 1.0f);
+  ImGui::DragFloat ("Sky Intensity (Lux)", &directional_light->sky_illuminance, 10.0f, 0.0f, 100000.0f);
 
-  ImGui::InputFloat3("Camera Position", (f32*)&g_Scene->camera.world_pos);
+  ImGui::InputFloat3("Camera Position", (f32*)&camera->world_pos);
 
   ImGui::Checkbox("Disable TAA", &g_Renderer.settings.disable_taa);
   ImGui::Checkbox("Disable Diffuse GI", &g_Renderer.settings.disable_diffuse_gi);

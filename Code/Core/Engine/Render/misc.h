@@ -6,8 +6,6 @@ struct FrameResources
 {
   RgHandle<GpuBuffer> viewport_buffer;
   RgHandle<GpuBuffer> render_settings;
-  RgHandle<GpuBuffer> material_buffer;
-  RgHandle<GpuBuffer> scene_obj_buffer;
 
   RgHandle<GpuBuffer> debug_draw_args_buffer;
   RgHandle<GpuBuffer> debug_line_vert_buffer;

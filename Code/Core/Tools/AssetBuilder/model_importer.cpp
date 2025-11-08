@@ -19,12 +19,15 @@ asset_builder::import_model(
   printf("Importing model with assimp (it is normal for this to take a second depending on how big the model is)...\n");
 
   Assimp::Importer importer;
+  // Set the maximum number of indices to fit in a U16
+  importer.SetPropertyInteger(AI_CONFIG_PP_SLM_TRIANGLE_LIMIT, (U16_MAX - 1) / 0x3);
   const aiScene* assimp_model = importer.ReadFile(
     full_path,
     aiProcess_CalcTangentSpace      |
     aiProcess_Triangulate           |
     aiProcess_JoinIdenticalVertices |
     aiProcess_SortByPType           |
+    aiProcess_SplitLargeMeshes      | // Need this to handle large meshes that overflow u16
     aiProcess_PreTransformVertices  | // TODO(Brandon): We're gonna delete this soon and replace with prefab system
     aiProcess_GenBoundingBoxes
   );
@@ -89,11 +92,23 @@ asset_builder::import_model(
       materials[imaterial].diffuse_base = Vec4(1.0f);
     }
 
-    u32 num_diffuse_textures = assimp_material->GetTextureCount(aiTextureType_BASE_COLOR);
+    // Kinda hacky, but trying to "coerce" assimp to give me the closest thing to base color
+    aiTextureType kDiffuseTextureTypes[] = {aiTextureType_BASE_COLOR, aiTextureType_DIFFUSE};
+    aiTextureType diffuse_texture_type = aiTextureType_BASE_COLOR;
+    for (u32 i = 0; i < ARRAY_LENGTH(kDiffuseTextureTypes); i++)
+    {
+      if (assimp_material->GetTextureCount(kDiffuseTextureTypes[i]) > 0)
+      {
+        diffuse_texture_type = kDiffuseTextureTypes[i];
+        break;
+      }
+    }
+
+    u32 num_diffuse_textures = assimp_material->GetTextureCount(diffuse_texture_type);
     if (num_diffuse_textures > 0)
     {
       aiString texture_path;
-      assimp_material->GetTexture(aiTextureType_BASE_COLOR, 0, &texture_path);
+      assimp_material->GetTexture(diffuse_texture_type, 0, &texture_path);
       snprintf(materials[imaterial].texture_paths[0], kMaxPathLength, "%s%s", parent_dir, texture_path.C_Str());
       printf("      Diffuse: %s\n", materials[imaterial].texture_paths[0]);
     }
@@ -150,10 +165,17 @@ asset_builder::import_model(
     u32     num_vertices = assimp_mesh->mNumVertices;
     u32     num_indices  = assimp_mesh->mNumFaces * 3;
 
+    // Too many triangles in one single model subset! You should split it up :)
+    if (num_indices >= U16_MAX - 1)
+    {
+      printf("Found %u indices in model subset %u which is greater than the supported maximum of %u. Consider breaking up the model subset.\n", num_indices, imesh, U16_MAX - 1);
+      continue;
+    }
+
     ImportedModelSubset* model_subset = imported_model.model_subsets + imesh;
 
     VertexAsset* vertices = HEAP_ALLOC(VertexAsset, GLOBAL_HEAP, num_vertices);
-    u32*         indices  = HEAP_ALLOC(u32,         GLOBAL_HEAP, num_indices );
+    u16*         indices  = HEAP_ALLOC(u16,         GLOBAL_HEAP, num_indices );
 
 
     const aiVector3D kAssimpZero3D(0.0f, 0.0f, 0.0f);
@@ -180,9 +202,9 @@ asset_builder::import_model(
         continue;
       }
 
-      indices[iindex + 0] = face->mIndices[0];
-      indices[iindex + 1] = face->mIndices[1];
-      indices[iindex + 2] = face->mIndices[2];
+      indices[iindex + 0] = (u16)face->mIndices[0];
+      indices[iindex + 1] = (u16)face->mIndices[1];
+      indices[iindex + 2] = (u16)face->mIndices[2];
       iindex += 3;
     }
     num_indices = iindex;
@@ -264,10 +286,15 @@ asset_builder::write_model_to_asset(const char* project_root, const ImportedMode
 
   size_t model_subsets_size = sizeof(ModelAsset::ModelSubset) * model.num_model_subsets;
 
-  size_t output_size        = sizeof(ModelAsset)                       +
-                              model_subsets_size                       +
-                              sizeof(VertexAsset) * total_vertex_count +
-                              sizeof(u32)         * total_index_count;
+  u64    vertices_size      = sizeof(VertexAsset) * total_vertex_count ;
+  u64    indices_size       = sizeof(u16)         * total_index_count;
+  size_t output_size        = sizeof(ModelAsset)  +
+                              model_subsets_size  +
+                              vertices_size       +
+                              indices_size;
+
+  u64 vertex_dst           = sizeof(ModelAsset) + model_subsets_size;
+  u64 index_dst            = vertex_dst + vertices_size;
 
   u8* buffer = HEAP_ALLOC(u8, GLOBAL_HEAP, output_size);
   defer { HEAP_FREE(GLOBAL_HEAP, buffer); };
@@ -281,10 +308,13 @@ asset_builder::write_model_to_asset(const char* project_root, const ImportedMode
   model_asset.metadata.asset_hash      = model.hash;
   model_asset.num_model_subsets        = model.num_model_subsets;
   model_asset.model_subsets            = sizeof(ModelAsset);
+  model_asset.vertices                 = vertex_dst;
+  model_asset.indices                  = index_dst;
+  model_asset.vertices_size            = vertices_size;
+  model_asset.indices_size             = indices_size;
 
   memcpy(buffer + offset, &model_asset, sizeof(ModelAsset)); offset += sizeof(ModelAsset);
 
-  u64 vertex_index_dst = sizeof(ModelAsset) + model_subsets_size;
 
   for (u32 imodel_subset = 0; imodel_subset < model.num_model_subsets; imodel_subset++)
   {
@@ -296,10 +326,10 @@ asset_builder::write_model_to_asset(const char* project_root, const ImportedMode
     model_subset.material     = imported_model_subset->material;
 
     size_t vertex_size        = sizeof(VertexAsset) * model_subset.num_vertices;
-    size_t index_size         = sizeof(u32)         * model_subset.num_indices;
+    size_t index_size         = sizeof(u16)         * model_subset.num_indices;
 
-    model_subset.vertices     = vertex_index_dst; vertex_index_dst += vertex_size;
-    model_subset.indices      = vertex_index_dst; vertex_index_dst += index_size;
+    model_subset.vertices     = vertex_dst; vertex_dst += vertex_size;
+    model_subset.indices      = index_dst;  index_dst  += index_size;
 
     memcpy(buffer + offset, &model_subset, sizeof(model_subset)); offset += sizeof(model_subset);
     memcpy(buffer + model_subset.vertices, imported_model_subset->vertices, vertex_size);

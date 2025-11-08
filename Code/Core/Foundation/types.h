@@ -146,6 +146,22 @@ count_leading_zeroes(u64 val)
   return 63 - ret;
 }
 
+// Use 1 << counting_trailing_zeroes() to set the bit
+inline u32
+count_trailing_zeroes(u32 val)
+{
+  unsigned long ret;
+  return _BitScanForward(&ret, val) ? ret : 32;
+}
+
+// Use 1 << counting_trailing_zeroes() to set the bit
+inline u64
+count_trailing_zeroes(u64 val)
+{
+  unsigned long ret;
+  return _BitScanForward64(&ret, val) ? ret : 64;
+}
+
 #if 0
 template <typename T>
 inline void

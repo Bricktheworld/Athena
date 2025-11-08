@@ -54,15 +54,26 @@ enum AssetState : u32
   kAssetFailedToInitialize,
 };
 
+struct ModelSubsetMetadata
+{
+  u32 vertex_start;
+  u32 vertex_count;
+  u32 index_start;
+  u32 index_count;
+};
+
+struct ModelMetadata
+{
+  Array<ModelSubsetMetadata> subsets;
+};
+
 struct AssetDesc
 {
   AssetType  type  = AssetType::kModel;
   AssetState state = kAssetUnloaded;
   union
   {
-    struct 
-    {
-    } model;
+    ModelMetadata model;
     struct
     {
       GpuDescriptor descriptor;
@@ -102,7 +113,8 @@ enum GpuStreamResult
             void init_asset_loader(void);
 THREAD_SAFE void kick_asset_load(AssetId asset_id);
             void destroy_asset_loader(void);
-
+THREAD_SAFE Result<const GpuTexture*,    AssetState> get_gpu_model_asset(AssetId asset_id);
 THREAD_SAFE Result<const GpuTexture*,    AssetState> get_gpu_texture_asset(AssetId asset_id);
 THREAD_SAFE Result<Texture2DPtr<float4>, AssetState> get_srv_texture_asset(AssetId asset_id);
+THREAD_SAFE Result<const ModelMetadata*, AssetState> get_model_asset      (AssetId asset_id);
 THREAD_SAFE Result<const MaterialData*,  AssetState> get_material_asset   (AssetId asset_id);

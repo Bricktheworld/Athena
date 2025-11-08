@@ -32,7 +32,7 @@ using AssetRef = AssetId;
 
 static constexpr u32 kAssetMagicNumber = CRC32_STR("ATHENA_ASSET");
 
-static constexpr u32 kModelAssetVersion    = 3;
+static constexpr u32 kModelAssetVersion    = 4;
 static constexpr u32 kTextureAssetVersion  = 3;
 static constexpr u32 kMaterialAssetVersion = 4;
 
@@ -249,7 +249,7 @@ struct ModelAsset
     u64                     num_indices;
     AssetRef<MaterialAsset> material;
     OffsetPtr<VertexAsset>  vertices;
-    OffsetPtr<u32>          indices;
+    OffsetPtr<u16>          indices;
   };
 
   struct Meshlet
@@ -261,5 +261,11 @@ struct ModelAsset
   AssetMetadata          metadata;
   u64                    num_model_subsets;
   OffsetPtr<ModelSubset> model_subsets;
+
+  // Offset pointers for the entire model asset to stream directly to GPU memory
+  OffsetPtr<VertexAsset> vertices;
+  OffsetPtr<u16>         indices;
+  u64                    vertices_size;
+  u64                    indices_size;
 };
 ASSERT_SERIALIZABLE(ModelAsset);

@@ -32,11 +32,7 @@ align_ptr(T* ptr, size_t alignment)
 inline void
 zero_memory(void* memory, size_t size)
 {
-  byte *b = reinterpret_cast<byte*>(memory);
-  while(size--)
-  {
-    *b++ = 0;
-  }
+  ZeroMemory(memory, size);
 }
 
 FOUNDATION_API void* reserve_commit_pages(size_t size, void* addr = 0);

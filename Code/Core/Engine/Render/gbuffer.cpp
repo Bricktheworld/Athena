@@ -25,6 +25,8 @@ struct GBufferStaticParams
 {
   RgConstantBuffer<Transform> transform_buffer;
 
+  GraphicsPSO gbuffer_pso;
+
   RgRtv material_id;
   RgRtv diffuse_metallic;
   RgRtv normal_roughness;
@@ -36,16 +38,6 @@ static void
 render_handler_gbuffer_static(RenderContext* ctx, const RenderSettings&, const void* data)
 {
   GBufferStaticParams* params = (GBufferStaticParams*)data;
-
-  Transform model;
-  model.model = Mat4::columns(
-    Vec4(1, 0, 0, 0),
-    Vec4(0, 1, 0, 0),
-    Vec4(0, 0, 1, 0),
-    Vec4(0, 0, 0, 1)
-  );
-  model.model_inverse = transform_inverse_no_scale(model.model);
-  ctx->write_cpu_upload_buffer(params->transform_buffer, &model, sizeof(model));
 
   ctx->om_set_render_targets(
     {
@@ -69,12 +61,21 @@ render_handler_gbuffer_static(RenderContext* ctx, const RenderSettings&, const v
 
   ctx->ia_set_primitive_topology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-  ctx->ia_set_index_buffer(&g_UnifiedGeometryBuffer.index_buffer, sizeof(u32));
+  ctx->ia_set_index_buffer(&g_UnifiedGeometryBuffer.index_buffer, sizeof(u16));
 
-  for (const RenderModelSubset& subset : g_Renderer.meshes)
+  ctx->set_graphics_pso(&params->gbuffer_pso);
+
+  const SceneObj* obj = get_all_scene_objs();
+  for (u32 i = 0; i < kMaxSceneObjs; i++, obj++)
   {
-    ASSERT_MSG_FATAL(subset.material != kNullAssetId, "Model subset has null material!");
+    if (!(obj->flags & kSceneObjRender))
+    {
+      continue;
+    }
 
+    // ASSERT_MSG_FATAL(subset.material != kNullAssetId, "Model subset has null material!");
+
+#if 0
     auto material_res = get_material_asset(subset.material);
     if (!material_res)
     {
@@ -100,17 +101,16 @@ render_handler_gbuffer_static(RenderContext* ctx, const RenderSettings&, const v
         normal = res.value();
       }
     }
-
-    ctx->set_graphics_pso(&subset.gbuffer_pso);
+#endif
 
     MaterialSrt srt;
     srt.transform    = params->transform_buffer;
-    srt.diffuse      = diffuse;
-    srt.normal       = normal;
-    srt.diffuse_base = material_res.value()->diffuse_base;
-    srt.gpu_id       = 0;
+    srt.diffuse      = {0}; // diffuse;
+    srt.normal       = {0}; // normal;
+    srt.diffuse_base = Vec4(1.0f); // {0}; // material_res.value()->diffuse_base;
+    srt.gpu_id       = obj->gpu_id;
     ctx->graphics_bind_srt(srt);
-    ctx->draw_indexed_instanced(subset.index_count, 1, subset.index_buffer_offset, 0, 0);
+    ctx->draw_indexed_instanced(obj->index_count, 1, obj->start_index, 0, 0);
   }
 }
 
@@ -129,6 +129,19 @@ init_gbuffer_static(AllocHeap heap, RgBuilder* builder, GBuffer* gbuffer)
   params->normal_roughness      = RgRtv(pass, &gbuffer->normal_roughness);
   params->velocity              = RgRtv(pass, &gbuffer->velocity);
   params->depth                 = RgDsv(pass, &gbuffer->depth);
+
+  // TODO(bshihabi): This should all be handled by asset streaming
+  GraphicsPipelineDesc graphics_pipeline_desc =
+  {
+    .vertex_shader   = get_engine_shader(kVS_Basic),
+    .pixel_shader    = get_engine_shader(kPS_BasicNormalGloss),
+    .rtv_formats     = kGBufferRenderTargetFormats,
+    .dsv_format      = kGpuFormatD32Float,
+    .depth_func      = kDepthComparison,
+    .stencil_enable  = false,
+  };
+
+  params->gbuffer_pso           = init_graphics_pipeline(g_GpuDevice, graphics_pipeline_desc, "Mesh PSO");
 
   params->transform_buffer      = RgConstantBuffer<Transform>(pass, transform);
 }

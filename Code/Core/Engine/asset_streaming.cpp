@@ -19,6 +19,7 @@ struct AssetLoader
   Thread                                    thread;
   ThreadSignal                              wake_cond;
   bool                                      kill;
+
 };
 
 static AssetLoader*     g_AssetLoader      = nullptr;
@@ -128,7 +129,17 @@ request_gpu_stream_asset(const AssetGpuLoadRequest& request)
   in_flight_desc.fence_value       = value;
 
   ring_queue_push(&g_GpuStreamDevice->in_flight_requests, in_flight_desc);
-  dbgln("Streaming 0x%x\n  Texture: (%u x %u)", request.asset_id, request.texture.dst->desc.width, request.texture.dst->desc.height);
+  switch (request.type)
+  {
+    case kAssetGpuLoadTypeBuffer:
+    {
+      dbgln("Streaming 0x%x\n Buffer: (%llu bytes)", request.asset_id, request.uncompressed_size);
+    } break;
+    case kAssetGpuLoadTypeTexture:
+    {
+      dbgln("Streaming 0x%x\n Texture: (%u x %u)", request.asset_id, request.texture.dst->desc.width, request.texture.dst->desc.height);
+    } break;
+  }
 
   return kGpuStreamOk;
 }
@@ -387,6 +398,7 @@ process_asset_loads(void)
           {
             dbgln("Failed to read from asset file 0x%x", asset_id);
             desc->state = kAssetFailedToLoad;
+            close_file(&file.value());
             return;
           }
 
@@ -400,12 +412,78 @@ process_asset_loads(void)
           {
             dbgln("Failed to read from asset file 0x%x", asset_id);
             desc->state = kAssetFailedToLoad;
+            close_file(&file.value());
             return;
           }
+
+          close_file(&file.value());
+
+          u64 vertex_offset_bytes = alloc_uber_vertex(model_asset.vertices_size);
+          u64 index_offset_bytes  = alloc_uber_index (model_asset.indices_size);
+
+          u32 vertex_start = (u32)(vertex_offset_bytes / sizeof(VertexAsset));
+          u32 index_start  = (u32)(index_offset_bytes  / sizeof(u16));
+          {
+            AssetGpuLoadRequest request = {0};
+            request.asset_id          = asset_id;
+            request.type              = kAssetGpuLoadTypeBuffer;
+            request.src_offset        = model_asset.vertices;
+            request.compressed_size   = (u32)model_asset.vertices_size;
+            request.uncompressed_size = (u32)model_asset.vertices_size;
+            request.buffer.dst        = &g_UnifiedGeometryBuffer.vertex_buffer;
+            request.buffer.dst_offset = vertex_offset_bytes;
+
+            GpuStreamResult result = request_gpu_stream_asset(request);
+
+            if (result == kGpuStreamFailedToOpenFile)
+            {
+              dbgln("Failed to stream asset 0x%x (could not open file)", asset_id);
+              desc->state = kAssetFailedToLoad;
+
+              // TODO(bshihabi): When something fails to load, we should free it from the vertex uber buffer, but there's no good way to do this right now
+              return;
+            }
+          }
+
+          {
+            AssetGpuLoadRequest request = {0};
+            request.asset_id          = asset_id;
+            request.type              = kAssetGpuLoadTypeBuffer;
+            request.src_offset        = model_asset.indices;
+            request.compressed_size   = (u32)model_asset.indices_size;
+            request.uncompressed_size = (u32)model_asset.indices_size;
+            request.buffer.dst        = &g_UnifiedGeometryBuffer.index_buffer;
+            request.buffer.dst_offset = index_offset_bytes;
+
+            GpuStreamResult result = request_gpu_stream_asset(request);
+
+            if (result == kGpuStreamFailedToOpenFile)
+            {
+              dbgln("Failed to stream asset 0x%x (could not open file)", asset_id);
+              desc->state = kAssetFailedToLoad;
+
+              // TODO(bshihabi): When something fails to load, we should free it from the vertex uber buffer, but there's no good way to do this right now
+              return;
+            }
+
+            ASSERT_MSG_FATAL(result == kGpuStreamOk, "Unhandled GPU stream error!");
+          }
+
+          desc->state = kAssetStreaming;
+
+          desc->model.subsets = init_array_zeroed<ModelSubsetMetadata>(g_AssetLoader->allocator, model_asset.num_model_subsets);
 
           for (u32 isubset = 0; isubset < model_asset.num_model_subsets; isubset++)
           {
             kick_asset_load(assets, subsets[isubset].material);
+
+            desc->model.subsets[isubset].vertex_start = vertex_start;
+            desc->model.subsets[isubset].vertex_count = (u32)subsets[isubset].num_vertices;
+            desc->model.subsets[isubset].index_start  = index_start;
+            desc->model.subsets[isubset].index_count  = (u32)subsets[isubset].num_indices;
+
+            vertex_start += (u32)subsets[isubset].num_vertices;
+            index_start  += (u32)subsets[isubset].num_indices;
           }
 
         } break;
@@ -576,6 +654,29 @@ get_srv_texture_asset(AssetId asset_id)
   };
 }
 
+Result<const ModelMetadata*, AssetState>
+get_model_asset(AssetId asset_id)
+{
+  return ACQUIRE(&g_AssetLoader->assets, auto* assets) -> Result<const ModelMetadata*, AssetState>
+  {
+    AssetDesc* desc = hash_table_find(assets, asset_id);
+    if (desc == nullptr)
+    {
+      return Err(kAssetUnloaded);
+    }
+
+    if (desc->state >= kAssetFailedToLoad || desc->state < kAssetReady)
+    {
+      return Err(desc->state);
+    }
+
+    ASSERT_MSG_FATAL(desc->type == AssetType::kModel,     "Asset is not a model!");
+    ASSERT_MSG_FATAL(desc->state == kAssetReady,          "Asset has not loaded yet!");
+
+    return Ok((const ModelMetadata*)&desc->model);
+  };
+}
+
 Result<const MaterialData*, AssetState>
 get_material_asset(AssetId asset_id)
 {
@@ -592,7 +693,7 @@ get_material_asset(AssetId asset_id)
       return Err(desc->state);
     }
 
-    ASSERT_MSG_FATAL(desc->type == AssetType::kMaterial,  "Asset is not a texture!");
+    ASSERT_MSG_FATAL(desc->type == AssetType::kMaterial,  "Asset is not a material!");
     ASSERT_MSG_FATAL(desc->state == kAssetReady,          "Asset has not loaded yet!");
 
     return Ok((const MaterialData*)&desc->material);

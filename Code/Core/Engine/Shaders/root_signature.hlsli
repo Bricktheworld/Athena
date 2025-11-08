@@ -16,7 +16,6 @@
 #define kDebugVertexBufferSlot 33
 #define kDebugSdfBufferSlot 34
 
-#define kAccelerationStructureSlot 1
 #define kIndexBufferSlot           2
 #define kVertexBufferSlot          3
 

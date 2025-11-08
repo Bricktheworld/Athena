@@ -382,6 +382,7 @@ enum WriteBufferAccess : u32
 {
   // UAV
   kWriteBufferUav,
+  kWriteBufferCopyDst,
 };
 
 static constexpr u8 kInfiniteLifetime = 0xFF;
@@ -468,6 +469,9 @@ RgOpaqueDescriptor rg_write_dsv    (RgPassBuilder* builder, RgHandle<GpuTexture>
 RgOpaqueDescriptor rg_read_buffer  (RgPassBuilder* builder, RgHandle<GpuBuffer>   buffer,  const GpuBufferCbvDesc&  desc, s8 temporal_frame = 0, Option<u32> grv_idx = None, u16 flags = kRgDescriptorFlagNone);
 RgOpaqueDescriptor rg_read_buffer  (RgPassBuilder* builder, RgHandle<GpuBuffer>   buffer,  const GpuBufferSrvDesc&  desc, s8 temporal_frame = 0, Option<u32> grv_idx = None, u16 flags = kRgDescriptorFlagNone);
 RgOpaqueDescriptor rg_write_buffer (RgPassBuilder* builder, RgHandle<GpuBuffer>*  buffer,  const GpuBufferUavDesc&  desc, Option<u32> grv_idx = None, u16 flags = kRgDescriptorFlagNone);
+
+RgOpaqueDescriptor rg_copy_dst_buffer (RgPassBuilder* builder, RgHandle<GpuBuffer>*  buffer);
+RgOpaqueDescriptor rg_copy_dst_texture(RgPassBuilder* builder, RgHandle<GpuTexture>* texture);
 
 RgOpaqueDescriptor rg_read_index_buffer (RgPassBuilder* builder, RgHandle<GpuBuffer> buffer, u16 flags = kRgDescriptorFlagNone);
 RgOpaqueDescriptor rg_read_vertex_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer> buffer, u16 flags = kRgDescriptorFlagNone);
@@ -1327,6 +1331,86 @@ struct RgCpuUploadBuffer
   }
 };
 
+struct RgCopyDst
+{
+  u32 m_PassId           = 0;
+  u32 m_DescriptorIdx    = 0;
+  u32 m_ResourceId       = 0;
+
+  u8  m_TemporalLifetime = 0;
+  s8  m_TemporalFrame    = 0;
+  u16 m_Flags            = 0;
+
+  RgCopyDst() = default;
+  RgCopyDst(RgPassBuilder* builder, RgHandle<GpuBuffer>* buffer)
+  {
+    RgOpaqueDescriptor opaque;
+    opaque = rg_copy_dst_buffer(builder, buffer);
+    m_PassId           = opaque.pass_id;
+    m_DescriptorIdx    = opaque.descriptor_idx;
+    m_ResourceId       = opaque.resource_id;
+    m_TemporalLifetime = opaque.temporal_lifetime;
+    m_TemporalFrame    = opaque.temporal_frame;
+    m_Flags            = opaque.flags;
+  }
+
+  RgCopyDst(RgPassBuilder* builder, RgHandle<GpuTexture>* texture)
+  {
+    RgOpaqueDescriptor opaque;
+    opaque = rg_copy_dst_texture(builder, texture);
+    m_PassId           = opaque.pass_id;
+    m_DescriptorIdx    = opaque.descriptor_idx;
+    m_ResourceId       = opaque.resource_id;
+    m_TemporalLifetime = opaque.temporal_lifetime;
+    m_TemporalFrame    = opaque.temporal_frame;
+    m_Flags            = opaque.flags;
+  }
+};
+
+template <>
+inline const GpuBuffer*
+rg_deref_buffer<RgIndexBuffer>(RgIndexBuffer rg_descriptor)
+{
+  RgResourceKey key  = {0};
+  key.id             = rg_descriptor.m_ResourceId;
+  key.temporal_frame = rg_get_temporal_frame(g_FrameId, 0, 0);
+
+  return hash_table_find(&g_RenderGraph->buffer_map, key);
+}
+
+template <>
+inline const GpuBuffer*
+rg_deref_buffer<RgVertexBuffer>(RgVertexBuffer rg_descriptor)
+{
+  RgResourceKey key  = {0};
+  key.id             = rg_descriptor.m_ResourceId;
+  key.temporal_frame = rg_get_temporal_frame(g_FrameId, 0, 0);
+
+  return hash_table_find(&g_RenderGraph->buffer_map, key);
+}
+
+template <>
+inline const GpuBuffer*
+rg_deref_buffer<RgCpuUploadBuffer>(RgCpuUploadBuffer rg_descriptor)
+{
+  RgResourceKey key  = {0};
+  key.id             = rg_descriptor.m_ResourceId;
+  key.temporal_frame = rg_get_temporal_frame(g_FrameId, rg_descriptor.m_TemporalLifetime, 0);
+
+  return hash_table_find(&g_RenderGraph->buffer_map, key);
+}
+
+template <>
+inline const GpuBuffer*
+rg_deref_buffer<RgCopyDst>(RgCopyDst rg_descriptor)
+{
+  RgResourceKey key  = {0};
+  key.id             = rg_descriptor.m_ResourceId;
+  key.temporal_frame = rg_get_temporal_frame(g_FrameId, rg_descriptor.m_TemporalLifetime, 0);
+
+  return hash_table_find(&g_RenderGraph->buffer_map, key);
+}
+
 enum DepthStencilClearFlags
 {
   kClearDepth        = 0x1 << 0,
@@ -1533,4 +1617,10 @@ struct RenderContext
 
   void write_cpu_upload_buffer(RgCpuUploadBuffer dst, const void* src, u64 size, u64 offset = 0);
   void write_cpu_upload_buffer(const GpuBuffer* dst,  const void* src, u64 size, u64 offset = 0);
+
+  void copy_buffer(RgCopyDst dst, u64 dst_offset, RgCpuUploadBuffer src, u64 src_offset, u64 bytes);
+  void copy_buffer(RgCopyDst dst, u64 dst_offset, const GpuBuffer* src, u64 src_offset, u64 bytes);
+  void copy_buffer(const GpuBuffer* dst, u64 dst_offset, const GpuBuffer* src, u64 src_offset, u64 bytes);
 };
+
+inline void render_handler_dummy(RenderContext*, const RenderSettings&, const void*) { }

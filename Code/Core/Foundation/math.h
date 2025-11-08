@@ -922,6 +922,12 @@ operator*(f32 scale, f32x4 a)
   return _mm_mul_ps(_mm_set1_ps(scale), a);
 }
 
+inline bool pass_by_register
+operator==(f32x4 a, f32x4 b)
+{
+  return _mm_movemask_ps(_mm_cmpeq_ps(a, b)) == 0xF;
+}
+
 inline f32x4 pass_by_register 
 hadamard_f32(f32x4 a, f32x4 b)
 {
@@ -1267,6 +1273,15 @@ operator-=(Mat4& a, Mat4 b)
 {
   a = a - b;
   return a;
+}
+
+inline bool
+operator==(Mat4 a, Mat4 b)
+{
+  return a.cols[0] == b.cols[0] &&
+         a.cols[1] == b.cols[1] &&
+         a.cols[2] == b.cols[2] &&
+         a.cols[3] == b.cols[3];
 }
 
 inline Mat4

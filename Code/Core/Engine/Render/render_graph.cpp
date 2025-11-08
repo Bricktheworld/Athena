@@ -552,6 +552,15 @@ init_physical_descriptors(
         continue;
       }
 
+      if (desc.handle.type == kResourceTypeBuffer && desc.access == kWriteBufferCopyDst)
+      {
+        continue;
+      }
+      else if (desc.handle.type == kResourceTypeTexture && desc.access == kWriteTextureCopyDst)
+      {
+        continue;
+      }
+
       u8 temporal_lifetime = get_temporal_lifetime(desc.handle.temporal_lifetime);
       for (u32 iframe = 0; iframe <= temporal_lifetime; iframe++)
       {
@@ -646,6 +655,10 @@ get_d3d12_resource_state(RgPassBuilder::ResourceAccessData data)
       if (access == kWriteBufferUav)
       {
         ret = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+      }
+      else if (access == kWriteBufferCopyDst)
+      {
+        ret = D3D12_RESOURCE_STATE_COPY_DEST;
       } else { UNREACHABLE; }
     }
   }
@@ -1681,6 +1694,60 @@ rg_write_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer>* buffer, const GpuBu
   return ret;
 }
 
+RgOpaqueDescriptor
+rg_copy_dst_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer>* buffer)
+{
+  ASSERT(!array_find(&builder->write_resources, it->handle.id == buffer->id && it->temporal_frame == 0));
+
+  defer { buffer->version++; };
+
+  RgPassBuilder::ResourceAccessData* data = array_add(&builder->write_resources);
+  data->handle          = *buffer;
+  data->access          = (u32)kWriteBufferCopyDst;
+  data->temporal_frame  = 0;
+  data->is_write        = true;
+  data->is_grv          = false;
+  data->descriptor_type = kDescriptorTypeNull;
+  data->descriptor_idx  = U32_MAX;
+
+  RgOpaqueDescriptor ret   = {0};
+  ret.pass_id              = builder->pass_id;
+  ret.descriptor_idx       = data->descriptor_idx;
+  ret.resource_id          = buffer->id;
+  ret.temporal_frame       = 0;
+  ret.temporal_lifetime    = buffer->temporal_lifetime;
+  ret.flags                = 0;
+
+  return ret;
+}
+
+RgOpaqueDescriptor
+rg_copy_dst_texture(RgPassBuilder* builder, RgHandle<GpuTexture>* texture)
+{
+  ASSERT(!array_find(&builder->write_resources, it->handle.id == texture->id && it->temporal_frame == 0));
+
+  defer { texture->version++; };
+
+  RgPassBuilder::ResourceAccessData* data = array_add(&builder->write_resources);
+  data->handle          = *texture;
+  data->access          = (u32)kWriteTextureCopyDst;
+  data->temporal_frame  = 0;
+  data->is_write        = true;
+  data->is_grv          = false;
+  data->descriptor_type = kDescriptorTypeNull;
+  data->descriptor_idx  = U32_MAX;
+
+  RgOpaqueDescriptor ret   = {0};
+  ret.pass_id              = builder->pass_id;
+  ret.descriptor_idx       = data->descriptor_idx;
+  ret.resource_id          = texture->id;
+  ret.temporal_frame       = 0;
+  ret.temporal_lifetime    = texture->temporal_lifetime;
+  ret.flags                = 0;
+
+  return ret;
+}
+
 
 RgOpaqueDescriptor
 rg_read_index_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer> buffer, u16 flags)
@@ -1752,39 +1819,6 @@ rg_read_indirect_args_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer> buffer,
   ret.flags                = flags;
 
   return ret;
-}
-
-template <>
-const GpuBuffer*
-rg_deref_buffer<RgIndexBuffer>(RgIndexBuffer rg_descriptor)
-{
-  RgResourceKey key  = {0};
-  key.id             = rg_descriptor.m_ResourceId;
-  key.temporal_frame = rg_get_temporal_frame(g_FrameId, 0, 0);
-
-  return hash_table_find(&g_RenderGraph->buffer_map, key);
-}
-
-template <>
-const GpuBuffer*
-rg_deref_buffer<RgVertexBuffer>(RgVertexBuffer rg_descriptor)
-{
-  RgResourceKey key  = {0};
-  key.id             = rg_descriptor.m_ResourceId;
-  key.temporal_frame = rg_get_temporal_frame(g_FrameId, 0, 0);
-
-  return hash_table_find(&g_RenderGraph->buffer_map, key);
-}
-
-template <>
-const GpuBuffer*
-rg_deref_buffer<RgCpuUploadBuffer>(RgCpuUploadBuffer rg_descriptor)
-{
-  RgResourceKey key  = {0};
-  key.id             = rg_descriptor.m_ResourceId;
-  key.temporal_frame = rg_get_temporal_frame(g_FrameId, rg_descriptor.m_TemporalLifetime, 0);
-
-  return hash_table_find(&g_RenderGraph->buffer_map, key);
 }
 
 void
@@ -2166,4 +2200,18 @@ RenderContext::write_cpu_upload_buffer(const GpuBuffer* dst, const void* src, u6
 
   u8* ptr = (u8*)unwrap(dst->mapped);
   memcpy(ptr + offset, src, size);
+}
+
+void
+RenderContext::copy_buffer(RgCopyDst dst, u64 dst_offset, RgCpuUploadBuffer src, u64 src_offset, u64 bytes)
+{
+  const GpuBuffer* src_physical = rg_deref_buffer(src);
+  copy_buffer(dst, dst_offset, src_physical, src_offset, bytes);
+}
+
+void
+RenderContext::copy_buffer(RgCopyDst dst, u64 dst_offset, const GpuBuffer* src, u64 src_offset, u64 bytes)
+{
+  const GpuBuffer* dst_physical = rg_deref_buffer(dst);
+  m_CmdBuffer.d3d12_list->CopyBufferRegion(dst_physical->d3d12_buffer, dst_offset, src->d3d12_buffer, src_offset, bytes);
 }

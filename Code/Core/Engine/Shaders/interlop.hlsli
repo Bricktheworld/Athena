@@ -273,11 +273,14 @@ struct Transform
 
 struct SceneObjGpu
 {
-  Mat4 model;
-  Mat4 model_inverse;
-  Mat4 prev_model;
+  Mat4 obj_to_world;
+  Mat4 obj_to_world_inverse;
+  Mat4 prev_obj_to_world;
 
-  u32  material_id;
+  u32  mat_id;
+  u32  index_count;
+  u32  start_vertex;
+  u32  start_index;
 };
 
 struct MaterialGpu

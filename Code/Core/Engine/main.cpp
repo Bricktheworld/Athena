@@ -6,6 +6,7 @@
 #include "Core/Foundation/filesystem.h"
 
 #include "Core/Engine/memory.h"
+#include "Core/Engine/scene.h"
 #include "Core/Engine/job_system.h"
 #include "Core/Engine/asset_streaming.h"
 #include "Core/Engine/asset_server.h"
@@ -171,9 +172,6 @@ application_entry(HINSTANCE instance, int show_code)
   }
   defer { destroy_asset_server(); };
 
-  init_global_upload_context(g_GpuDevice);
-  defer { destroy_global_upload_context(); };
-
   init_shader_manager(g_GpuDevice);
   defer { destroy_shader_manager(); };
 
@@ -183,6 +181,7 @@ application_entry(HINSTANCE instance, int show_code)
   init_unified_geometry_buffer(g_GpuDevice);
   defer { destroy_unified_geometry_buffer(); };
 
+#if 0
   SceneObject* sponza = nullptr;
   {
     OSAllocator allocator = init_os_allocator();
@@ -206,9 +205,32 @@ application_entry(HINSTANCE instance, int show_code)
 
     sponza = add_scene_object(model, kVS_Basic, kPS_BasicNormalGloss);
   }
-  kick_asset_load(ASSET_ID("Assets/Source/sponza/Sponza.gltf"));
 
   build_acceleration_structures(g_GpuDevice);
+#endif
+
+  init_scene();
+
+  AssetId sponza_model = ASSET_ID("Assets/Source/sponza/Sponza.gltf");
+  kick_asset_load(sponza_model);
+  while (true)
+  {
+    auto res = get_model_asset(sponza_model);
+    if (!res)
+    {
+      continue;
+    }
+
+    const ModelMetadata* model = res.value();
+    for (u32 isubset = 0; isubset < model->subsets.size; isubset++)
+    {
+      SceneObjHandle handle = init_render_scene_obj(sponza_model, isubset);
+      (void)handle;
+    }
+    break;
+  }
+  build_acceleration_structures();
+
 
   DirectX::Keyboard d3d12_keyboard;
   DirectX::Mouse d3d12_mouse;
@@ -226,14 +248,20 @@ application_entry(HINSTANCE instance, int show_code)
     lpp_agent.EnableModule(lpp::LppGetCurrentModulePath(), lpp::LPP_MODULES_OPTION_ALL_IMPORT_MODULES, nullptr, nullptr);
   }
 
-  g_Scene->camera.world_pos = Vec3(8.28f, 4.866f, 0.685f);
-  g_Scene->camera.pitch     = -0.203f;
-  g_Scene->camera.yaw       = -1.61f;
-  g_Scene->directional_light.direction.x = -0.380f;
-  g_Scene->directional_light.direction.y = -1.0f;
-  g_Scene->directional_light.direction.z = -0.180f;
-  g_Scene->directional_light.sky_diffuse     = Vec3(0.529, 0.807, 0.921);
-  g_Scene->directional_light.sky_illuminance = 20000;
+  Camera* camera = get_scene_camera();
+  camera->world_pos = Vec3(8.28f, 4.866f, 0.685f);
+  camera->pitch     = -0.203f;
+  camera->yaw       = -1.61f;
+
+  DirectionalLight* directional_light = get_scene_directional_light();
+  directional_light->temperature = 5000;
+  directional_light->direction = Vec3(-1.0f, -1.0f, 0.0f);
+  directional_light->illuminance = 75000.0f;
+  directional_light->direction.x = -0.380f;
+  directional_light->direction.y = -1.0f;
+  directional_light->direction.z = -0.180f;
+  directional_light->sky_diffuse     = Vec3(0.529, 0.807, 0.921);
+  directional_light->sky_illuminance = 20000;
 
   bool done = false;
   while (!done)
@@ -306,8 +334,8 @@ application_entry(HINSTANCE instance, int show_code)
     if (mouse.positionMode == DirectX::Mouse::MODE_RELATIVE)
     {
       Vec2 delta = Vec2(f32(mouse.x), f32(mouse.y)) * 0.001f;
-      g_Scene->camera.pitch -= delta.y;
-      g_Scene->camera.yaw   += delta.x;
+      camera->pitch -= delta.y;
+      camera->yaw   += delta.x;
     }
     else if (mouse.positionMode == DirectX::Mouse::MODE_ABSOLUTE)
     {
@@ -342,17 +370,14 @@ application_entry(HINSTANCE instance, int show_code)
       move.y -= 1.0f;
     }
     // TODO(Brandon): Something is completely fucked with my quaternion math...
-    Quat rot = quat_from_rotation_y(g_Scene->camera.yaw); // * quat_from_rotation_x(-scene.camera.pitch);  //quat_from_euler_yxz(scene.camera.yaw, 0, 0);
+    Quat rot = quat_from_rotation_y(camera->yaw); // * quat_from_rotation_x(-scene.camera.pitch);  //quat_from_euler_yxz(scene.camera.yaw, 0, 0);
     move = rotate_vec3_by_quat(move, rot);
     move *= 2.0f / 60.0f;
 
-    g_Scene->camera.world_pos += move;
+    camera->world_pos += move;
 
     if (done)
       break;
-
-    begin_renderer_recording();
-    submit_scene();
 
     execute_render_graph(back_buffer, g_Renderer.settings);
     g_CpuEffectiveTime = end_cpu_profiler_timestamp(effective_cpu_start_time);
