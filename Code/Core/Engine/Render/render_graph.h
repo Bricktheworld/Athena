@@ -138,7 +138,6 @@ struct RgPassBuilder
 
   Array<ResourceAccessData> read_resources;
   Array<ResourceAccessData> write_resources;
-  Array<RenderPassId>       manual_dependencies;
 };
 
 struct RgBuilder
@@ -152,8 +151,6 @@ struct RgBuilder
   u32                                   handle_index = 0;
   u32                                   width        = 0;
   u32                                   height       = 0;
-
-  Option<RenderPassId>                  frame_init   = None;
 };
 #define FULL_RES_WIDTH(builder) ((builder)->width)
 #define FULL_RES_HEIGHT(builder) ((builder)->height)
@@ -315,8 +312,7 @@ RgPassBuilder* add_render_pass(
   CmdQueueType queue,
   const char* name,
   void* data,
-  RenderHandler* handler,
-  bool is_frame_init = false
+  RenderHandler* handler
 );
 
 enum ReadTextureAccessMask : u32
@@ -441,6 +437,12 @@ RgHandle<GpuBuffer> rg_create_buffer_ex(
   const char* name,
   u32 size,
   u8 temporal_lifetime
+);
+
+RgHandle<GpuRtTlas> rg_create_tlas(
+  RgBuilder* builder,
+  const char* name,
+  u32 max_instances
 );
 
 enum RgDescriptorFlags : u16
@@ -1614,6 +1616,8 @@ struct RenderContext
     static_assert(sizeof(T) % sizeof(u32) == 0, "Invalid resource struct!");
     set_compute_root_32bit_constants(0, (u32*)&resource, sizeof(T) / sizeof(u32), 0);
   }
+
+  void build_tlas(const GpuRtTlas* tlas, const GpuBuffer* scratch, u32 scratch_offset, RgStructuredBuffer<D3D12RaytracingInstanceDesc> instances, u32 instance_count, u32 flags = 0);
 
   void write_cpu_upload_buffer(RgCpuUploadBuffer dst, const void* src, u64 size, u64 offset = 0);
   void write_cpu_upload_buffer(const GpuBuffer* dst,  const void* src, u64 size, u64 offset = 0);

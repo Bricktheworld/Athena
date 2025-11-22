@@ -241,7 +241,7 @@ init_frame_init_pass(AllocHeap heap, RgBuilder* builder)
   ret.debug_line_vert_buffer = rg_create_buffer(builder, "Debug Lines Vertices Buffer", sizeof(DebugLinePoint) * kDebugMaxVertices);
   ret.debug_sdf_buffer       = rg_create_buffer(builder, "Debug SDF Buffer",            sizeof(DebugSdf)       * kDebugMaxSdfs);
 
-  RgPassBuilder*      pass       = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "Frame Init", params, &render_handler_frame_init, true);
+  RgPassBuilder*      pass       = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "Frame Init", params, &render_handler_frame_init);
   params->viewport_buffer        = RgConstantBuffer<Viewport>         (pass, ret.viewport_buffer, 0, kViewportBufferSlot);
   params->render_settings        = RgConstantBuffer<RenderSettingsGpu>(pass, ret.render_settings, 0, kRenderSettingsSlot);
 #if 0

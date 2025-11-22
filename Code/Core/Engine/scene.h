@@ -45,6 +45,7 @@ struct SceneObj
   u32     index_count  = 0;
 
   u64     needs_gpu_upload:               1 = 0;
+  u64     needs_blas_build:               1 = 0;
   u64     needs_instance_data_gpu_upload: 1 = 0;
 };
 

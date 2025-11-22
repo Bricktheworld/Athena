@@ -66,7 +66,7 @@ struct AdjacencyList
 };
 
 static AdjacencyList
-init_adjacency_list(AllocHeap heap, const RgBuilder& builder)
+init_adjacency_list(AllocHeap heap, const RgBuilder& builder, const HashTable<u32, u32>& grv_to_latest_version)
 {
   AdjacencyList ret = {0};
   ret.render_passes = init_array_uninitialized<AdjacentRenderPasses>(heap, builder.render_passes.size);
@@ -81,34 +81,42 @@ init_adjacency_list(AllocHeap heap, const RgBuilder& builder)
       if (other_builder.pass_id == pass_builder.pass_id)
         continue;
 
-      if (builder.frame_init && pass_builder.pass_id == unwrap(builder.frame_init))
+
+      // Loop through all of our written resources
+      for (const RgPassBuilder::ResourceAccessData& write_resource : pass_builder.write_resources)
       {
-        *array_add(&dst->dependent_passes) = other_builder.pass_id;
-      }
-      else
-      {
-        // Loop through all of our written resources
-        for (const RgPassBuilder::ResourceAccessData& write_resource : pass_builder.write_resources)
+        // And try to find each write resource in the other pass's read resources
+        // We need to check for both the ID and the version that is being written
+        // The version should be exactly 1 after our write version (the other pass will write to the resource
+        // incrementing the version and this pass will then _immediately_ read the resource). We don't want
+        // to consider _all_ passes that have ever written to older versions, just ones that have written
+        // to _our_ version (adjacent in the dependency graph).
+        bool other_depends_on_pass = array_find(
+          &other_builder.read_resources,
+          it->handle.id == write_resource.handle.id && it->handle.version == write_resource.handle.version + 1 && it->temporal_frame == 0
+        ) || array_find(
+          &other_builder.write_resources,
+          it->handle.id == write_resource.handle.id && it->handle.version == write_resource.handle.version + 1
+        );
+
+        u32* latest_version = hash_table_find(&grv_to_latest_version, write_resource.handle.id);
+        bool is_grv         = latest_version != nullptr;
+
+        if (!other_depends_on_pass && is_grv)
         {
-          // And try to find each write resource in the other pass's read resources
-          // We need to check for both the ID and the version that is being written
-          // The version should be exactly 1 after our write version (the other pass will write to the resource
-          // incrementing the version and this pass will then _immediately_ read the resource). We don't want
-          // to consider _all_ passes that have ever written to older versions, just ones that have written
-          // to _our_ version (adjacent in the dependency graph).
-          bool other_depends_on_pass = array_find(
-            &other_builder.read_resources,
-            it->handle.id == write_resource.handle.id && it->handle.version == write_resource.handle.version + 1 && it->temporal_frame == 0
-          ) || array_find(
-            &other_builder.write_resources,
-            it->handle.id == write_resource.handle.id && it->handle.version == write_resource.handle.version + 1
-          );
-  
-          if (other_depends_on_pass)
+          // There is a special case for GRVs, that needs to be handled carefully. There is an implicit read dependency for all passes on the latest version of a GRV _unless_ they read/write to an older version. 
+          // the previous check would catch cases where we aren't the latest GRV and another pass has an explicit read/write dependency to that older version
+          // All other cases where there would be a dependency are specifically when there are no explicit read/write resources (aka there is an implicit read on the latest version)
+          if (*latest_version == write_resource.handle.version + 1)
           {
-            *array_add(&dst->dependent_passes) = other_builder.pass_id;
-            break;
+            other_depends_on_pass = true;
           }
+        }
+
+        if (other_depends_on_pass)
+        {
+          *array_add(&dst->dependent_passes) = other_builder.pass_id;
+          break;
         }
       }
 
@@ -228,7 +236,47 @@ init_dependency_levels(AllocHeap heap, const RgBuilder& builder)
   ScratchAllocator scratch_arena = alloc_scratch_arena();
   defer { free_scratch_arena(&scratch_arena); };
 
-  AdjacencyList       adjacency_list         = init_adjacency_list(scratch_arena, builder);
+  HashTable           grv_latest_versions    = init_hash_table<u32, u32>(scratch_arena, builder.resource_list.size);
+
+  for (const RgPassBuilder& pass_builder : builder.render_passes)
+  {
+    for (const RgPassBuilder::ResourceAccessData& read_resource : pass_builder.read_resources)
+    {
+      if (read_resource.is_grv)
+      {
+        u32* dst = hash_table_find(&grv_latest_versions, read_resource.handle.id);
+        if (!dst)
+        {
+          dst  = hash_table_insert(&grv_latest_versions, read_resource.handle.id);
+          *dst = read_resource.handle.version;
+        }
+        else
+        {
+          *dst = MAX(*dst, read_resource.handle.version);
+        }
+      }
+    }
+
+    for (const RgPassBuilder::ResourceAccessData& write_resource : pass_builder.write_resources)
+    {
+      if (write_resource.is_grv)
+      {
+        u32* dst = hash_table_find(&grv_latest_versions, write_resource.handle.id);
+        if (!dst)
+        {
+          dst  = hash_table_insert(&grv_latest_versions, write_resource.handle.id);
+          *dst = write_resource.handle.version + 1;
+        }
+        else
+        {
+          *dst = MAX(*dst, write_resource.handle.version + 1);
+        }
+      }
+    }
+  }
+
+
+  AdjacencyList       adjacency_list         = init_adjacency_list(scratch_arena, builder, grv_latest_versions);
   Array<RenderPassId> topological_list       = topological_sort_adjacency_list(scratch_arena, adjacency_list);
   Array<u64>          longest_distances      = init_array_zeroed<u64>(scratch_arena, topological_list.size);
 
@@ -1222,8 +1270,7 @@ add_render_pass(
   CmdQueueType queue,
   const char* name,
   void* data,
-  RenderHandler* handler,
-  bool is_frame_init
+  RenderHandler* handler
 ) {
   RgPassBuilder* ret   = array_add(&graph->render_passes);
 
@@ -1236,12 +1283,6 @@ add_render_pass(
 
   ret->read_resources  = init_array<RgPassBuilder::ResourceAccessData>(heap, 32);
   ret->write_resources = init_array<RgPassBuilder::ResourceAccessData>(heap, 32);
-
-  if (is_frame_init)
-  {
-    ASSERT(!graph->frame_init);
-    graph->frame_init = ret->pass_id;
-  }
 
   return ret;
 }
@@ -2184,6 +2225,13 @@ void
 RenderContext::set_descriptor_heaps(Span<const DescriptorLinearAllocator*> heaps)
 {
   m_CmdBuffer.d3d12_list->SetDescriptorHeaps(1, &heaps[0]->d3d12_heap);
+}
+
+void
+RenderContext::build_tlas(const GpuRtTlas* tlas, const GpuBuffer* scratch, u32 scratch_offset, RgStructuredBuffer<D3D12RaytracingInstanceDesc> instances, u32 instance_count, u32 flags)
+{
+  const GpuBuffer* physical_instances = rg_deref_buffer(instances);
+  build_rt_tlas(&m_CmdBuffer, *tlas, *physical_instances, instance_count, *scratch, scratch_offset, flags);
 }
 
 void

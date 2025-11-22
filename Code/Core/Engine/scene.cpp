@@ -7,6 +7,8 @@
 #include "Core/Engine/constants.h"
 #include "Core/Engine/Render/renderer.h"
 
+#include "Core/Engine/Shaders/Include/rt_tlas_common.hlsli"
+
 struct Scene
 {
   SceneObj*          scene_objs         = nullptr;
@@ -21,8 +23,13 @@ struct Scene
   DirectionalLight   directional_light;
 
   GpuBvh             bvh;
-  GpuBuffer          tlas;
-  GpuBuffer          blas;
+
+  GpuRtTlas          tlas;
+  // I allocate it here locally because the render graph doesn't really need to know about it
+  GpuBuffer          tlas_scratch_buffer;
+
+  // Updated by the render handlers
+  u32                blas_instance_count;
 };
 
 static Scene* g_Scene = nullptr;
@@ -40,6 +47,18 @@ init_scene()
   g_Scene->dynamic_scene_obj_allocator = init_bit_allocator(g_InitHeap, kMaxDynamicSceneObjs);
   g_Scene->static_scene_obj_allocator  = init_bit_allocator(g_InitHeap, kMaxStaticSceneObjs);
   g_Scene->gpu_scene_obj_allocator     = init_bit_allocator(g_InitHeap, kMaxSceneObjs);
+
+  g_Scene->tlas                        = alloc_gpu_rt_tlas_no_heap(kMaxSceneObjs, "Scene TLAS");
+  // GpuDescriptor descriptor             = alloc_table_descriptor(g_DescriptorCbvSrvUavPool, kGrvTemporalCount * kBackBufferCount + kRaytracingAccelerationStructureSlot);
+  // init_bvh_srv(&descriptor, &g_Scene->tlas);
+
+  GpuBufferDesc tlas_scratch_buffer_desc =
+  {
+    .size          = g_Scene->tlas.scratch_size,
+    .flags         = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS
+  };
+  g_Scene->tlas_scratch_buffer         = alloc_gpu_buffer_no_heap(g_GpuDevice, tlas_scratch_buffer_desc, kGpuHeapGpuOnly, "TLAS Scratch Buffer");
+  g_Scene->blas_instance_count         = 0;
 }
 
 SceneObjHandle
@@ -86,7 +105,7 @@ alloc_scene_obj(u32 flags)
     if (obj->flags & kSceneObjRender)
     {
       Option<u32> gpu_id = bit_alloc(&g_Scene->gpu_scene_obj_allocator);
-      ASSERT_MSG_FATAL(gpu_id, "Too many gpu scene objects allocated %u!", g_Scene->gpu_scene_obj_allocator.max_val);
+      ASSERT_MSG_FATAL(gpu_id, "Too many gpu scene objects allocated %u!", g_Scene->gpu_scene_obj_allocator.capacity);
       if (gpu_id)
       {
         obj->gpu_id           = unwrap(gpu_id);
@@ -203,16 +222,22 @@ struct SceneGpuUploadParams
   RgCpuUploadBuffer upload_buffer;
   RgCopyDst         material_buffer;
   RgCopyDst         scene_obj_buffer;
+                    
+  RgCpuUploadBuffer blases;
 };
 
 static void
 render_handler_scene_gpu_upload(RenderContext* ctx, const RenderSettings&, const void* data)
 {
-  SceneGpuUploadParams* params = (SceneGpuUploadParams*)data;
+  SceneGpuUploadParams* params   = (SceneGpuUploadParams*)data;
+
+  SceneObjGpuBlas*      blases   = HEAP_ALLOC(SceneObjGpuBlas, g_FrameHeap, kMaxSceneObjs);
+
+  SceneObjGpuBlas*      dst_blas = blases;
 
   u64 offset = 0;
 
-  auto fill_scene_obj_gpu = [](SceneObjGpu* dst, SceneObj* src)
+  auto fill_scene_obj_gpu = [&dst_blas](SceneObjGpu* dst, SceneObj* src)
   {
     ASSERT_MSG_FATAL(src->gpu_id < kMaxSceneObjs, "Invalid GPU ID 0x%x!", src->gpu_id);
 
@@ -243,6 +268,10 @@ render_handler_scene_gpu_upload(RenderContext* ctx, const RenderSettings&, const
 
           src->index_count  = dst->index_count;
           src->start_index  = dst->start_index;
+
+          dst_blas->gpu_id  = src->gpu_id;
+          dst_blas->addr    = model->subset_rt_blases[subset_id].buffer.gpu_addr;
+          dst_blas++;
         }
 
         src->needs_instance_data_gpu_upload = false;
@@ -303,7 +332,62 @@ render_handler_scene_gpu_upload(RenderContext* ctx, const RenderSettings&, const
       offset += sizeof(SceneObjGpu);
     }
   }
+
+  // Copy the BLAS data into the upload buffer
+  u32 blas_count = (u32)(dst_blas - blases);
+  ctx->write_cpu_upload_buffer(params->blases, blases, sizeof(SceneObjGpuBlas) * blas_count);
+
+  // This is kinda dangerous but I can't think of a better way to do this right now
+  g_Scene->blas_instance_count = blas_count;
 }
+
+struct SceneTlasFillInstancesParams
+{
+  ComputePSO pso;
+  RgStructuredBuffer<SceneObjGpuBlas>               blases;
+  RgRWStructuredBuffer<D3D12RaytracingInstanceDesc> instances;
+};
+
+static void
+render_handler_fill_tlas_instances(RenderContext* ctx, const RenderSettings&, const void* data)
+{
+  SceneTlasFillInstancesParams* params = (SceneTlasFillInstancesParams*)data;
+
+  u32 instance_count = g_Scene->blas_instance_count;
+  if (instance_count == 0)
+  {
+    return;
+  }
+
+  RtBuildTlasSrt srt;
+  srt.instance_count       = instance_count;
+  srt.scene_obj_gpu_blases = params->blases;
+  srt.tlas_instance_descs  = params->instances;
+
+  ctx->compute_bind_srt(srt);
+  ctx->set_compute_pso(&params->pso);
+  ctx->dispatch(ALIGN_POW2(instance_count, 64) / 64, 1, 1);
+}
+
+struct BuildTlasParams
+{
+  RgStructuredBuffer<D3D12RaytracingInstanceDesc> instances;
+};
+
+static void
+render_handler_build_tlas(RenderContext* ctx, const RenderSettings&, const void* data)
+{
+  UNREFERENCED_PARAMETER(ctx);
+  UNREFERENCED_PARAMETER(data);
+#if 0
+  BuildTlasParams* params = (BuildTlasParams*)data;
+
+  u32 instance_count = g_Scene->blas_instance_count;
+
+  ctx->build_tlas(&g_Scene->tlas, &g_Scene->tlas_scratch_buffer, 0, params->instances, instance_count, kGpuRtasBuildIncremental);
+#endif
+}
+
 
 SceneGpuResources
 init_scene_gpu_upload_pass(AllocHeap heap, RgBuilder* builder)
@@ -315,20 +399,40 @@ init_scene_gpu_upload_pass(AllocHeap heap, RgBuilder* builder)
   ret.material_buffer        = rg_create_buffer(builder,        "Material Buffer",     sizeof(MaterialGpu) * kMaxSceneObjs);
   ret.scene_obj_buffer       = rg_create_buffer(builder,        "Scene Object Buffer", sizeof(SceneObjGpu) * kMaxSceneObjs);
 
-  {
+  RgHandle<GpuBuffer> blases         = rg_create_upload_buffer(builder, "SceneObjGpuBlases", kGpuHeapSysRAMCpuToGpu, sizeof(SceneObjGpuBlas) * kMaxSceneObjs);
+  RgHandle<GpuBuffer> tlas_instances = rg_create_buffer_ex(builder,     "TLAS instance Buffer", sizeof(D3D12RaytracingInstanceDesc) * kMaxSceneObjs, kInfiniteLifetime);
 
+  {
     SceneGpuUploadParams* params = HEAP_ALLOC(SceneGpuUploadParams, g_InitHeap, 1);
     RgPassBuilder*        pass   = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "Gpu Scene Upload", params, &render_handler_scene_gpu_upload);
     params->upload_buffer        = RgCpuUploadBuffer(ret.upload_buffer);
     params->scene_obj_buffer     = RgCopyDst(pass, &ret.scene_obj_buffer);
     params->material_buffer      = RgCopyDst(pass, &ret.material_buffer);
+    params->blases               = RgCpuUploadBuffer(blases);
   }
+
+  // Fill TLAS instance data
   {
-    // Declare the GRVs
-    RgPassBuilder*        pass   = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "Gpu Scene Bind Grvs", nullptr, &render_handler_dummy);
+    SceneTlasFillInstancesParams* params = HEAP_ALLOC(SceneTlasFillInstancesParams, g_InitHeap, 1);
+    RgPassBuilder*                pass   = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "Fill TLAS instance data", params, &render_handler_fill_tlas_instances);
+    params->pso                          = init_compute_pipeline(g_GpuDevice, get_engine_shader(kCS_RtTlasFillInstances), "CS_RtTlasFillInstances");
+    params->blases                       = RgStructuredBuffer<SceneObjGpuBlas>(pass, blases);
+    params->instances                    = RgRWStructuredBuffer<D3D12RaytracingInstanceDesc>(pass, &tlas_instances);
+
     RgStructuredBuffer<SceneObjGpu>(pass, ret.scene_obj_buffer, 0, kSceneObjBufferSlot);
+  }
+
+  // Build the TLAS
+  {
+    BuildTlasParams*              params = HEAP_ALLOC(BuildTlasParams, g_InitHeap, 1);
+    RgPassBuilder*                pass   = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "Build TLAS",             params,  &render_handler_build_tlas);
+    params->instances                    = RgStructuredBuffer<D3D12RaytracingInstanceDesc>(pass, tlas_instances);
+
+
+    // Declare the GRVs (until the render graph supports doing this ordered with read/write this is the best solution)
     RgStructuredBuffer<MaterialGpu>(pass, ret.material_buffer,  0, kMaterialBufferSlot);
   }
+
 
   return ret;
 }
@@ -348,8 +452,6 @@ build_acceleration_structures()
   );
 
   // TODO(bshihabi): This shouldn't live here...
-  GpuDescriptor descriptor = alloc_table_descriptor(g_DescriptorCbvSrvUavPool, kGrvTemporalCount * kBackBufferCount + kRaytracingAccelerationStructureSlot);
-  init_bvh_srv(&descriptor, &g_Scene->bvh);
 }
 
 Camera*

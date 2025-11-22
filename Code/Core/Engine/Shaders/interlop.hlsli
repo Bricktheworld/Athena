@@ -33,9 +33,12 @@ typedef uint4     UVec4;
 typedef int2      SVec2;
 typedef int3      SVec3;
 typedef int4      SVec4;
-typedef uint      u32;
 typedef uint16_t  u16;
+typedef uint      u32;
+typedef uint64_t  u64;
+typedef int16_t   s16;
 typedef int       s32;
+typedef int64_t   s64;
 typedef float     f32;
 typedef float16_t f16;
 typedef half2     Vec2f16;
@@ -425,6 +428,20 @@ struct DebugSdfDrawSrt
   StructuredBufferPtr<DebugSdf> debug_sdf_buffer;
 };
 
+// DO NOT move this stuff around, it is a GPU version of D3D12_RAYTRACING_INSTANCE_DESC
+struct D3D12RaytracingInstanceDesc
+{
+  Vec4 transform_x;
+  Vec4 transform_y;
+  Vec4 transform_z;
+
+  u32  instance_id:                        24;
+  u32  instance_mask:                       8;
+  u32  instance_contribution_to_hit_group: 24;
+  u32  flags:                               8;
+
+  u64  blas_addr;
+};
 
 
 #ifndef __cplusplus

@@ -2,6 +2,7 @@
 #include "Core/Foundation/types.h"
 
 #include "Core/Foundation/Containers/array.h"
+#include "Core/Foundation/Containers/error_or.h"
 #include "Core/Foundation/Containers/ring_buffer.h"
 #include "Core/Foundation/Containers/hash_table.h"
 
@@ -444,12 +445,95 @@ GpuBuffer alloc_gpu_buffer(
   const char* name
 );
 
+struct GpuRingBuffer
+{
+  GpuBuffer  buffer;
+  GpuFence   fence;
+
+  u32        write;
+  u32        read;
+  u32        used;
+
+  struct GpuAllocationFence
+  {
+    FenceValue value  = 0;
+    u32        size   = 0;
+    u32        offset = 0;
+  };
+
+  RingQueue<GpuAllocationFence> queued_fences;
+};
+
+GpuRingBuffer alloc_gpu_ring_buffer_no_heap(AllocHeap heap, GpuBufferDesc desc, GpuHeapLocation location, const char* name);
+// Either returns the offset or the fence value to wait for
+
+struct GpuRingBufferAllocation
+{
+  FenceValue wait_for = 0;
+  u32        offset   = 0;
+};
+Result<u64, FenceValue> gpu_ring_buffer_alloc(GpuRingBuffer* buffer, u32 size);
+void free_gpu_ring_buffer(GpuRingBuffer* buffer);
+
+
 struct GpuBvh
 {
-  GpuBuffer top_bvh;
-  GpuBuffer bottom_bvh;
+  GpuBuffer tlas;
+  GpuBuffer blas;
   GpuBuffer instance_desc_buffer;
 };
+
+struct GpuRtBlasDesc
+{
+  // I am very intentionally not storing references to the GpuBuffer for index/vertex buffers
+  // as that is very unsafe (and we don't really need it). This description is stored just so
+  // we can access it later when actually building the BLAS
+  u32              vertex_start         = 0;
+  u32              vertex_count         = 0;
+  GpuFormat        vertex_format        = kGpuFormatRGB32Float;
+  u32              vertex_stride        = sizeof(Vertex);
+
+  u32              index_start          = 0;
+  u32              index_count          = 0;
+  u32              index_stride         = sizeof(u16);
+
+  // Will make make tracing slower
+  bool             allow_updates:     1 = false;
+  // May possibly make tracing slower, but will reduce VRAM usage
+  bool             minimize_memory:   1 = false;
+};
+
+struct GpuRtBlas
+{
+  GpuBuffer     buffer;
+
+  GpuRtBlasDesc desc;
+  u32           scratch_size = 0;
+};
+
+// These are just stored as separate (non heaps) because there's no real reason to do anything else
+GpuRtBlas alloc_gpu_rt_blas_no_heap(
+  const GpuBuffer& vertex_buffer,
+  const GpuBuffer& index_buffer,
+
+  GpuRtBlasDesc    desc,
+
+  const char*      name
+);
+
+struct GpuRtTlas
+{
+  GpuBuffer buffer;
+
+  u32       max_instances = 0;
+
+  u32       scratch_size  = 0;
+};
+
+GpuRtTlas alloc_gpu_rt_tlas_no_heap(
+  u32              num_descs,
+  const char*      name
+);
 
 // TODO(Brandon): We eventually will want to have this not take uber buffers but instead be more fine-grained...
 GpuBvh init_gpu_bvh(
@@ -607,6 +691,7 @@ void init_texture_uav(GpuDescriptor* descriptor, const GpuTexture* texture, cons
 void init_rtv(GpuDescriptor* descriptor, const GpuTexture* texture);
 void init_dsv(GpuDescriptor* descriptor, const GpuTexture* texture);
 
+void init_bvh_srv(GpuDescriptor* descriptor, const GpuRtTlas* tlas);
 void init_bvh_srv(GpuDescriptor* descriptor, const GpuBvh* bvh);
 
 struct GpuShader
@@ -819,6 +904,32 @@ void set_descriptor_heaps(CmdList* cmd, Span<const DescriptorPool*> heaps);
 void set_descriptor_table(CmdList* cmd, const DescriptorPool* heap, u32 start_idx, u32 bind_slot);
 void set_graphics_root_signature(CmdList* cmd);
 void set_compute_root_signature(CmdList* cmd);
+
+enum GpuRtasBuildFlags : u32
+{
+  // Perform an incremental update at the cost of tracing performance
+  kGpuRtasBuildIncremental = 0x1 << 0,
+};
+
+void build_rt_blas(
+  CmdList*         cmd,
+  const GpuRtBlas& blas,
+  const GpuBuffer& scratch,
+  u32              scratch_offset,
+  const GpuBuffer& index_buffer,
+  const GpuBuffer& vertex_buffer,
+  u32              flags = 0
+);
+
+void build_rt_tlas(
+  CmdList*         cmd,
+  const GpuRtTlas& tlas,
+  const GpuBuffer& instance_buffer,
+  u32              instance_count,
+  const GpuBuffer& scratch,
+  u32              scratch_offset,
+  u32              flags = 0
+);
 
 void init_imgui_ctx(
   const GpuDevice* device,

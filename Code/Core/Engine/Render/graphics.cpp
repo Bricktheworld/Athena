@@ -990,6 +990,129 @@ alloc_gpu_buffer(
   return ret;
 }
 
+GpuRingBuffer
+alloc_gpu_ring_buffer_no_heap(AllocHeap heap, GpuBufferDesc desc, GpuHeapLocation location, const char* name)
+{
+  static constexpr u32 kMinimumAllocationSize = 256;
+
+  GpuRingBuffer ret = {};
+  ret.buffer        = alloc_gpu_buffer_no_heap(g_GpuDevice, desc, location, name);
+  ret.fence         = init_gpu_fence();
+  ret.queued_fences = init_ring_queue<GpuRingBuffer::GpuAllocationFence>(heap, desc.size / kMinimumAllocationSize);
+  ret.write         = 0;
+  ret.read          = 0;
+  ret.used          = 0;
+
+  return ret;
+}
+
+// Either returns the offset or the fence value to wait for
+Result<u64, FenceValue>
+gpu_ring_buffer_alloc(GpuRingBuffer* buffer, u32 size)
+{
+
+  FenceValue current_fence_value = poll_gpu_fence_value(&buffer->fence);
+  while (!ring_queue_is_empty(buffer->queued_fences))
+  {
+    GpuRingBuffer::GpuAllocationFence allocation_fence;
+    ring_queue_peak_front(buffer->queued_fences, &allocation_fence);
+    FenceValue wait_for_fence_value = allocation_fence.value;
+    // If the value we're supposed to wait for hasn't been reached yet, nothing left to look for in the queue (since GpuFences increment monotonically)
+    if (current_fence_value < wait_for_fence_value)
+    {
+      break;
+    }
+
+    ring_queue_pop(&buffer->queued_fences);
+    buffer->read  = allocation_fence.offset;
+    buffer->used -= allocation_fence.size;
+  }
+
+  u32 capacity = buffer->buffer.desc.size;
+  ASSERT_MSG_FATAL(size < capacity, "Attempted to allocate %u bytes from GPU ring buffer with capacity %u", size, capacity);
+  if (buffer->write >= buffer->read)
+  {
+    //                     read             write
+    //                     |                |        |
+    //  [                  xxxxxxxxxxxxxxxxx         ]
+
+    if (buffer->write + size <= capacity)
+    {
+      // There's enough room at the end!
+      //                     read             write
+      //                     |                |        |
+      //  [                  xxxxxxxxxxxxxxxxx         ]
+      u32 dst = buffer->write;
+
+      buffer->write += size;
+      buffer->used  += size;
+
+      GpuRingBuffer::GpuAllocationFence allocation_fence;
+      allocation_fence.value  = inc_fence(&buffer->fence);
+      allocation_fence.size   = size;
+      allocation_fence.offset = buffer->write;
+      ring_queue_push(&buffer->queued_fences, allocation_fence);
+
+      return Ok((u64)dst);
+    }
+    else if (size <= buffer->read)
+    {
+      // There's not enough room at the end, start from the beginning
+      //   write             read
+      //   |                 |                         |
+      //  [                  xxxxxxxxxxxxxxxxx---------]
+      u32 dst        = 0;
+      u32 null_space = (capacity - buffer->write);
+      buffer->used  += null_space + size;
+      buffer->write  = size;
+
+      GpuRingBuffer::GpuAllocationFence allocation_fence;
+      allocation_fence.value  = inc_fence(&buffer->fence);
+      allocation_fence.size   = size;
+      allocation_fence.offset = buffer->write;
+      ring_queue_push(&buffer->queued_fences, allocation_fence);
+
+      return Ok((u64)dst);
+    }
+
+  }
+  else if (buffer->write + size <= buffer->read)
+  {
+    //
+    //       Tail          Head             
+    //       |             |             
+    //  [xxxx              xxxxxxxxxxxxxxxxxxxxxxxxxx]
+    //
+    u32 dst = buffer->write;
+
+    buffer->write += size;
+    buffer->used  += size;
+
+    GpuRingBuffer::GpuAllocationFence allocation_fence;
+    // Peak the next fence value, it's expected that the user is going to signal the queue with the next fence value using our fence
+    allocation_fence.value  = inc_fence(&buffer->fence);
+    allocation_fence.size   = size;
+    allocation_fence.offset = buffer->write;
+    ring_queue_push(&buffer->queued_fences, allocation_fence);
+
+    return Ok((u64)dst);
+  }
+
+  ASSERT_MSG_FATAL(!ring_queue_is_empty(buffer->queued_fences), "For some reason fence queue for ring buffer is empty, but the read/write tails say there is no room available...");
+
+  GpuRingBuffer::GpuAllocationFence allocation_fence;
+  ring_queue_peak_front(buffer->queued_fences, &allocation_fence);
+
+  return Err(allocation_fence.value);
+}
+
+void
+free_gpu_ring_buffer(GpuRingBuffer* buffer)
+{
+  free_gpu_buffer(&buffer->buffer);
+  destroy_gpu_fence(&buffer->fence);
+}
+
 static D3D12_DESCRIPTOR_HEAP_TYPE
 get_d3d12_descriptor_type(DescriptorHeapType type)
 {
@@ -1318,8 +1441,21 @@ init_bvh_srv(GpuDescriptor* descriptor, const GpuBvh* bvh)
 
   D3D12_SHADER_RESOURCE_VIEW_DESC desc = {0};
   desc.ViewDimension = D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE;
-  desc.RaytracingAccelerationStructure.Location = bvh->top_bvh.gpu_addr;
+  desc.RaytracingAccelerationStructure.Location = bvh->tlas.gpu_addr;
   desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+
+  g_GpuDevice->d3d12->CreateShaderResourceView(nullptr, &desc, descriptor->cpu_handle);
+}
+
+void
+init_bvh_srv(GpuDescriptor* descriptor, const GpuRtTlas* tlas)
+{
+  ASSERT(descriptor->type == kDescriptorHeapTypeCbvSrvUav);
+
+  D3D12_SHADER_RESOURCE_VIEW_DESC desc = {0};
+  desc.ViewDimension                            = D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE;
+  desc.RaytracingAccelerationStructure.Location = tlas->buffer.gpu_addr;
+  desc.Shader4ComponentMapping                  = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 
   g_GpuDevice->d3d12->CreateShaderResourceView(nullptr, &desc, descriptor->cpu_handle);
 }
@@ -1550,6 +1686,114 @@ destroy_compute_pipeline(ComputePSO* pipeline)
   zero_memory(pipeline, sizeof(ComputePSO));
 }
 
+static D3D12_RAYTRACING_GEOMETRY_DESC
+get_d3d12_blas_desc(
+  const GpuRtBlasDesc& desc,
+
+  const GpuBuffer& vertex_buffer,
+  const GpuBuffer& index_buffer
+) {
+  GpuFormat index_format = desc.index_stride == sizeof(u16) ? kGpuFormatR16Uint : kGpuFormatR32Uint;
+
+  D3D12_RAYTRACING_GEOMETRY_DESC ret = {};
+  ret.Type                                 = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
+  ret.Flags                                = D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
+  ret.Triangles.IndexBuffer                = index_buffer.gpu_addr + desc.index_start * desc.index_stride;
+  ret.Triangles.IndexCount                 = desc.index_count;
+  ret.Triangles.IndexFormat                = gpu_format_to_d3d12(index_format);
+  ret.Triangles.Transform3x4               = 0;
+  ret.Triangles.VertexFormat               = gpu_format_to_d3d12(desc.vertex_format);
+  ret.Triangles.VertexCount                = desc.vertex_count;
+  ret.Triangles.VertexBuffer.StartAddress  = vertex_buffer.gpu_addr + desc.vertex_start * desc.vertex_stride;
+  ret.Triangles.VertexBuffer.StrideInBytes = desc.vertex_stride;
+
+  return ret;
+}
+
+GpuRtBlas
+alloc_gpu_rt_blas_no_heap(
+  const GpuBuffer& vertex_buffer,
+  const GpuBuffer& index_buffer,
+
+  GpuRtBlasDesc    desc,
+
+  const char*      name
+) {
+  D3D12_RAYTRACING_GEOMETRY_DESC geometry_desc       = get_d3d12_blas_desc(desc, vertex_buffer, index_buffer);
+
+  D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS inputs = {};
+  inputs.DescsLayout                                 = D3D12_ELEMENTS_LAYOUT_ARRAY;
+  if (desc.allow_updates)
+  {
+    // I by default enable prefer fast build if you allow updates because they go hand in hand
+    inputs.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE | D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_BUILD;
+  }
+  else
+  {
+    inputs.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
+  }
+
+  if (desc.minimize_memory)
+  {
+    inputs.Flags |= D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_MINIMIZE_MEMORY;
+  }
+
+  inputs.NumDescs                                    = 1;
+  inputs.Type                                        = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
+  inputs.pGeometryDescs                              = &geometry_desc;
+
+  D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO prebuild_info;
+  g_GpuDevice->d3d12->GetRaytracingAccelerationStructurePrebuildInfo(&inputs, &prebuild_info);
+  prebuild_info.ScratchDataSizeInBytes               = ALIGN_POW2(prebuild_info.ScratchDataSizeInBytes,   D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT);
+  prebuild_info.ResultDataMaxSizeInBytes             = ALIGN_POW2(prebuild_info.ResultDataMaxSizeInBytes, D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT);
+
+  GpuBufferDesc buffer_desc = {};
+  buffer_desc.size          = (u32)prebuild_info.ResultDataMaxSizeInBytes;
+  // TODO(bshihabi): Maybe we should just use a convention where we put everything in common and transition to something else and back whenever we need
+  buffer_desc.initial_state = D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE;
+  buffer_desc.flags         = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+  GpuRtBlas ret;
+  ret.desc         = desc;
+  ret.scratch_size = (u32)prebuild_info.ScratchDataSizeInBytes;
+  ret.buffer       = alloc_gpu_buffer_no_heap(g_GpuDevice, buffer_desc, kGpuHeapGpuOnly, name);
+  return ret;
+}
+
+GpuRtTlas
+alloc_gpu_rt_tlas_no_heap(
+  u32              num_instances,
+  const char*      name
+) {
+  D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS inputs = {};
+  inputs.DescsLayout    = D3D12_ELEMENTS_LAYOUT_ARRAY;
+  // I expect that the TLAS wil be updated frequently, so I always have update/fast build enabled.
+  inputs.Flags          = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE | D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_BUILD;
+  inputs.NumDescs       = num_instances;
+  inputs.Type           = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;
+  inputs.pGeometryDescs = nullptr;
+  // Basically just need some non-null GPU virtual address
+  inputs.InstanceDescs  = 0xC1C1C1C1;
+
+  D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO prebuild_info;
+  g_GpuDevice->d3d12->GetRaytracingAccelerationStructurePrebuildInfo(&inputs, &prebuild_info);
+  prebuild_info.ScratchDataSizeInBytes   = ALIGN_POW2(prebuild_info.ScratchDataSizeInBytes,   D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT);
+  prebuild_info.ResultDataMaxSizeInBytes = ALIGN_POW2(prebuild_info.ResultDataMaxSizeInBytes, D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT);
+  ASSERT_MSG_FATAL(prebuild_info.ResultDataMaxSizeInBytes > 0, "Size of TLAS is 0 for some reason...");
+
+  GpuBufferDesc buffer_desc = {};
+  buffer_desc.size          = (u32)prebuild_info.ResultDataMaxSizeInBytes;
+  // TODO(bshihabi): Maybe we should just use a convention where we put everything in common and transition to something else and back whenever we need
+  buffer_desc.initial_state = D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE;
+  buffer_desc.flags         = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+  
+  GpuRtTlas ret;
+  ret.max_instances = num_instances;
+  ret.scratch_size  = (u32)prebuild_info.ScratchDataSizeInBytes;
+  ret.buffer        = alloc_gpu_buffer_no_heap(g_GpuDevice, buffer_desc, kGpuHeapGpuOnly, name);
+  return ret;
+}
+
 GpuBvh
 init_gpu_bvh(
   GpuDevice* device,
@@ -1589,7 +1833,7 @@ init_gpu_bvh(
   bottom_level_prebuild_info.ResultDataMaxSizeInBytes = ALIGN_POW2(bottom_level_prebuild_info.ResultDataMaxSizeInBytes, D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT);
   ASSERT(bottom_level_prebuild_info.ResultDataMaxSizeInBytes > 0);
 
-  ret.bottom_bvh = alloc_gpu_buffer_no_heap(
+  ret.blas = alloc_gpu_buffer_no_heap(
     device,
     {
       .size = (u32)bottom_level_prebuild_info.ResultDataMaxSizeInBytes,
@@ -1608,7 +1852,7 @@ init_gpu_bvh(
   instance_desc.InstanceMask    = 0xFF;
   instance_desc.InstanceContributionToHitGroupIndex = 0;
   instance_desc.Flags = D3D12_RAYTRACING_INSTANCE_FLAG_TRIANGLE_CULL_DISABLE;
-  instance_desc.AccelerationStructure = ret.bottom_bvh.gpu_addr;
+  instance_desc.AccelerationStructure = ret.blas.gpu_addr;
   ret.instance_desc_buffer = alloc_gpu_buffer_no_heap(
     device,
     {.size = ALIGN_POW2(sizeof(instance_desc), D3D12_RAYTRACING_INSTANCE_DESCS_BYTE_ALIGNMENT)},
@@ -1631,7 +1875,7 @@ init_gpu_bvh(
   top_level_prebuild_info.ResultDataMaxSizeInBytes = ALIGN_POW2(top_level_prebuild_info.ResultDataMaxSizeInBytes, D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT);
   ASSERT(top_level_prebuild_info.ResultDataMaxSizeInBytes > 0);
 
-  ret.top_bvh = alloc_gpu_buffer_no_heap(
+  ret.tlas = alloc_gpu_buffer_no_heap(
     device,
     {
       .size = (u32)top_level_prebuild_info.ResultDataMaxSizeInBytes,
@@ -1671,12 +1915,12 @@ init_gpu_bvh(
   D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC bottom_level_build_desc = {};
   bottom_level_build_desc.Inputs                           = bottom_level_inputs;
   bottom_level_build_desc.ScratchAccelerationStructureData = bottom_level_scratch.gpu_addr;
-  bottom_level_build_desc.DestAccelerationStructureData    = ret.bottom_bvh.gpu_addr;
+  bottom_level_build_desc.DestAccelerationStructureData    = ret.blas.gpu_addr;
 
   D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC top_level_build_desc = {};
   top_level_build_desc.Inputs                           = top_level_inputs;
   top_level_build_desc.ScratchAccelerationStructureData = top_level_scratch.gpu_addr;
-  top_level_build_desc.DestAccelerationStructureData    = ret.top_bvh.gpu_addr;
+  top_level_build_desc.DestAccelerationStructureData    = ret.tlas.gpu_addr;
 
 
   CmdList cmd_list = alloc_cmd_list(&device->graphics_cmd_allocator);
@@ -1701,8 +1945,8 @@ void
 destroy_acceleration_structure(GpuBvh* bvh)
 {
   free_gpu_buffer(&bvh->instance_desc_buffer);
-  free_gpu_buffer(&bvh->bottom_bvh);
-  free_gpu_buffer(&bvh->top_bvh);
+  free_gpu_buffer(&bvh->blas);
+  free_gpu_buffer(&bvh->tlas);
   zero_memory(bvh, sizeof(GpuBvh));
 }
 
@@ -2028,6 +2272,91 @@ set_compute_root_signature(CmdList* cmd)
 {
   ASSERT(g_RootSignature != nullptr);
   cmd->d3d12_list->SetComputeRootSignature(g_RootSignature);
+}
+
+void
+build_rt_blas(
+  CmdList*         cmd,
+  const GpuRtBlas& blas,
+  const GpuBuffer& scratch,
+  u32              scratch_offset,
+  const GpuBuffer& index_buffer,
+  const GpuBuffer& vertex_buffer,
+  u32              flags
+) {
+  D3D12_RAYTRACING_GEOMETRY_DESC geometry_desc       = get_d3d12_blas_desc(blas.desc, vertex_buffer, index_buffer);
+
+  D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS inputs = {};
+  inputs.DescsLayout                                 = D3D12_ELEMENTS_LAYOUT_ARRAY;
+  inputs.Flags                                       = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
+
+  if (flags & kGpuRtasBuildIncremental)
+  {
+    ASSERT_MSG_FATAL(blas.desc.allow_updates, "Attempting to perform incremental RT BLAS update build on BLAS that was not created with allow_updates");
+    if (blas.desc.allow_updates)
+    {
+      inputs.Flags |= D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE;
+    }
+  }
+
+  inputs.NumDescs                                    = 1;
+  inputs.Type                                        = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
+  inputs.pGeometryDescs                              = &geometry_desc;
+
+  D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC desc = {};
+  desc.Inputs                           = inputs;
+  desc.SourceAccelerationStructureData  = 0;
+  desc.DestAccelerationStructureData    = blas.buffer.gpu_addr;
+  desc.ScratchAccelerationStructureData = scratch.gpu_addr + scratch_offset;
+
+  D3D12_RESOURCE_BARRIER uav_barrier = {};
+  uav_barrier.Type                   = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+  uav_barrier.UAV.pResource          = blas.buffer.d3d12_buffer;
+
+  cmd->d3d12_list->ResourceBarrier(1, &uav_barrier);
+  cmd->d3d12_list->BuildRaytracingAccelerationStructure(&desc, 0, nullptr);
+  cmd->d3d12_list->ResourceBarrier(1, &uav_barrier);
+}
+
+void
+build_rt_tlas(
+  CmdList*         cmd,
+  const GpuRtTlas& tlas,
+  const GpuBuffer& instance_buffer,
+  u32              instance_count,
+  const GpuBuffer& scratch,
+  u32              scratch_offset,
+  u32              flags
+) {
+  D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS inputs = {};
+  inputs.DescsLayout    = D3D12_ELEMENTS_LAYOUT_ARRAY;
+  inputs.Flags          = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE | D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_BUILD;
+
+  if (flags & kGpuRtasBuildIncremental)
+  {
+    inputs.Flags |= D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE;
+  }
+
+  ASSERT_MSG_FATAL(instance_count <= tlas.max_instances, "TLAS has a maximum instance count of %u, but ");
+
+  inputs.NumDescs       = instance_count;
+  inputs.Type           = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;
+  inputs.pGeometryDescs = nullptr;
+  inputs.InstanceDescs  = instance_buffer.gpu_addr;
+
+  D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC desc = {};
+  desc.Inputs                           = inputs;
+  desc.SourceAccelerationStructureData  = (flags & kGpuRtasBuildIncremental) ? tlas.buffer.gpu_addr : 0;
+  desc.DestAccelerationStructureData    = tlas.buffer.gpu_addr;
+  desc.ScratchAccelerationStructureData = scratch.gpu_addr + scratch_offset;
+
+  D3D12_RESOURCE_BARRIER uav_barrier = {};
+  uav_barrier.Type                   = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+  uav_barrier.UAV.pResource          = tlas.buffer.d3d12_buffer;
+
+  cmd->d3d12_list->ResourceBarrier(1, &uav_barrier);
+  cmd->d3d12_list->BuildRaytracingAccelerationStructure(&desc, 0, nullptr);
+  cmd->d3d12_list->ResourceBarrier(1, &uav_barrier);
 }
 
 void

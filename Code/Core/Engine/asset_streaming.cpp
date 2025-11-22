@@ -20,14 +20,19 @@ struct AssetLoader
   ThreadSignal                              wake_cond;
   bool                                      kill;
 
+  // Used for scratch memory when building RTASes. It needs to be big enough for the largest scratch that it might need (otherwise we'll crash...)
+  CmdQueue                                  async_compute_queue;
+  CmdListAllocator                          cmd_list_allocator;
+  GpuRingBuffer                             rtas_scratch_buffer;
 };
 
 static AssetLoader*     g_AssetLoader      = nullptr;
 static GpuStreamDevice* g_GpuStreamDevice  = nullptr;
 
-static constexpr u32 kStagingBufferMemory  = MiB(256);
-static constexpr u64 kAssetThreadStackSize = MiB(8);
-static constexpr u64 kAssetAllocatorSize   = MiB(32);
+static constexpr u32 kRtasScratchBufferMemory = MiB(4);
+static constexpr u32 kStagingBufferMemory     = MiB(32);
+static constexpr u64 kAssetThreadStackSize    = MiB(8);
+static constexpr u64 kAssetAllocatorSize      = MiB(32);
 
 static void
 init_gpu_stream_device(void)
@@ -74,7 +79,7 @@ destroy_gpu_stream_device(void)
 }
 
 static GpuStreamResult
-request_gpu_stream_asset(const AssetGpuLoadRequest& request)
+request_gpu_stream_asset(const AssetGpuLoadRequest& request, FenceValue* out_gpu_fence_value = nullptr)
 {
   ASSERT_MSG_FATAL(g_AssetLoader != nullptr, "AssetLoader not initialized!");
 
@@ -139,6 +144,11 @@ request_gpu_stream_asset(const AssetGpuLoadRequest& request)
     {
       dbgln("Streaming 0x%x\n Texture: (%u x %u)", request.asset_id, request.texture.dst->desc.width, request.texture.dst->desc.height);
     } break;
+  }
+
+  if (out_gpu_fence_value != nullptr)
+  {
+    *out_gpu_fence_value = value;
   }
 
   return kGpuStreamOk;
@@ -244,6 +254,14 @@ init_asset_loader(void)
     7
   );
   g_AssetLoader->wake_cond = init_thread_signal();
+
+  GpuBufferDesc rtas_scratch_buffer_desc = {};
+  rtas_scratch_buffer_desc.size          = kRtasScratchBufferMemory;
+  rtas_scratch_buffer_desc.initial_state = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+  rtas_scratch_buffer_desc.flags         = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+  g_AssetLoader->rtas_scratch_buffer     = alloc_gpu_ring_buffer_no_heap(g_InitHeap, rtas_scratch_buffer_desc, kGpuHeapGpuOnly, "RTAS Scratch Ring Buffer");
+  g_AssetLoader->async_compute_queue     = init_cmd_queue(g_GpuDevice, kCmdQueueTypeCompute);
+  g_AssetLoader->cmd_list_allocator      = init_cmd_list_allocator(g_InitHeap, g_GpuDevice, &g_AssetLoader->async_compute_queue, 32);
 
   set_thread_name(&g_AssetLoader->thread, L"Asset Streaming Thread");
 }
@@ -423,6 +441,8 @@ process_asset_loads(void)
 
           u32 vertex_start = (u32)(vertex_offset_bytes / sizeof(VertexAsset));
           u32 index_start  = (u32)(index_offset_bytes  / sizeof(u16));
+
+          FenceValue gpu_fence_value_vertex_data = 0;
           {
             AssetGpuLoadRequest request = {0};
             request.asset_id          = asset_id;
@@ -433,7 +453,7 @@ process_asset_loads(void)
             request.buffer.dst        = &g_UnifiedGeometryBuffer.vertex_buffer;
             request.buffer.dst_offset = vertex_offset_bytes;
 
-            GpuStreamResult result = request_gpu_stream_asset(request);
+            GpuStreamResult result = request_gpu_stream_asset(request, &gpu_fence_value_vertex_data);
 
             if (result == kGpuStreamFailedToOpenFile)
             {
@@ -445,6 +465,7 @@ process_asset_loads(void)
             }
           }
 
+          FenceValue gpu_fence_value_index_data = 0;
           {
             AssetGpuLoadRequest request = {0};
             request.asset_id          = asset_id;
@@ -455,7 +476,7 @@ process_asset_loads(void)
             request.buffer.dst        = &g_UnifiedGeometryBuffer.index_buffer;
             request.buffer.dst_offset = index_offset_bytes;
 
-            GpuStreamResult result = request_gpu_stream_asset(request);
+            GpuStreamResult result = request_gpu_stream_asset(request, &gpu_fence_value_index_data);
 
             if (result == kGpuStreamFailedToOpenFile)
             {
@@ -469,9 +490,15 @@ process_asset_loads(void)
             ASSERT_MSG_FATAL(result == kGpuStreamOk, "Unhandled GPU stream error!");
           }
 
+          FenceValue stream_gpu_fence_value = MAX(gpu_fence_value_index_data, gpu_fence_value_vertex_data);
+
           desc->state = kAssetStreaming;
 
-          desc->model.subsets = init_array_zeroed<ModelSubsetMetadata>(g_AssetLoader->allocator, model_asset.num_model_subsets);
+          desc->model.subsets          = init_array_zeroed<ModelSubsetMetadata>(g_AssetLoader->allocator, model_asset.num_model_subsets);
+          desc->model.subset_rt_blases = init_array_zeroed<GpuRtBlas>          (g_AssetLoader->allocator, model_asset.num_model_subsets);
+
+          CmdList cmd_list             = alloc_cmd_list(&g_AssetLoader->cmd_list_allocator);
+          cmd_queue_gpu_wait_for_fence(&g_AssetLoader->async_compute_queue, &g_GpuStreamDevice->file_queue_fence, stream_gpu_fence_value);
 
           for (u32 isubset = 0; isubset < model_asset.num_model_subsets; isubset++)
           {
@@ -482,9 +509,54 @@ process_asset_loads(void)
             desc->model.subsets[isubset].index_start  = index_start;
             desc->model.subsets[isubset].index_count  = (u32)subsets[isubset].num_indices;
 
+            GpuRtBlasDesc blas_desc   = {};
+            blas_desc.vertex_start    = vertex_start;
+            blas_desc.vertex_count    = (u32)subsets[isubset].num_vertices;
+            blas_desc.vertex_format   = kGpuFormatRGB32Float;
+            blas_desc.vertex_stride   = sizeof(Vertex);
+
+            blas_desc.index_start     = index_start;
+            blas_desc.index_count     = (u32)subsets[isubset].num_indices;
+            blas_desc.index_stride    = sizeof(u16);
+            blas_desc.allow_updates   = false;
+            blas_desc.minimize_memory = false;
+
+            GpuRtBlas blas            = alloc_gpu_rt_blas_no_heap(g_UnifiedGeometryBuffer.vertex_buffer, g_UnifiedGeometryBuffer.index_buffer, blas_desc, "BLAS");
+            desc->model.subset_rt_blases[isubset] = blas;
+
+            u32 scratch_offset = 0;
+            while (true)
+            {
+              Result<u64, FenceValue> scratch_res = gpu_ring_buffer_alloc(&g_AssetLoader->rtas_scratch_buffer, blas.scratch_size);
+              if (!scratch_res)
+              {
+                // TODO(bshihabi): Can we do this in a batched way so that it's not a single command per cmd buffer?
+                submit_cmd_lists(&g_AssetLoader->cmd_list_allocator, {cmd_list});
+                cmd_queue_signal(&g_AssetLoader->async_compute_queue, &g_AssetLoader->rtas_scratch_buffer.fence);
+
+                cmd_list = alloc_cmd_list(&g_AssetLoader->cmd_list_allocator);
+
+                // TODO(bshihabi): Once we're sure that the GPU ring buffer actually works, we can do the less stupid thing here and wait on the GPU side
+                dbgln("Blocking on RTAS scratch buffer!");
+                block_gpu_fence(&g_AssetLoader->rtas_scratch_buffer.fence, scratch_res.error());
+                continue;
+              }
+              else
+              {
+                scratch_offset = (u32)scratch_res.value();
+                break;
+              }
+            }
+
+            build_rt_blas(&cmd_list, blas, g_AssetLoader->rtas_scratch_buffer.buffer, scratch_offset, g_UnifiedGeometryBuffer.index_buffer, g_UnifiedGeometryBuffer.vertex_buffer);
+
             vertex_start += (u32)subsets[isubset].num_vertices;
             index_start  += (u32)subsets[isubset].num_indices;
           }
+
+          // TODO(bshihabi): Can we do this in a batched way so that it's not a single command per cmd buffer?
+          submit_cmd_lists(&g_AssetLoader->cmd_list_allocator, {cmd_list});
+          cmd_queue_signal(&g_AssetLoader->async_compute_queue, &g_AssetLoader->rtas_scratch_buffer.fence);
 
         } break;
         case AssetType::kTexture:

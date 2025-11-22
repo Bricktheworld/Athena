@@ -65,6 +65,7 @@ struct ModelSubsetMetadata
 struct ModelMetadata
 {
   Array<ModelSubsetMetadata> subsets;
+  Array<GpuRtBlas>           subset_rt_blases;
 };
 
 struct AssetDesc
