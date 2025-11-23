@@ -1374,6 +1374,7 @@ init_buffer_uav(
   const GpuBufferUavDesc& desc
 ) {
   ASSERT(descriptor->type == kDescriptorHeapTypeCbvSrvUav);
+  ASSERT_MSG_FATAL(desc.counter_offset == 0, "Counter is non zero! Did you mean to use init_buffer_counted_uav", D3D12_UAV_COUNTER_PLACEMENT_ALIGNMENT);
 
   D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {0};
   uav.Buffer.FirstElement         = desc.first_element;
@@ -1384,6 +1385,30 @@ init_buffer_uav(
   uav.Format                      = desc.is_raw ? DXGI_FORMAT_R32_TYPELESS : gpu_format_to_d3d12(desc.format);
   uav.ViewDimension               = D3D12_UAV_DIMENSION_BUFFER;
   g_GpuDevice->d3d12->CreateUnorderedAccessView(buffer->d3d12_buffer, nullptr, &uav, descriptor->cpu_handle);
+}
+
+void
+init_buffer_counted_uav(
+  GpuDescriptor*          descriptor,
+  const GpuBuffer*        buffer,
+  const GpuBuffer*        counter,
+  const GpuBufferUavDesc& desc
+) {
+  ASSERT(descriptor->type == kDescriptorHeapTypeCbvSrvUav);
+  ASSERT_MSG_FATAL((desc.counter_offset % D3D12_UAV_COUNTER_PLACEMENT_ALIGNMENT) == 0, "Counter offset must be aligned to %u bytes", D3D12_UAV_COUNTER_PLACEMENT_ALIGNMENT);
+  ASSERT_MSG_FATAL(desc.format == kGpuFormatUnknown, "Counter UAV buffers must have an unknown format!");
+  ASSERT_MSG_FATAL(desc.stride > 0,                  "Counter UAVs must have a stride in the buffer!");
+  ASSERT_MSG_FATAL(!desc.is_raw,                     "Counter UAVs cannot be created on raw resources!");
+
+  D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {0};
+  uav.Buffer.FirstElement         = desc.first_element;
+  uav.Buffer.NumElements          = desc.num_elements;
+  uav.Buffer.StructureByteStride  = desc.stride;
+  uav.Buffer.CounterOffsetInBytes = desc.counter_offset;
+  uav.Buffer.Flags                = D3D12_BUFFER_UAV_FLAG_NONE;
+  uav.Format                      = DXGI_FORMAT_UNKNOWN;
+  uav.ViewDimension               = D3D12_UAV_DIMENSION_BUFFER;
+  g_GpuDevice->d3d12->CreateUnorderedAccessView(buffer->d3d12_buffer, counter->d3d12_buffer, &uav, descriptor->cpu_handle);
 }
 
 void
@@ -1760,11 +1785,8 @@ alloc_gpu_rt_blas_no_heap(
   return ret;
 }
 
-GpuRtTlas
-alloc_gpu_rt_tlas_no_heap(
-  u32              num_instances,
-  const char*      name
-) {
+static void get_gpu_rt_tlas_prebuild_info(u32 num_instances, u32* out_max_size, u32* out_scratch_size)
+{
   D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS inputs = {};
   inputs.DescsLayout    = D3D12_ELEMENTS_LAYOUT_ARRAY;
   // I expect that the TLAS wil be updated frequently, so I always have update/fast build enabled.
@@ -1781,15 +1803,51 @@ alloc_gpu_rt_tlas_no_heap(
   prebuild_info.ResultDataMaxSizeInBytes = ALIGN_POW2(prebuild_info.ResultDataMaxSizeInBytes, D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT);
   ASSERT_MSG_FATAL(prebuild_info.ResultDataMaxSizeInBytes > 0, "Size of TLAS is 0 for some reason...");
 
+  *out_max_size     = (u32)prebuild_info.ResultDataMaxSizeInBytes;
+  *out_scratch_size = (u32)prebuild_info.ScratchDataSizeInBytes;
+}
+
+GpuRtTlas
+alloc_gpu_rt_tlas(
+  GpuAllocHeap     heap,
+  u32              num_instances,
+  const char*      name
+) {
+  u32 max_size     = 0;
+  u32 scratch_size = 0;
+  get_gpu_rt_tlas_prebuild_info(num_instances, &max_size, &scratch_size);
+
   GpuBufferDesc buffer_desc = {};
-  buffer_desc.size          = (u32)prebuild_info.ResultDataMaxSizeInBytes;
+  buffer_desc.size          = max_size;
   // TODO(bshihabi): Maybe we should just use a convention where we put everything in common and transition to something else and back whenever we need
   buffer_desc.initial_state = D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE;
   buffer_desc.flags         = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
   
   GpuRtTlas ret;
   ret.max_instances = num_instances;
-  ret.scratch_size  = (u32)prebuild_info.ScratchDataSizeInBytes;
+  ret.scratch_size  = scratch_size;
+  ret.buffer        = alloc_gpu_buffer(g_GpuDevice, heap, buffer_desc, name);
+  return ret;
+}
+
+GpuRtTlas
+alloc_gpu_rt_tlas_no_heap(
+  u32              num_instances,
+  const char*      name
+) {
+  u32 max_size     = 0;
+  u32 scratch_size = 0;
+  get_gpu_rt_tlas_prebuild_info(num_instances, &max_size, &scratch_size);
+
+  GpuBufferDesc buffer_desc = {};
+  buffer_desc.size          = max_size;
+  // TODO(bshihabi): Maybe we should just use a convention where we put everything in common and transition to something else and back whenever we need
+  buffer_desc.initial_state = D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE;
+  buffer_desc.flags         = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+  
+  GpuRtTlas ret;
+  ret.max_instances = num_instances;
+  ret.scratch_size  = scratch_size;
   ret.buffer        = alloc_gpu_buffer_no_heap(g_GpuDevice, buffer_desc, kGpuHeapGpuOnly, name);
   return ret;
 }

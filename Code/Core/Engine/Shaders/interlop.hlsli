@@ -284,6 +284,10 @@ struct SceneObjGpu
   u32  index_count;
   u32  start_vertex;
   u32  start_index;
+
+  u64  blas_addr;
+  u32  __pad0__;
+  u32  __pad1__;
 };
 
 struct MaterialGpu

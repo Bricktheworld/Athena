@@ -535,6 +535,12 @@ GpuRtTlas alloc_gpu_rt_tlas_no_heap(
   const char*      name
 );
 
+GpuRtTlas alloc_gpu_rt_tlas(
+  GpuAllocHeap     heap,
+  u32              num_descs,
+  const char*      name
+);
+
 // TODO(Brandon): We eventually will want to have this not take uber buffers but instead be more fine-grained...
 GpuBvh init_gpu_bvh(
   GpuDevice* device,
@@ -549,21 +555,21 @@ void destroy_acceleration_structure(GpuBvh* bvh);
 
 enum DescriptorType : u8
 {
-  kDescriptorTypeNull    = 0x0,
-  kDescriptorTypeCbv     = 0x1,
-  kDescriptorTypeSrv     = 0x2,
-  kDescriptorTypeUav     = 0x4,
-  kDescriptorTypeSampler = 0x8,
-  kDescriptorTypeRtv     = 0x10,
-  kDescriptorTypeDsv     = 0x20,
+  kDescriptorTypeNull       = 0x0,
+  kDescriptorTypeCbv        = 0x1 << 0,
+  kDescriptorTypeSrv        = 0x1 << 1,
+  kDescriptorTypeUav        = 0x1 << 2,
+  kDescriptorTypeSampler    = 0x1 << 3,
+  kDescriptorTypeRtv        = 0x1 << 4,
+  kDescriptorTypeDsv        = 0x1 << 5,
 };
 
 enum DescriptorHeapType : u8
 {
-  kDescriptorHeapTypeCbvSrvUav = kDescriptorTypeCbv | kDescriptorTypeSrv | kDescriptorTypeUav,
-  kDescriptorHeapTypeSampler   = kDescriptorTypeSampler,
-  kDescriptorHeapTypeRtv       = kDescriptorTypeRtv,
-  kDescriptorHeapTypeDsv       = kDescriptorTypeDsv,
+  kDescriptorHeapTypeCbvSrvUav       = kDescriptorTypeCbv | kDescriptorTypeSrv | kDescriptorTypeUav,
+  kDescriptorHeapTypeSampler         = kDescriptorTypeSampler,
+  kDescriptorHeapTypeRtv             = kDescriptorTypeRtv,
+  kDescriptorHeapTypeDsv             = kDescriptorTypeDsv,
 };
 
 struct DescriptorPool
@@ -657,17 +663,25 @@ void init_buffer_srv(
 
 struct GpuBufferUavDesc
 {
-  u64       first_element = 0;
-  u32       num_elements  = 0;
-  u32       stride        = 0;
-  GpuFormat format        = kGpuFormatUnknown;
-  bool      is_raw        = false;
-  u16       __pad__       = 0;
+  u64       first_element  = 0;
+  u32       num_elements   = 0;
+  u32       stride         = 0;
+  GpuFormat format         = kGpuFormatUnknown;
+  u8        counter_offset = 0;
+  bool      is_raw         = false;
+  u8        __pad__        = 0;
 };
 
 void init_buffer_uav(
   GpuDescriptor* descriptor,
   const GpuBuffer* buffer,
+  const GpuBufferUavDesc& desc
+);
+
+void init_buffer_counted_uav(
+  GpuDescriptor*          descriptor,
+  const GpuBuffer*        buffer,
+  const GpuBuffer*        counter,
   const GpuBufferUavDesc& desc
 );
 

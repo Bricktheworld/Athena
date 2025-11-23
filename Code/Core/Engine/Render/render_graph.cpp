@@ -5,6 +5,7 @@
 #include "Core/Engine/Render/renderer.h"
 
 #include "Core/Engine/Shaders/root_signature.hlsli"
+#include "Core/Engine/Shaders/Include/clear_common.hlsli"
 
 #include "Core/Vendor/D3D12/d3dx12.h"
 
@@ -236,8 +237,8 @@ init_dependency_levels(AllocHeap heap, const RgBuilder& builder)
   ScratchAllocator scratch_arena = alloc_scratch_arena();
   defer { free_scratch_arena(&scratch_arena); };
 
-  HashTable           grv_latest_versions    = init_hash_table<u32, u32>(scratch_arena, builder.resource_list.size);
-
+  // Determine what the latest GRV versions are across all passes
+  HashTable grv_latest_versions = init_hash_table<u32, u32>(scratch_arena, builder.resource_list.size);
   for (const RgPassBuilder& pass_builder : builder.render_passes)
   {
     for (const RgPassBuilder::ResourceAccessData& read_resource : pass_builder.read_resources)
@@ -265,10 +266,16 @@ init_dependency_levels(AllocHeap heap, const RgBuilder& builder)
         if (!dst)
         {
           dst  = hash_table_insert(&grv_latest_versions, write_resource.handle.id);
+          // The + 1 here exists because the write implicitly increments the version of the resource, but unless you
+          // explicitly read from that version (unlikely, since it's a GRV), we would never find that version.
+          // Thus, we assume that our version + 1 has to exist somewhere (implicitly or explicitly).
           *dst = write_resource.handle.version + 1;
         }
         else
         {
+          // The + 1 here exists because the write implicitly increments the version of the resource, but unless you
+          // explicitly read from that version (unlikely, since it's a GRV), we would never find that version.
+          // Thus, we assume that our version + 1 has to exist somewhere (implicitly or explicitly).
           *dst = MAX(*dst, write_resource.handle.version + 1);
         }
       }
@@ -421,6 +428,11 @@ init_physical_resources(
           *flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
         }
       }
+      else if (handle.type == kResourceTypeRtTlas)
+      {
+        // TLASes are always given UAV because you want to build them
+        *flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+      }
     }
   }
 
@@ -468,6 +480,12 @@ init_physical_resources(
         GpuBuffer*    dst  = hash_table_insert(&physical_buffers, key);
         *dst               = alloc_gpu_buffer(device, *local_heap, desc, resource_desc->name);
       }
+    }
+    else if (resource.type == kResourceTypeRtTlas)
+    {
+      ASSERT_MSG_FATAL(resource_desc->temporal_lifetime == kInfiniteLifetime, "Non-infinite lifetime TLASes not supported");
+      // GpuRtTlas* dst = 
+      // alloc_gpu_rt_tlas(*local_heap, resource_desc->tlas_desc.max_instances, resource_desc->name);
     }
     else if (resource.type == kResourceTypeTexture)
     {
@@ -614,21 +632,37 @@ init_physical_descriptors(
       {
         resource_key.temporal_frame = iframe;
 
-        GpuDescriptor* dst = desc.is_grv ? grv_descriptors + desc.descriptor_idx : &pass->descriptors[desc.descriptor_idx + iframe];
 
         if (desc.handle.type == kResourceTypeBuffer)
         {
           const GpuBuffer* buffer = hash_table_find(&resource_map.buffers, resource_key);
           if (desc.descriptor_type == kDescriptorTypeUav)
           {
+            GpuDescriptor* dst = desc.is_grv ? grv_descriptors + desc.descriptor_idx : &pass->descriptors[desc.descriptor_idx + iframe];
+
             ASSERT_MSG_FATAL(!desc.is_grv || temporal_lifetime == 0, "GRV descriptor attached to UAV buffer which is temporal. Not supported!");
             *dst = desc.is_grv ? alloc_table_descriptor(g_DescriptorCbvSrvUavPool, kGrvTemporalCount * kBackBufferCount + desc.descriptor_idx) : alloc_descriptor(g_DescriptorCbvSrvUavPool);
-            init_buffer_uav(dst, buffer, desc.buffer_uav);
+            if (desc.counter.id != 0)
+            {
+              RgResourceKey counter_key  = {0};
+              counter_key.id             = desc.counter.id;
+              counter_key.temporal_frame = iframe;
+
+              ASSERT_MSG_FATAL(desc.counter.type == kResourceTypeBuffer, "Bound a non-buffer to the counter of a write access!");
+              const GpuBuffer* counter = hash_table_find(&resource_map.buffers, counter_key);
+              init_buffer_counted_uav(dst, buffer, counter, desc.buffer_uav);
+            }
+            else 
+            {
+              init_buffer_uav(dst, buffer, desc.buffer_uav);
+            }
           }
           else { UNREACHABLE; }
         }
         else if(desc.handle.type == kResourceTypeTexture)
         {
+          GpuDescriptor* dst = desc.is_grv ? grv_descriptors + desc.descriptor_idx : &pass->descriptors[desc.descriptor_idx + iframe];
+
           const GpuTexture* texture = hash_table_find(&resource_map.textures, resource_key);
           if (desc.descriptor_type == kDescriptorTypeUav)
           {
@@ -928,6 +962,7 @@ compile_render_graph(AllocHeap heap, const RgBuilder& builder, RenderGraphDestro
   g_RenderGraph->back_buffer       = builder.back_buffer;
   g_RenderGraph->width             = builder.width;
   g_RenderGraph->height            = builder.height;
+  g_RenderGraph->clear_buffer_pso  = init_compute_pipeline(g_GpuDevice, get_engine_shader(kCS_ClearStructuredBuffer), "Clear RWStructuredBuffer<uint>");
 
   for (const RgPassBuilder& pass_builder : builder.render_passes)
   {
@@ -1171,6 +1206,7 @@ execute_render_graph(const GpuTexture* back_buffer, const RenderSettings& settin
   ctx.m_CmdBuffer          = cmd_buffer;
   ctx.m_Width              = g_RenderGraph->width;
   ctx.m_Height             = g_RenderGraph->height;
+  ctx.m_ClearBufferPso     = g_RenderGraph->clear_buffer_pso;
 
   {
     GPU_SCOPED_EVENT(PIX_COLOR_DEFAULT, cmd_buffer, "Frame %lu", g_FrameId);
@@ -1426,6 +1462,51 @@ rg_create_buffer_ex(
   return ret;
 }
 
+RgHandle<GpuRtTlas> rg_create_tlas(
+  RgBuilder* builder,
+  const char* name,
+  u32 max_instances
+) {
+  ResourceHandle resource_handle      = {0};
+  resource_handle.id                  = handle_index(builder);
+  resource_handle.version             = 0;
+  resource_handle.type                = kResourceTypeRtTlas;
+  // NOTE(bshihabi): It is assumed that TLAses don't have any temporal properties (it would be weird if they did!)
+  resource_handle.temporal_lifetime   = kInfiniteLifetime;
+  *array_add(&builder->resource_list) = resource_handle;
+
+  TransientResourceDesc* desc         = hash_table_insert(&builder->resource_descs, resource_handle.id);
+  desc->name                          = name;
+  desc->type                          = resource_handle.type;
+  desc->temporal_lifetime             = resource_handle.temporal_lifetime;
+  desc->tlas_desc.max_instances       = max_instances;
+
+  RgHandle<GpuRtTlas> ret = {resource_handle.id, resource_handle.version, resource_handle.temporal_lifetime};
+  return ret;
+}
+
+RgHandleCountedBuffer rg_create_counted_buffer(
+  RgBuilder*  builder,
+  const char* name,
+  u32         size
+) {
+  return rg_create_counted_buffer_ex(builder, name, size, 0);
+}
+
+RgHandleCountedBuffer rg_create_counted_buffer_ex(
+  RgBuilder*  builder,
+  const char* name,
+  u32         size,
+  u8          temporal_lifetime
+) {
+  RgHandleCountedBuffer ret;
+  ret.buffer  = rg_create_buffer_ex(builder, name,      size,        temporal_lifetime);
+  ret.counter = rg_create_buffer_ex(builder, "Counter", sizeof(u32), temporal_lifetime);
+
+  return ret;
+}
+
+
 RgOpaqueDescriptor
 rg_read_texture(RgPassBuilder* builder, RgHandle<GpuTexture> texture, const GpuTextureSrvDesc& desc, s8 temporal_frame, Option<u32> grv_idx, u16 flags)
 {
@@ -1444,10 +1525,12 @@ rg_read_texture(RgPassBuilder* builder, RgHandle<GpuTexture> texture, const GpuT
 
   RgPassBuilder::ResourceAccessData* data = array_add(&builder->read_resources);
   data->handle          = texture;
+  data->counter         = {0};
   data->access          = (u32)kReadTextureSrv;
   data->temporal_frame  = temporal_frame;
   data->is_write        = false;
   data->is_grv          = grv_idx;
+  data->is_bvh          = false;
   data->descriptor_type = kDescriptorTypeSrv;
   data->descriptor_idx  = unwrap_or(grv_idx, builder->descriptor_idx);
 
@@ -1489,10 +1572,12 @@ rg_write_texture(RgPassBuilder* builder, RgHandle<GpuTexture>* texture, const Gp
 
   RgPassBuilder::ResourceAccessData* data = array_add(&builder->write_resources);
   data->handle          = *texture;
+  data->counter         = {0};
   data->access          = (u32)kWriteTextureUav;
   data->temporal_frame  = 0;
   data->is_write        = true;
   data->is_grv          = grv_idx;
+  data->is_bvh          = false;
   data->descriptor_type = kDescriptorTypeUav;
   data->descriptor_idx  = unwrap_or(grv_idx, builder->descriptor_idx);
 
@@ -1526,10 +1611,12 @@ rg_write_rtv(RgPassBuilder* builder, RgHandle<GpuTexture>* texture, u16 flags)
 
   RgPassBuilder::ResourceAccessData* data = array_add(&builder->write_resources);
   data->handle          = *texture;
+  data->counter         = {0};
   data->access          = (u32)kWriteTextureColorTarget;
   data->temporal_frame  = 0;
   data->is_write        = true;
   data->is_grv          = false;
+  data->is_bvh          = false;
   data->descriptor_type = kDescriptorTypeRtv;
   data->descriptor_idx  = builder->descriptor_idx;
 
@@ -1573,10 +1660,12 @@ rg_write_dsv(RgPassBuilder* builder, RgHandle<GpuTexture>* texture, u16 flags)
 
   RgPassBuilder::ResourceAccessData* data = array_add(&builder->write_resources);
   data->handle          = *texture;
+  data->counter         = {0};
   data->access          = (u32)kWriteTextureDepthStencil;
   data->temporal_frame  = 0;
   data->is_write        = true;
   data->is_grv          = false;
+  data->is_bvh          = false;
   data->descriptor_type = kDescriptorTypeDsv;
   data->descriptor_idx  = builder->descriptor_idx;
 
@@ -1625,10 +1714,12 @@ rg_read_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer> buffer, const GpuBuff
 
   RgPassBuilder::ResourceAccessData* data = array_add(&builder->read_resources);
   data->handle          = buffer;
+  data->counter         = {0};
   data->access          = (u32)kReadBufferCbv;
   data->temporal_frame  = temporal_frame;
   data->is_write        = false;
   data->is_grv          = grv_idx;
+  data->is_bvh          = false;
   data->descriptor_type = kDescriptorTypeCbv;
   data->descriptor_idx  = unwrap_or(grv_idx, builder->descriptor_idx);
 
@@ -1667,10 +1758,12 @@ rg_read_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer> buffer, const GpuBuff
 
   RgPassBuilder::ResourceAccessData* data = array_add(&builder->read_resources);
   data->handle          = buffer;
+  data->counter         = {0};
   data->access          = (u32)kReadBufferSrv;
   data->temporal_frame  = temporal_frame;
   data->is_write        = false;
   data->is_grv          = grv_idx;
+  data->is_bvh          = false;
   data->descriptor_type = kDescriptorTypeSrv;
   data->descriptor_idx  = unwrap_or(grv_idx, builder->descriptor_idx);
 
@@ -1710,10 +1803,12 @@ rg_write_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer>* buffer, const GpuBu
 
   RgPassBuilder::ResourceAccessData* data = array_add(&builder->write_resources);
   data->handle          = *buffer;
+  data->counter         = {0};
   data->access          = (u32)kWriteBufferUav;
   data->temporal_frame  = 0;
   data->is_write        = true;
   data->is_grv          = grv_idx;
+  data->is_bvh          = false;
   data->descriptor_type = kDescriptorTypeUav;
   data->descriptor_idx  = unwrap_or(grv_idx, builder->descriptor_idx);
 
@@ -1736,6 +1831,90 @@ rg_write_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer>* buffer, const GpuBu
 }
 
 RgOpaqueDescriptor
+rg_write_buffer(RgPassBuilder* builder, RgHandleCountedBuffer* buffer, const GpuBufferUavDesc& desc, RgOpaqueDescriptor* out_counter_descriptor, Option<u32> grv_idx, u16 flags)
+{
+  ASSERT(!array_find(&builder->write_resources, it->handle.id == buffer->buffer.id && it->temporal_frame == 0));
+
+  defer 
+  { 
+    buffer->buffer.version++; 
+    buffer->counter.version++;
+  };
+
+  if (grv_idx)
+  {
+    flags |= kRgDescriptorFlagIsGrv;
+  }
+  else
+  {
+    ASSERT_MSG_FATAL((flags & kRgDescriptorFlagIsGrv) == 0, "Descriptor marked as GRV but no index was provided!");
+  }
+
+  // Create a UAV for the counter resource that way it's easy to clear if you want to
+  {
+    GpuBufferUavDesc counter_desc = {0};
+    counter_desc.first_element  = 0;
+    counter_desc.num_elements   = 1;
+    counter_desc.stride         = sizeof(u32);
+    counter_desc.format         = kGpuFormatUnknown;
+    counter_desc.counter_offset = 0;
+    counter_desc.is_raw         = false;
+
+    RgPassBuilder::ResourceAccessData* data = array_add(&builder->write_resources);
+    data->handle          = buffer->counter;
+    data->counter         = {0};
+    data->access          = (u32)kWriteBufferUav;
+    data->temporal_frame  = 0;
+    data->is_write        = true;
+    data->is_grv          = false;
+    data->is_bvh          = false;
+    data->descriptor_type = kDescriptorTypeUav;
+    data->descriptor_idx  = builder->descriptor_idx;
+
+    data->buffer_uav      = counter_desc;
+
+    out_counter_descriptor->pass_id           = builder->pass_id;
+    out_counter_descriptor->descriptor_idx    = data->descriptor_idx;
+    out_counter_descriptor->resource_id       = buffer->counter.id;
+    out_counter_descriptor->temporal_frame    = 0;
+    out_counter_descriptor->temporal_lifetime = buffer->counter.temporal_lifetime;
+    out_counter_descriptor->flags             = flags;
+
+    builder->descriptor_idx += buffer->counter.temporal_lifetime + 1;
+  }
+
+  // Create UAV for the counted buffer
+  {
+    RgPassBuilder::ResourceAccessData* data = array_add(&builder->write_resources);
+    data->handle          = buffer->buffer;
+    data->counter         = buffer->counter;
+    data->access          = (u32)kWriteBufferUav;
+    data->temporal_frame  = 0;
+    data->is_write        = true;
+    data->is_grv          = grv_idx;
+    data->is_bvh          = false;
+    data->descriptor_type = kDescriptorTypeUav;
+    data->descriptor_idx  = unwrap_or(grv_idx, builder->descriptor_idx);
+
+    data->buffer_uav      = desc;
+
+    RgOpaqueDescriptor ret   = {0};
+    ret.pass_id              = builder->pass_id;
+    ret.descriptor_idx       = data->descriptor_idx;
+    ret.resource_id          = buffer->buffer.id;
+    ret.temporal_frame       = 0;
+    ret.temporal_lifetime    = buffer->buffer.temporal_lifetime;
+    ret.flags                = flags;
+
+    if (!grv_idx)
+    {
+      builder->descriptor_idx += buffer->buffer.temporal_lifetime + 1;
+    }
+    return ret;
+  }
+}
+
+RgOpaqueDescriptor
 rg_copy_dst_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer>* buffer)
 {
   ASSERT(!array_find(&builder->write_resources, it->handle.id == buffer->id && it->temporal_frame == 0));
@@ -1744,10 +1923,12 @@ rg_copy_dst_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer>* buffer)
 
   RgPassBuilder::ResourceAccessData* data = array_add(&builder->write_resources);
   data->handle          = *buffer;
+  data->counter         = {0};
   data->access          = (u32)kWriteBufferCopyDst;
   data->temporal_frame  = 0;
   data->is_write        = true;
   data->is_grv          = false;
+  data->is_bvh          = false;
   data->descriptor_type = kDescriptorTypeNull;
   data->descriptor_idx  = U32_MAX;
 
@@ -1771,10 +1952,12 @@ rg_copy_dst_texture(RgPassBuilder* builder, RgHandle<GpuTexture>* texture)
 
   RgPassBuilder::ResourceAccessData* data = array_add(&builder->write_resources);
   data->handle          = *texture;
+  data->counter         = {0};
   data->access          = (u32)kWriteTextureCopyDst;
   data->temporal_frame  = 0;
   data->is_write        = true;
   data->is_grv          = false;
+  data->is_bvh          = false;
   data->descriptor_type = kDescriptorTypeNull;
   data->descriptor_idx  = U32_MAX;
 
@@ -1799,10 +1982,12 @@ rg_read_index_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer> buffer, u16 fla
 
   RgPassBuilder::ResourceAccessData* data = array_add(&builder->read_resources);
   data->handle          = buffer;
+  data->counter         = {0};
   data->access          = (u32)kReadBufferIndex;
   data->temporal_frame  = 0;
   data->is_write        = false;
   data->is_grv          = false;
+  data->is_bvh          = false;
   data->descriptor_type = kDescriptorTypeNull;
   data->descriptor_idx  = builder->descriptor_idx;
 
@@ -1823,10 +2008,12 @@ rg_read_vertex_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer> buffer, u16 fl
 
   RgPassBuilder::ResourceAccessData* data = array_add(&builder->read_resources);
   data->handle          = buffer;
+  data->counter         = {0};
   data->access          = (u32)kReadBufferVertex;
   data->temporal_frame  = 0;
   data->is_write        = false;
   data->is_grv          = false;
+  data->is_bvh          = false;
   data->descriptor_type = kDescriptorTypeNull;
   data->descriptor_idx  = builder->descriptor_idx;
 
@@ -1847,10 +2034,12 @@ rg_read_indirect_args_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer> buffer,
 
   RgPassBuilder::ResourceAccessData* data = array_add(&builder->read_resources);
   data->handle          = buffer;
+  data->counter         = {0};
   data->access          = (u32)kReadBufferIndirectArgs;
   data->temporal_frame  = 0;
   data->is_write        = false;
   data->is_grv          = false;
+  data->is_bvh          = false;
   data->descriptor_type = kDescriptorTypeNull;
   data->descriptor_idx  = builder->descriptor_idx;
 
@@ -1904,6 +2093,37 @@ RenderContext::clear_render_target_view(
     0,
     nullptr
   );
+}
+
+void
+RenderContext::clear_uav_u32(const RgRWStructuredBuffer<u32>& uav, u32 clear_value, u32 count, u32 offset)
+{
+  const GpuBuffer* physical = rg_deref_buffer(uav);
+
+  u32 total_buffer_count = physical->desc.size / sizeof(u32);
+  // Nothing to do if the offset is too far into the total buffer size
+  if (offset >= total_buffer_count)
+  {
+    return;
+  }
+
+  // If no count was specified, we'll assume everything from offset til the end is valid
+  if (count == 0)
+  {
+    count = total_buffer_count - offset;
+  }
+
+  ClearStructuredBufferSrt srt;
+  srt.clear_value = clear_value;
+  srt.count       = count;
+  srt.offset      = offset;
+  srt.dst         = uav;
+
+  compute_bind_srt(srt);
+  set_compute_pso(&m_ClearBufferPso);
+  dispatch(ALIGN_POW2(srt.count, 64) / 64, 1, 1);
+
+  uav_barrier(physical);
 }
 
 void
