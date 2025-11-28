@@ -24,15 +24,13 @@ struct Scene
 
   GpuBvh             bvh;
 
-  GpuRtTlas          tlas;
-  // I allocate it here locally because the render graph doesn't really need to know about it
-  GpuBuffer          tlas_scratch_buffer;
-
   // Updated by the render handlers
   u32                blas_instance_count;
 };
 
 static Scene* g_Scene = nullptr;
+
+bool g_TlasReady = false;
 
 void
 init_scene()
@@ -48,16 +46,6 @@ init_scene()
   g_Scene->static_scene_obj_allocator  = init_bit_allocator(g_InitHeap, kMaxStaticSceneObjs);
   g_Scene->gpu_scene_obj_allocator     = init_bit_allocator(g_InitHeap, kMaxSceneObjs);
 
-  g_Scene->tlas                        = alloc_gpu_rt_tlas_no_heap(kMaxSceneObjs, "Scene TLAS");
-  // GpuDescriptor descriptor             = alloc_table_descriptor(g_DescriptorCbvSrvUavPool, kGrvTemporalCount * kBackBufferCount + kRaytracingAccelerationStructureSlot);
-  // init_bvh_srv(&descriptor, &g_Scene->tlas);
-
-  GpuBufferDesc tlas_scratch_buffer_desc =
-  {
-    .size          = g_Scene->tlas.scratch_size,
-    .flags         = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS
-  };
-  g_Scene->tlas_scratch_buffer         = alloc_gpu_buffer_no_heap(g_GpuDevice, tlas_scratch_buffer_desc, kGpuHeapGpuOnly, "TLAS Scratch Buffer");
   g_Scene->blas_instance_count         = 0;
 }
 
@@ -350,6 +338,8 @@ render_handler_fill_tlas_instances(RenderContext* ctx, const RenderSettings&, co
 struct BuildTlasParams
 {
   RgStructuredBuffer<D3D12RaytracingInstanceDesc> instances;
+  RgRWRaytracingAccelerationStructure             dst;
+  RgRWBuffer<u32>                                 scratch;
 };
 
 static void
@@ -359,7 +349,22 @@ render_handler_build_tlas(RenderContext* ctx, const RenderSettings&, const void*
 
   u32 instance_count = g_Scene->gpu_scene_obj_allocator.allocated_count;
 
-  ctx->build_tlas(&g_Scene->tlas, &g_Scene->tlas_scratch_buffer, 0, params->instances, instance_count, 0);
+  static bool s_WasInitialized = false;
+
+  if (s_WasInitialized)
+  {
+    g_TlasReady = true;
+  }
+
+  u32 build_flags = s_WasInitialized ? kGpuRtasBuildIncremental : 0;
+  (void)build_flags;
+  ctx->build_tlas(params->dst, params->scratch, params->instances, instance_count, 0);
+
+
+  if (!s_WasInitialized)
+  {
+    s_WasInitialized = true;
+  }
 }
 
 
@@ -373,8 +378,12 @@ init_scene_gpu_upload_pass(AllocHeap heap, RgBuilder* builder)
   ret.material_buffer        = rg_create_buffer(builder,        "Material Buffer",     sizeof(MaterialGpu) * kMaxSceneObjs);
   ret.scene_obj_buffer       = rg_create_buffer(builder,        "Scene Object Buffer", sizeof(SceneObjGpu) * kMaxSceneObjs);
 
-  RgHandleCountedBuffer tlas_instances = rg_create_counted_buffer(builder, "TLAS instance Buffer", sizeof(D3D12RaytracingInstanceDesc) * kMaxSceneObjs);
-  RgHandle<GpuRtTlas>   tlas           = rg_create_tlas(builder, "TLAS", kMaxSceneObjs);
+  RgHandleCountedBuffer tlas_instances    = rg_create_counted_buffer(builder, "TLAS instance Buffer", sizeof(D3D12RaytracingInstanceDesc) * kMaxSceneObjs);
+
+  u32                   tlas_scratch_size = 0;
+  RgHandle<GpuRtTlas>   tlas              = rg_create_tlas(builder, "TLAS", kMaxSceneObjs, &tlas_scratch_size);
+  RgHandle<GpuBuffer>   tlas_scratch      = rg_create_buffer(builder, "TLAS Scratch Buffer", tlas_scratch_size);
+
 
   {
     SceneGpuUploadParams* params = HEAP_ALLOC(SceneGpuUploadParams, g_InitHeap, 1);
@@ -384,6 +393,10 @@ init_scene_gpu_upload_pass(AllocHeap heap, RgBuilder* builder)
     params->material_buffer      = RgCopyDst(pass, &ret.material_buffer);
   }
 
+  // Bind the GRVs now that we're done modifying them
+  RgStructuredBuffer<SceneObjGpu>::bind_grv(heap, builder, kSceneObjBufferSlot, ret.scene_obj_buffer);
+  RgStructuredBuffer<MaterialGpu>::bind_grv(heap, builder, kMaterialBufferSlot, ret.material_buffer);
+
   // Fill TLAS instance data
   {
     SceneTlasFillInstancesParams* params = HEAP_ALLOC(SceneTlasFillInstancesParams, g_InitHeap, 1);
@@ -391,9 +404,6 @@ init_scene_gpu_upload_pass(AllocHeap heap, RgBuilder* builder)
     params->pso                          = init_compute_pipeline(g_GpuDevice, get_engine_shader(kCS_RtTlasFillInstances), "CS_RtTlasFillInstances");
     params->instances                    = RgRWStructuredBufferCounted<D3D12RaytracingInstanceDesc>(pass, &tlas_instances);
 
-    // Bind the GRVs now that we're done modifying them
-    RgStructuredBuffer<SceneObjGpu>(pass, ret.scene_obj_buffer, 0, kSceneObjBufferSlot);
-    RgStructuredBuffer<MaterialGpu>(pass, ret.material_buffer,  0, kMaterialBufferSlot);
   }
 
   // Build the TLAS
@@ -401,7 +411,11 @@ init_scene_gpu_upload_pass(AllocHeap heap, RgBuilder* builder)
     BuildTlasParams*  params = HEAP_ALLOC(BuildTlasParams, g_InitHeap, 1);
     RgPassBuilder*    pass   = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "Build TLAS", params,  &render_handler_build_tlas);
     params->instances        = RgStructuredBuffer<D3D12RaytracingInstanceDesc>(pass, tlas_instances.buffer);
+    params->dst              = RgRWRaytracingAccelerationStructure(pass, &tlas);
+    params->scratch          = RgRWBuffer<u32>(pass, &tlas_scratch);
   }
+
+  RgRaytracingAccelerationStructure::bind_grv(heap, builder, kRaytracingAccelerationStructureSlot, tlas);
 
 
   return ret;

@@ -12,6 +12,8 @@
 #include "Core/Engine/Vendor/imgui/imgui_impl_win32.h"
 #include "Core/Engine/Vendor/imgui/imgui_impl_dx12.h"
 
+#include "Core/Engine/Vendor/NVAftermath/GFSDK_Aftermath.h"
+
 #include <d3dcompiler.h>
 
 #pragma comment(lib, "d3d12.lib")
@@ -21,6 +23,8 @@
 
 extern "C" { __declspec(dllexport) extern const UINT D3D12SDKVersion = 614;}
 extern "C" { __declspec(dllexport) extern const char* D3D12SDKPath = "."; }
+
+#define AFTERMATH_ASSERT(expr) ASSERT_MSG_FATAL(GFSDK_Aftermath_SUCCEED(expr), "Aftermath call failed.");
 
 #if defined(DEBUG)
 #define DEBUG_LAYER
@@ -657,6 +661,32 @@ init_d3d12_indirect(GpuDevice* device)
   }
 }
 
+static void
+init_aftermath()
+{
+  AFTERMATH_ASSERT(
+    GFSDK_Aftermath_EnableGpuCrashDumps(
+      GFSDK_Aftermath_Version_API,
+      GFSDK_Aftermath_GpuCrashDumpWatchedApiFlags_DX,
+      GFSDK_Aftermath_GpuCrashDumpFeatureFlags_Default,   // Default behavior.
+      GpuCrashDumpCallback,                               // Register callback for GPU crash dumps.
+      ShaderDebugInfoCallback,                            // Register callback for shader debug information.
+      CrashDumpDescriptionCallback,                       // Register callback for GPU crash dump description.
+      ResolveMarkerCallback,                              // Register callback for marker resolution (R495 or later NVIDIA graphics driver).
+      &m_gpuCrashDumpTracker
+    )
+  ); 
+
+  AFTERMATH_ASSERT(
+    GFSDK_Aftermath_DX12_Initialize()
+  );
+}
+
+static void
+destroy_aftermath()
+{
+}
+
 void
 init_gpu_device(HWND window)
 {
@@ -664,6 +694,10 @@ init_gpu_device(HWND window)
   {
     g_GpuDevice = HEAP_ALLOC(GpuDevice, g_InitHeap, 1);
   }
+
+#ifdef DEBUG_LAYER
+  init_aftermath();
+#endif
 
 #ifdef DEBUG_LAYER
   ID3D12Debug* debug_interface = nullptr;
@@ -708,6 +742,20 @@ init_gpu_device(HWND window)
 
 #ifdef DEBUG_LAYER
   HASSERT(DXGIGetDebugInterface1(0, IID_PPV_ARGS(&g_GpuDevice->d3d12_debug)));
+  HASSERT(g_GpuDevice->d3d12->QueryInterface(IID_PPV_ARGS(&g_GpuDevice->d3d12_info_queue)));
+  g_GpuDevice->d3d12_info_queue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, true);
+  g_GpuDevice->d3d12_info_queue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR,      true);
+  g_GpuDevice->d3d12_info_queue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING,    true);
+  g_GpuDevice->d3d12_info_queue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_INFO,       true);
+
+  PIXLoadLatestWinPixGpuCapturerLibrary();
+
+  ID3D12DeviceRemovedExtendedDataSettings1* dred_settings = nullptr;
+  HASSERT(D3D12GetDebugInterface(IID_PPV_ARGS(&dred_settings)));
+
+
+  dred_settings->SetAutoBreadcrumbsEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+  dred_settings->SetPageFaultEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
 #endif
 }
 
@@ -736,7 +784,7 @@ destroy_gpu_device()
   destroy_cmd_queue(&g_GpuDevice->copy_queue);
 
 #ifdef DEBUG_LAYER
-  g_GpuDevice->d3d12_debug->ReportLiveObjects(DXGI_DEBUG_ALL, DXGI_DEBUG_RLO_ALL);
+  // g_GpuDevice->d3d12_debug->ReportLiveObjects(DXGI_DEBUG_ALL, DXGI_DEBUG_RLO_ALL);
 #endif
 
   COM_RELEASE(g_GpuDevice->d3d12);
@@ -1785,8 +1833,11 @@ alloc_gpu_rt_blas_no_heap(
   return ret;
 }
 
-static void get_gpu_rt_tlas_prebuild_info(u32 num_instances, u32* out_max_size, u32* out_scratch_size)
+GpuRtTlasSizeInfo
+query_gpu_rt_tlas_size_info(u32 num_instances)
 {
+  GpuRtTlasSizeInfo ret;
+
   D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS inputs = {};
   inputs.DescsLayout    = D3D12_ELEMENTS_LAYOUT_ARRAY;
   // I expect that the TLAS wil be updated frequently, so I always have update/fast build enabled.
@@ -1803,8 +1854,10 @@ static void get_gpu_rt_tlas_prebuild_info(u32 num_instances, u32* out_max_size, 
   prebuild_info.ResultDataMaxSizeInBytes = ALIGN_POW2(prebuild_info.ResultDataMaxSizeInBytes, D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT);
   ASSERT_MSG_FATAL(prebuild_info.ResultDataMaxSizeInBytes > 0, "Size of TLAS is 0 for some reason...");
 
-  *out_max_size     = (u32)prebuild_info.ResultDataMaxSizeInBytes;
-  *out_scratch_size = (u32)prebuild_info.ScratchDataSizeInBytes;
+  ret.max_size     = (u32)prebuild_info.ResultDataMaxSizeInBytes;
+  ret.scratch_size = (u32)prebuild_info.ScratchDataSizeInBytes;
+
+  return ret;
 }
 
 GpuRtTlas
@@ -1813,19 +1866,17 @@ alloc_gpu_rt_tlas(
   u32              num_instances,
   const char*      name
 ) {
-  u32 max_size     = 0;
-  u32 scratch_size = 0;
-  get_gpu_rt_tlas_prebuild_info(num_instances, &max_size, &scratch_size);
+  GpuRtTlasSizeInfo size_info = query_gpu_rt_tlas_size_info(num_instances);
 
   GpuBufferDesc buffer_desc = {};
-  buffer_desc.size          = max_size;
+  buffer_desc.size          = size_info.max_size;
   // TODO(bshihabi): Maybe we should just use a convention where we put everything in common and transition to something else and back whenever we need
   buffer_desc.initial_state = D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE;
   buffer_desc.flags         = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
   
   GpuRtTlas ret;
   ret.max_instances = num_instances;
-  ret.scratch_size  = scratch_size;
+  ret.scratch_size  = size_info.scratch_size;
   ret.buffer        = alloc_gpu_buffer(g_GpuDevice, heap, buffer_desc, name);
   return ret;
 }
@@ -1835,19 +1886,17 @@ alloc_gpu_rt_tlas_no_heap(
   u32              num_instances,
   const char*      name
 ) {
-  u32 max_size     = 0;
-  u32 scratch_size = 0;
-  get_gpu_rt_tlas_prebuild_info(num_instances, &max_size, &scratch_size);
+  GpuRtTlasSizeInfo size_info = query_gpu_rt_tlas_size_info(num_instances);
 
   GpuBufferDesc buffer_desc = {};
-  buffer_desc.size          = max_size;
+  buffer_desc.size          = size_info.max_size;
   // TODO(bshihabi): Maybe we should just use a convention where we put everything in common and transition to something else and back whenever we need
   buffer_desc.initial_state = D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE;
   buffer_desc.flags         = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
   
   GpuRtTlas ret;
   ret.max_instances = num_instances;
-  ret.scratch_size  = scratch_size;
+  ret.scratch_size  = size_info.scratch_size;
   ret.buffer        = alloc_gpu_buffer_no_heap(g_GpuDevice, buffer_desc, kGpuHeapGpuOnly, name);
   return ret;
 }

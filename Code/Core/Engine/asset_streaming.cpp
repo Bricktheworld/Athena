@@ -257,7 +257,6 @@ init_asset_loader(void)
 
   GpuBufferDesc rtas_scratch_buffer_desc = {};
   rtas_scratch_buffer_desc.size          = kRtasScratchBufferMemory;
-  rtas_scratch_buffer_desc.initial_state = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
   rtas_scratch_buffer_desc.flags         = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
   g_AssetLoader->rtas_scratch_buffer     = alloc_gpu_ring_buffer_no_heap(g_InitHeap, rtas_scratch_buffer_desc, kGpuHeapGpuOnly, "RTAS Scratch Ring Buffer");
   g_AssetLoader->async_compute_queue     = init_cmd_queue(g_GpuDevice, kCmdQueueTypeCompute);

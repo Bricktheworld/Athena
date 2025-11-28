@@ -16,10 +16,8 @@
 
 struct FrameInitParams
 {
-  RgConstantBuffer<Viewport>                  viewport_buffer;
-  RgConstantBuffer<RenderSettingsGpu>         render_settings;
-  RgStructuredBuffer<SceneObjGpu>             scene_obj_buffer;
-  RgStructuredBuffer<MaterialGpu>             material_buffer;
+  RgHandle<GpuBuffer>                         viewport_buffer;
+  RgHandle<GpuBuffer>                         render_settings;
   RgRWStructuredBuffer<MultiDrawIndirectArgs> debug_draw_args_buffer;
   RgRWStructuredBuffer<DebugLinePoint>        debug_line_vert_buffer;
   RgRWStructuredBuffer<DebugSdf>              debug_sdf_buffer;
@@ -188,24 +186,6 @@ render_handler_frame_init(RenderContext* ctx, const RenderSettings& settings, co
   RenderSettingsGpu render_settings_gpu = to_gpu_render_settings(settings);
   ctx->write_cpu_upload_buffer(params->render_settings, &render_settings_gpu, sizeof(render_settings_gpu));
 
-#if 0
-  {
-    spin_acquire(&g_MaterialManager->spin_lock);
-    defer { spin_release(&g_MaterialManager->spin_lock); };
-
-    MaterialGpu* dst = (MaterialGpu*)unwrap(rg_deref_buffer(params->material_buffer)->mapped);
-
-    for (u32 icmd = 0; icmd < g_MaterialManager->material_upload_count; icmd++)
-    {
-      const MaterialUploadCmd* cmd = g_MaterialManager->material_uploads + icmd;
-      dst[cmd->mat_gpu_id] = cmd->material;
-    }
-
-
-    g_MaterialManager->material_upload_count = 0;
-  }
-#endif
-
   // For global resources you need to put manual resource barriers since they aren't tracked at compile time (assumed that everyone is going to use them)
   ctx->uav_barrier(params->debug_draw_args_buffer);
   ctx->uav_barrier(params->debug_line_vert_buffer);
@@ -242,17 +222,20 @@ init_frame_init_pass(AllocHeap heap, RgBuilder* builder)
   ret.debug_sdf_buffer       = rg_create_buffer(builder, "Debug SDF Buffer",            sizeof(DebugSdf)       * kDebugMaxSdfs);
 
   RgPassBuilder*      pass       = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "Frame Init", params, &render_handler_frame_init);
-  params->viewport_buffer        = RgConstantBuffer<Viewport>         (pass, ret.viewport_buffer, 0, kViewportBufferSlot);
-  params->render_settings        = RgConstantBuffer<RenderSettingsGpu>(pass, ret.render_settings, 0, kRenderSettingsSlot);
-#if 0
-  params->material_buffer        = RgStructuredBuffer<MaterialGpu>(pass, ret.material_buffer, 0, kMaterialBufferSlot);
-  params->scene_obj_buffer       = RgStructuredBuffer<SceneObjGpu>(pass, ret.scene_obj_buffer, 0, kSceneObjBufferSlot);
-#endif
-  params->debug_draw_args_buffer = RgRWStructuredBuffer<MultiDrawIndirectArgs>(pass, &ret.debug_draw_args_buffer, kDebugArgsBufferSlot);
-  params->debug_line_vert_buffer = RgRWStructuredBuffer<DebugLinePoint>(pass, &ret.debug_line_vert_buffer, kDebugVertexBufferSlot);
-  params->debug_sdf_buffer       = RgRWStructuredBuffer<DebugSdf>(pass, &ret.debug_sdf_buffer, kDebugSdfBufferSlot);
+  params->viewport_buffer        = ret.viewport_buffer;
+  params->render_settings        = ret.render_settings;
+  params->debug_draw_args_buffer = RgRWStructuredBuffer<MultiDrawIndirectArgs>(pass, &ret.debug_draw_args_buffer);
+  params->debug_line_vert_buffer = RgRWStructuredBuffer<DebugLinePoint>(pass, &ret.debug_line_vert_buffer);
+  params->debug_sdf_buffer       = RgRWStructuredBuffer<DebugSdf>(pass, &ret.debug_sdf_buffer);
 
   params->init_debug_draw_buffers_pso = init_compute_pipeline(g_GpuDevice, get_engine_shader(kCS_DebugDrawInitMultiDrawIndirectArgs), "Debug Draw Init MultiDrawIndirect Args");
+
+  // Bind globals
+  RgConstantBuffer<Viewport>::                 bind_grv(heap, builder, kViewportBufferSlot,     ret.viewport_buffer);
+  RgConstantBuffer<RenderSettingsGpu>::        bind_grv(heap, builder, kRenderSettingsSlot,     ret.render_settings);
+  RgRWStructuredBuffer<MultiDrawIndirectArgs>::bind_grv(heap, builder, kDebugArgsBufferSlot,   &ret.debug_draw_args_buffer);
+  RgRWStructuredBuffer<DebugLinePoint>::       bind_grv(heap, builder, kDebugVertexBufferSlot, &ret.debug_line_vert_buffer);
+  RgRWStructuredBuffer<DebugSdf>::             bind_grv(heap, builder, kDebugSdfBufferSlot,    &ret.debug_sdf_buffer);
 
   return ret;
 }
@@ -372,6 +355,10 @@ render_handler_imgui(RenderContext* ctx, const RenderSettings&, const void* data
     ImGui::Indent();
     for (const RenderPass& pass : g_RenderGraph->render_passes)
     {
+      if (pass.is_grv_barrier_pass)
+      {
+        continue;
+      }
       f64 dt = query_gpu_profiler_timestamp(pass.name);
       ImGui::Text("%s: %f ms", pass.name, dt);
     }

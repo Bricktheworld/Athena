@@ -535,6 +535,14 @@ GpuRtTlas alloc_gpu_rt_tlas_no_heap(
   const char*      name
 );
 
+struct GpuRtTlasSizeInfo
+{
+  u32 max_size     = 0;
+  u32 scratch_size = 0;
+};
+
+GpuRtTlasSizeInfo query_gpu_rt_tlas_size_info(u32 max_instances);
+
 GpuRtTlas alloc_gpu_rt_tlas(
   GpuAllocHeap     heap,
   u32              num_descs,
@@ -856,8 +864,9 @@ struct GpuProfiler
 
 struct GpuDevice
 {
-  ID3D12Device6*          d3d12       = nullptr;
-  IDXGIDebug*             d3d12_debug = nullptr;
+  ID3D12Device6*          d3d12            = nullptr;
+  IDXGIDebug*             d3d12_debug      = nullptr;
+  ID3D12InfoQueue1*       d3d12_info_queue = nullptr;
 
   ID3D12CommandSignature* d3d12_multi_draw_indirect_signature         = nullptr;
   ID3D12CommandSignature* d3d12_multi_draw_indirect_indexed_signature = nullptr;
