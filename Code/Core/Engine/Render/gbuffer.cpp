@@ -65,11 +65,6 @@ render_handler_gbuffer_static(RenderContext* ctx, const RenderSettings&, const v
 
   ctx->set_graphics_pso(&params->gbuffer_pso);
 
-  if (!g_TlasReady)
-  {
-    return;
-  }
-
   const SceneObj* obj = get_all_scene_objs();
   for (u32 i = 0; i < kMaxSceneObjs; i++, obj++)
   {

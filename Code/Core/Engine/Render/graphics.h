@@ -259,13 +259,13 @@ struct CmdListAllocator
 
   RingQueue<CmdAllocator>                allocators;
   RingQueue<ID3D12GraphicsCommandList4*> lists;
-  GpuFence                                  fence;
+  GpuFence                               fence;
 };
 
 struct CmdList
 {
-  ID3D12GraphicsCommandList4* d3d12_list      = nullptr;
-  ID3D12CommandAllocator*     d3d12_allocator = nullptr;
+  ID3D12GraphicsCommandList4*   d3d12_list      = nullptr;
+  ID3D12CommandAllocator*       d3d12_allocator = nullptr;
 };
 
 CmdListAllocator init_cmd_list_allocator(
@@ -720,7 +720,10 @@ struct GpuShader
 {
   ID3DBlob* d3d12_shader = nullptr;
   u32       generation   = 0;
+
   u32       __padding__  = 0;
+  // Used by aftermath for diagnosing GPU crashes
+  u64       hash         = 0;
 };
 
 GpuShader load_shader_from_file  (const GpuDevice* device, const wchar_t* path);
@@ -864,9 +867,12 @@ struct GpuProfiler
 
 struct GpuDevice
 {
-  ID3D12Device6*          d3d12            = nullptr;
-  IDXGIDebug*             d3d12_debug      = nullptr;
+  ID3D12Device6*          d3d12           = nullptr;
+  IDXGIDebug*             dxgi_debug      = nullptr;
+  u32                     flags;
+
   ID3D12InfoQueue1*       d3d12_info_queue = nullptr;
+  IDXGIInfoQueue*         dxgi_info_queue  = nullptr;
 
   ID3D12CommandSignature* d3d12_multi_draw_indirect_signature         = nullptr;
   ID3D12CommandSignature* d3d12_multi_draw_indirect_indexed_signature = nullptr;
@@ -883,15 +889,23 @@ struct GpuDevice
   CmdListAllocator        compute_cmd_allocator;
   CmdQueue                copy_queue;
   CmdListAllocator        copy_cmd_allocator;
+
 };
-void init_gpu_device(HWND window);
+
+enum GpuDeviceFlags : u32
+{
+  kGpuFlagsEnableValidationLayers = 0x1 << 0,
+  kGpuFlagsEnableGpuValidation    = 0x1 << 1,
+};
+
+void init_gpu_device(HWND window, u32 flags);
 void destroy_gpu_device();
 
 void wait_for_gpu_device_idle(GpuDevice* device);
 
-void begin_gpu_profiler_timestamp(const CmdList& cmd_buffer, const char* name);
-void end_gpu_profiler_timestamp(const CmdList& cmd_buffer, const char* name);
-f64  query_gpu_profiler_timestamp(const char* name);
+void begin_gpu_profiler_timestamp(const CmdList& cmd_buffer, STRING_LITERAL const char* name);
+void end_gpu_profiler_timestamp(const CmdList& cmd_buffer, STRING_LITERAL const char* name);
+f64  query_gpu_profiler_timestamp(STRING_LITERAL const char* name);
 
 struct SwapChain
 {

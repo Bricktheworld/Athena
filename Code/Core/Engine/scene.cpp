@@ -22,8 +22,6 @@ struct Scene
   Camera             camera;
   DirectionalLight   directional_light;
 
-  GpuBvh             bvh;
-
   // Updated by the render handlers
   u32                blas_instance_count;
 };
@@ -345,21 +343,16 @@ struct BuildTlasParams
 static void
 render_handler_build_tlas(RenderContext* ctx, const RenderSettings&, const void* data)
 {
+  UNREFERENCED_PARAMETER(ctx);
+
   BuildTlasParams* params = (BuildTlasParams*)data;
 
   u32 instance_count = g_Scene->gpu_scene_obj_allocator.allocated_count;
 
   static bool s_WasInitialized = false;
 
-  if (s_WasInitialized)
-  {
-    g_TlasReady = true;
-  }
-
-  u32 build_flags = s_WasInitialized ? kGpuRtasBuildIncremental : 0;
-  (void)build_flags;
+  // u32 build_flags = s_WasInitialized ? kGpuRtasBuildIncremental : 0;
   ctx->build_tlas(params->dst, params->scratch, params->instances, instance_count, 0);
-
 
   if (!s_WasInitialized)
   {
@@ -425,6 +418,7 @@ init_scene_gpu_upload_pass(AllocHeap heap, RgBuilder* builder)
 void
 build_acceleration_structures()
 {
+#if 0
   g_Scene->bvh = init_gpu_bvh(
     g_GpuDevice,
     g_UnifiedGeometryBuffer.vertex_buffer,
@@ -434,6 +428,7 @@ build_acceleration_structures()
     0, // (u32)g_UnifiedGeometryBuffer.index_buffer_pos / sizeof(u16),
     "Scene Acceleration Structure"
   );
+#endif
 
   // TODO(bshihabi): This shouldn't live here...
 }

@@ -185,10 +185,12 @@ Nits3 sample_indirect_luminance(float3 ws_pos, float3 normal, float3 diffuse, Te
       u32    probe_idx              = diffuse_gi_page_table[tex_coord];
       DiffuseGiProbe probe          = diffuse_gi_probes[probe_idx];
 
+#if 0
       if (probe.backface_percentage > 0.4)
       {
         weight = 0.0f;
       }
+#endif
 
       if (debug_draw_sampled_probes && weight > 0)
       {

@@ -310,7 +310,7 @@ launch_job(JobSystem* job_system, JobDesc job, bool can_yield = true)
   scratch_arena.size = DEFAULT_SCRATCH_SIZE;
   scratch_arena.pos = scratch_arena.start;
 
-  Context ctx = init_context(scratch_arena);
+  Context ctx = init_thread_context();
 
   Fiber fiber = init_fiber(stack->memory, STACK_SIZE, job.entry.func_ptr, job.entry.params + job.entry.param_offset);
   tls_fiber = &fiber;

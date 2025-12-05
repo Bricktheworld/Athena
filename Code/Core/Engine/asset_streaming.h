@@ -70,8 +70,10 @@ struct ModelMetadata
 
 struct AssetDesc
 {
-  AssetType  type  = AssetType::kModel;
-  AssetState state = kAssetUnloaded;
+  AssetType  type       = AssetType::kModel;
+  AssetState state      = kAssetUnloaded;
+  bool       needs_init = false;
+
   union
   {
     ModelMetadata model;
@@ -85,6 +87,7 @@ struct AssetDesc
   };
 };
 
+// GpuStreamDevice is responsible for copying stuff to the GPU asynchronously
 struct GpuStreamInFlight
 {
   IDStorageFile* file        = nullptr;
@@ -104,6 +107,22 @@ struct GpuStreamDevice
 };
 
 
+// GpuBuildDevice is responsible for any building tasks on the GPU
+struct GpuBuildInFlight
+{
+  AssetId    asset_id    = 0;
+  FenceValue fence_value = 0;
+};
+
+struct GpuBuildDevice
+{
+  GpuFence                    build_queue_fence;
+                              
+  RingQueue<GpuBuildInFlight> in_flight_rquests;
+  RingQueue<AssetId>          asset_built_streams;
+};
+
+
 
 enum GpuStreamResult
 {
@@ -118,4 +137,5 @@ THREAD_SAFE Result<const GpuTexture*,    AssetState> get_gpu_model_asset(AssetId
 THREAD_SAFE Result<const GpuTexture*,    AssetState> get_gpu_texture_asset(AssetId asset_id);
 THREAD_SAFE Result<Texture2DPtr<float4>, AssetState> get_srv_texture_asset(AssetId asset_id);
 THREAD_SAFE Result<const ModelMetadata*, AssetState> get_model_asset      (AssetId asset_id);
+THREAD_SAFE bool                                     is_model_bvh_built   (AssetId asset_id);
 THREAD_SAFE Result<const MaterialData*,  AssetState> get_material_asset   (AssetId asset_id);

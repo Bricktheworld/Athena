@@ -1,5 +1,7 @@
 #include "Core/Foundation/context.h"
 #include "Core/Foundation/colors.h"
+#include "Core/Foundation/filesystem.h"
+#include "Core/Foundation/assets.h"
 
 #include "Core/Engine/memory.h"
 #include "Core/Engine/job_system.h"
@@ -13,6 +15,8 @@
 #include "Core/Engine/Vendor/imgui/imgui_impl_dx12.h"
 
 #include "Core/Engine/Vendor/NVAftermath/GFSDK_Aftermath.h"
+#include "Core/Engine/Vendor/NVAftermath/GFSDK_Aftermath_GpuCrashDump.h"
+#include "Core/Engine/Vendor/NVAftermath/GFSDK_Aftermath_GpuCrashDumpDecoding.h"
 
 #include <d3dcompiler.h>
 
@@ -23,8 +27,6 @@
 
 extern "C" { __declspec(dllexport) extern const UINT D3D12SDKVersion = 614;}
 extern "C" { __declspec(dllexport) extern const char* D3D12SDKPath = "."; }
-
-#define AFTERMATH_ASSERT(expr) ASSERT_MSG_FATAL(GFSDK_Aftermath_SUCCEED(expr), "Aftermath call failed.");
 
 #if defined(DEBUG)
 #define DEBUG_LAYER
@@ -475,6 +477,7 @@ gpu_linear_alloc(void* allocator, u32 size, u32 alignment)
 
   return ret;
 }
+
 static void
 init_gpu_profiler(void)
 {
@@ -661,49 +664,226 @@ init_d3d12_indirect(GpuDevice* device)
   }
 }
 
-static void
-init_aftermath()
+struct AftermathManager
 {
-  AFTERMATH_ASSERT(
-    GFSDK_Aftermath_EnableGpuCrashDumps(
-      GFSDK_Aftermath_Version_API,
-      GFSDK_Aftermath_GpuCrashDumpWatchedApiFlags_DX,
-      GFSDK_Aftermath_GpuCrashDumpFeatureFlags_Default,   // Default behavior.
-      GpuCrashDumpCallback,                               // Register callback for GPU crash dumps.
-      ShaderDebugInfoCallback,                            // Register callback for shader debug information.
-      CrashDumpDescriptionCallback,                       // Register callback for GPU crash dump description.
-      ResolveMarkerCallback,                              // Register callback for marker resolution (R495 or later NVIDIA graphics driver).
-      &m_gpuCrashDumpTracker
-    )
-  ); 
+  HashTable<u64, D3D12_SHADER_BYTECODE> shader_database;
+  LinearAllocator                                                    allocator;
 
-  AFTERMATH_ASSERT(
-    GFSDK_Aftermath_DX12_Initialize()
+  char   crash_dump_path[kMaxPathLength];
+  void*  crash_dump;
+  u32    crash_dump_size;
+
+};
+
+static AftermathManager* g_AftermathManager = nullptr;
+
+static bool
+register_aftermath_shader(const u8* src, size_t size)
+{
+  AftermathManager* aftermath = g_AftermathManager;
+  // Can't register more than some maximum number of shaders
+  if (aftermath->shader_database.used == aftermath->shader_database.capacity)
+  {
+    dbgln("AFTERMATH: Shader Database maximum entries allowed! %llu", aftermath->shader_database.capacity);
+    return false;
+  }
+
+  // Can't allocate the buffer, not catastrophic but just no crash info
+  if (size >= available_memory(&aftermath->allocator))
+  {
+    dbgln("AFTERMATH: Attempted to allocate %llu bytes from aftermath allocator but only %llu available.", size, available_memory(&aftermath->allocator));
+    return false;
+  }
+
+  u8* bytecode_buffer = HEAP_ALLOC_ALIGNED((AllocHeap)aftermath->allocator, size, alignof(u32));
+  memcpy(bytecode_buffer, src, size);
+
+  D3D12_SHADER_BYTECODE bytecode;
+  bytecode.pShaderBytecode = bytecode_buffer;
+  bytecode.BytecodeLength  = size;
+
+  GFSDK_Aftermath_ShaderBinaryHash aftermath_hash;
+  GFSDK_Aftermath_GetShaderHash(GFSDK_Aftermath_Version_API, &bytecode, &aftermath_hash);
+
+  *hash_table_insert(&aftermath->shader_database, aftermath_hash.hash) = bytecode;
+
+  return true;
+}
+
+// This should be called before any D3D12 devices are initialized
+static void
+enable_aftermath_gpu_crash_dumps()
+{
+  g_AftermathManager = HEAP_ALLOC(AftermathManager, g_InitHeap, 1);
+  zero_memory(g_AftermathManager->crash_dump_path, sizeof(g_AftermathManager->crash_dump_path));
+  g_AftermathManager->crash_dump      = nullptr;
+  g_AftermathManager->crash_dump_size = 0;
+
+  static u32 kAftermathHeapSize = MiB(4);
+
+  g_AftermathManager->allocator       = init_linear_allocator(HEAP_ALLOC_ALIGNED(g_InitHeap, kAftermathHeapSize, 16), kAftermathHeapSize);
+  // The shader database should be aware of 
+  g_AftermathManager->shader_database = init_hash_table<u64, D3D12_SHADER_BYTECODE>(g_AftermathManager->allocator, 1024);
+
+  auto gpu_crash_dump_callback = [](const void* gpu_crash_dump, const u32 gpu_crash_dump_size, void* user)
+  {
+    AftermathManager* manager = (AftermathManager*)user;
+
+    for (auto [hash, bytecode] : manager->shader_database)
+    {
+      char path[kMaxPathLength];
+      snprintf(path, sizeof(path), "GpuDumps/Shaders/shader-%llu.cso", hash);
+
+      Result<FileStream, FileError> res = create_file(path, kCreateTruncateExisting);
+      if (!res)
+      {
+        dbgln("AFTERMATH ERROR: Failed to create shader bytecode file %s: %s", path, file_error_to_str(res.error()));
+        continue;
+      }
+
+      FileStream file = res.value();
+      defer { close_file(&file); };
+
+      write_file(file, bytecode.pShaderBytecode, bytecode.BytecodeLength);
+    }
+
+    // TODO(bshihabi): make this platform independent
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+
+    snprintf(
+      manager->crash_dump_path,
+      sizeof(manager->crash_dump_path),
+      "GpuDumps/%04d-%02d-%02d_%02d-%02d-%02d.nv-gpudmp",
+      st.wYear,
+      st.wMonth,
+      st.wDay,
+      st.wHour,
+      st.wMinute,
+      st.wSecond
+    );
+
+    manager->crash_dump_size = gpu_crash_dump_size;
+    manager->crash_dump      = reserve_commit_pages(gpu_crash_dump_size);
+    if (manager->crash_dump)
+    {
+      memcpy(manager->crash_dump, gpu_crash_dump, manager->crash_dump_size);
+    }
+    else
+    {
+      dbgln("Failed to allocate pages for GPU crash dump of size %u in memory!", manager->crash_dump_size);
+    }
+
+    Result<FileStream, FileError> res = create_file(manager->crash_dump_path, 0);
+    if (!res)
+    {
+      ASSERT_MSG_FATAL(false, "GPU Crash Dump failed to create file! %s", file_error_to_str(res.error()));
+      return;
+    }
+
+    FileStream file = res.value();
+    defer { close_file(&file); };
+
+    write_file(file, gpu_crash_dump, gpu_crash_dump_size);
+  };
+
+  auto shader_debug_info_callback = [](const void* shader_debug_info, const u32 shader_debug_info_size, void*)
+  {
+    GFSDK_Aftermath_ShaderDebugInfoIdentifier identifier;
+    GFSDK_Aftermath_Result result = GFSDK_Aftermath_GetShaderDebugInfoIdentifier(GFSDK_Aftermath_Version_API, shader_debug_info, shader_debug_info_size, &identifier);
+    if (!GFSDK_Aftermath_SUCCEED(result))
+    {
+      dbgln("AFTERMATH ERROR: Failed to get shader debug info identifier!");
+    }
+    else
+    {
+      char path[kMaxPathLength];
+      snprintf(path, sizeof(path), "GpuDumps/Shaders/shader-%llu-%llu.nvdbg", identifier.id[0], identifier.id[1]);
+
+      Result<FileStream, FileError> res = create_file(path, kCreateTruncateExisting);
+      if (!res)
+      {
+        dbgln("AFTERMATH ERROR: Failed to create shader debug file %s: %s", path, file_error_to_str(res.error()));
+        return;
+      }
+
+      FileStream file = res.value();
+      defer { close_file(&file); };
+
+      write_file(file, shader_debug_info, shader_debug_info_size);
+    }
+  };
+
+
+  GFSDK_Aftermath_Result res = GFSDK_Aftermath_EnableGpuCrashDumps(
+    GFSDK_Aftermath_Version_API,
+    GFSDK_Aftermath_GpuCrashDumpWatchedApiFlags_DX,
+    GFSDK_Aftermath_GpuCrashDumpFeatureFlags_Default,   // Default behavior.
+    gpu_crash_dump_callback,                            // Register callback for GPU crash dumps.
+    shader_debug_info_callback,                         // Register callback for shader debug information.
+    nullptr,                                            // Register callback for GPU crash dump description.
+    nullptr,                                            // Register callback for marker resolution (R495 or later NVIDIA graphics driver).
+    g_AftermathManager
   );
+  ASSERT_MSG_FATAL(GFSDK_Aftermath_SUCCEED(res), "Aftermath failed to enable GPU crash dumps!");
 }
 
 static void
-destroy_aftermath()
+init_aftermath(GpuDevice* device)
 {
+  u32 flags = GFSDK_Aftermath_FeatureFlags_EnableMarkers           |
+              GFSDK_Aftermath_FeatureFlags_CallStackCapturing      |
+              GFSDK_Aftermath_FeatureFlags_EnableResourceTracking  |
+              GFSDK_Aftermath_FeatureFlags_GenerateShaderDebugInfo |
+              GFSDK_Aftermath_FeatureFlags_EnableShaderErrorReporting;
+  GFSDK_Aftermath_Result res = GFSDK_Aftermath_DX12_Initialize(
+    GFSDK_Aftermath_Version_API,
+    flags,
+    device->d3d12
+  );
+  ASSERT_MSG_FATAL(GFSDK_Aftermath_SUCCEED(res), "Aftermath failed to initialize DX12");
 }
 
 void
-init_gpu_device(HWND window)
+init_gpu_device(HWND window, u32 flags)
 {
   if (g_GpuDevice == nullptr)
   {
     g_GpuDevice = HEAP_ALLOC(GpuDevice, g_InitHeap, 1);
   }
 
-#ifdef DEBUG_LAYER
-  init_aftermath();
+  g_GpuDevice->flags = flags;
+
+#if !defined(DEBUG_LAYER)
+  ASSERT_MSG_FATAL((flags & kGpuFlagsEnableValidationLayers) == 0, "Debug layers not supported! Make sure that you are compiling in debug mode with DEBUG_LAYERS macro enabled in graphics.cpp");
 #endif
 
-#ifdef DEBUG_LAYER
-  ID3D12Debug* debug_interface = nullptr;
-  HASSERT(D3D12GetDebugInterface(IID_PPV_ARGS(&debug_interface)));
-  debug_interface->EnableDebugLayer();
-  defer { COM_RELEASE(debug_interface); };
+  enable_aftermath_gpu_crash_dumps();
+
+#if defined(DEBUG_LAYER)
+  if (flags & kGpuFlagsEnableValidationLayers)
+  {
+    ID3D12Debug*  debug_interface  = nullptr;
+    HASSERT(D3D12GetDebugInterface(IID_PPV_ARGS(&debug_interface)));
+    debug_interface->EnableDebugLayer();
+    defer { COM_RELEASE(debug_interface); };
+
+    // Enable DRED
+    ID3D12DeviceRemovedExtendedDataSettings1* dred_settings = nullptr;
+    HASSERT(D3D12GetDebugInterface(IID_PPV_ARGS(&dred_settings)));
+
+    dred_settings->SetAutoBreadcrumbsEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+    dred_settings->SetPageFaultEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+
+    if (flags & kGpuFlagsEnableGpuValidation)
+    {
+      ID3D12Debug1* debug_interface1 = nullptr;
+      HASSERT(debug_interface->QueryInterface(IID_PPV_ARGS(&debug_interface1)));
+      debug_interface1->SetEnableGPUBasedValidation(true);
+    }
+
+    PIXLoadLatestWinPixGpuCapturerLibrary();
+  }
 #endif
 
   IDXGIFactory7* factory = init_factory();
@@ -741,21 +921,29 @@ init_gpu_device(HWND window)
   init_gpu_profiler();
 
 #ifdef DEBUG_LAYER
-  HASSERT(DXGIGetDebugInterface1(0, IID_PPV_ARGS(&g_GpuDevice->d3d12_debug)));
-  HASSERT(g_GpuDevice->d3d12->QueryInterface(IID_PPV_ARGS(&g_GpuDevice->d3d12_info_queue)));
-  g_GpuDevice->d3d12_info_queue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, true);
-  g_GpuDevice->d3d12_info_queue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR,      true);
-  g_GpuDevice->d3d12_info_queue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING,    true);
-  g_GpuDevice->d3d12_info_queue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_INFO,       true);
+  if (flags & kGpuFlagsEnableValidationLayers)
+  {
+    HASSERT(DXGIGetDebugInterface1(0, IID_PPV_ARGS(&g_GpuDevice->dxgi_debug)));
+    HASSERT(g_GpuDevice->d3d12->QueryInterface(IID_PPV_ARGS(&g_GpuDevice->d3d12_info_queue)));
+    HASSERT(g_GpuDevice->d3d12_info_queue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, true));
+    HASSERT(g_GpuDevice->d3d12_info_queue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR,      true));
+    HASSERT(g_GpuDevice->d3d12_info_queue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING,    true));
+    HASSERT(g_GpuDevice->d3d12_info_queue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_INFO,       true));
 
-  PIXLoadLatestWinPixGpuCapturerLibrary();
+    HASSERT(DXGIGetDebugInterface1(0, IID_PPV_ARGS(&g_GpuDevice->dxgi_info_queue)));
 
-  ID3D12DeviceRemovedExtendedDataSettings1* dred_settings = nullptr;
-  HASSERT(D3D12GetDebugInterface(IID_PPV_ARGS(&dred_settings)));
-
-
-  dred_settings->SetAutoBreadcrumbsEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
-  dred_settings->SetPageFaultEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+    // We don't want these to break because it makes it confusing. We just want the crash to be handled by aftermath and dred and caught during that one spot in present
+    HASSERT(g_GpuDevice->d3d12_info_queue->SetBreakOnID(D3D12_MESSAGE_ID_DEVICE_REMOVAL_PROCESS_AT_FAULT,          false));
+    HASSERT(g_GpuDevice->d3d12_info_queue->SetBreakOnID(D3D12_MESSAGE_ID_DEVICE_REMOVAL_PROCESS_POSSIBLY_AT_FAULT, false));
+    HASSERT(g_GpuDevice->d3d12_info_queue->SetBreakOnID(D3D12_MESSAGE_ID_DEVICE_REMOVAL_PROCESS_NOT_AT_FAULT,      false));
+  }
+  else
+  {
+    // If there are debug layers enabled, then we can't enable full aftermath support...
+    init_aftermath(g_GpuDevice);
+  }
+#else
+  init_aftermath(g_GpuDevice);
 #endif
 }
 
@@ -1581,6 +1769,9 @@ load_shader_from_memory(const GpuDevice* device, const u8* src, size_t size)
   memcpy(ret.d3d12_shader->GetBufferPointer(), src, size);
 
   init_root_signature(device, ret.d3d12_shader);
+
+  register_aftermath_shader(src, size);
+
   return ret;
 }
 
@@ -1598,6 +1789,7 @@ destroy_shader(GpuShader* shader)
 {
   COM_RELEASE(shader->d3d12_shader);
 }
+
 
 static D3D12_PRIMITIVE_TOPOLOGY_TYPE
 get_d3d12_primitive_topology(PrimitiveTopologyType type)
@@ -2279,6 +2471,59 @@ swap_chain_wait_latency(SwapChain* swap_chain)
   prev_stats = stats;
 }
 
+static const char* kD3D12DredBreadcrumbOpToString[] =
+{
+  "D3D12_AUTO_BREADCRUMB_OP_SETMARKER",
+  "D3D12_AUTO_BREADCRUMB_OP_BEGINEVENT",
+  "D3D12_AUTO_BREADCRUMB_OP_ENDEVENT",
+  "D3D12_AUTO_BREADCRUMB_OP_DRAWINSTANCED",
+  "D3D12_AUTO_BREADCRUMB_OP_DRAWINDEXEDINSTANCED",
+  "D3D12_AUTO_BREADCRUMB_OP_EXECUTEINDIRECT",
+  "D3D12_AUTO_BREADCRUMB_OP_DISPATCH",
+  "D3D12_AUTO_BREADCRUMB_OP_COPYBUFFERREGION",
+  "D3D12_AUTO_BREADCRUMB_OP_COPYTEXTUREREGION",
+  "D3D12_AUTO_BREADCRUMB_OP_COPYRESOURCE",
+  "D3D12_AUTO_BREADCRUMB_OP_COPYTILES",
+  "D3D12_AUTO_BREADCRUMB_OP_RESOLVESUBRESOURCE",
+  "D3D12_AUTO_BREADCRUMB_OP_CLEARRENDERTARGETVIEW",
+  "D3D12_AUTO_BREADCRUMB_OP_CLEARUNORDEREDACCESSVIEW",
+  "D3D12_AUTO_BREADCRUMB_OP_CLEARDEPTHSTENCILVIEW",
+  "D3D12_AUTO_BREADCRUMB_OP_RESOURCEBARRIER",
+  "D3D12_AUTO_BREADCRUMB_OP_EXECUTEBUNDLE",
+  "D3D12_AUTO_BREADCRUMB_OP_PRESENT",
+  "D3D12_AUTO_BREADCRUMB_OP_RESOLVEQUERYDATA",
+  "D3D12_AUTO_BREADCRUMB_OP_BEGINSUBMISSION",
+  "D3D12_AUTO_BREADCRUMB_OP_ENDSUBMISSION",
+  "D3D12_AUTO_BREADCRUMB_OP_DECODEFRAME",
+  "D3D12_AUTO_BREADCRUMB_OP_PROCESSFRAMES",
+  "D3D12_AUTO_BREADCRUMB_OP_ATOMICCOPYBUFFERUINT",
+  "D3D12_AUTO_BREADCRUMB_OP_ATOMICCOPYBUFFERUINT64",
+  "D3D12_AUTO_BREADCRUMB_OP_RESOLVESUBRESOURCEREGION",
+  "D3D12_AUTO_BREADCRUMB_OP_WRITEBUFFERIMMEDIATE",
+  "D3D12_AUTO_BREADCRUMB_OP_DECODEFRAME1",
+  "D3D12_AUTO_BREADCRUMB_OP_SETPROTECTEDRESOURCESESSION",
+  "D3D12_AUTO_BREADCRUMB_OP_DECODEFRAME2",
+  "D3D12_AUTO_BREADCRUMB_OP_PROCESSFRAMES1",
+  "D3D12_AUTO_BREADCRUMB_OP_BUILDRAYTRACINGACCELERATIONSTRUCTURE",
+  "D3D12_AUTO_BREADCRUMB_OP_EMITRAYTRACINGACCELERATIONSTRUCTUREPOSTBUILDINFO",
+  "D3D12_AUTO_BREADCRUMB_OP_COPYRAYTRACINGACCELERATIONSTRUCTURE",
+  "D3D12_AUTO_BREADCRUMB_OP_DISPATCHRAYS",
+  "D3D12_AUTO_BREADCRUMB_OP_INITIALIZEMETACOMMAND",
+  "D3D12_AUTO_BREADCRUMB_OP_EXECUTEMETACOMMAND",
+  "D3D12_AUTO_BREADCRUMB_OP_ESTIMATEMOTION",
+  "D3D12_AUTO_BREADCRUMB_OP_RESOLVEMOTIONVECTORHEAP",
+  "D3D12_AUTO_BREADCRUMB_OP_SETPIPELINESTATE1",
+  "D3D12_AUTO_BREADCRUMB_OP_INITIALIZEEXTENSIONCOMMAND",
+  "D3D12_AUTO_BREADCRUMB_OP_EXECUTEEXTENSIONCOMMAND",
+  "D3D12_AUTO_BREADCRUMB_OP_DISPATCHMESH",
+  "D3D12_AUTO_BREADCRUMB_OP_ENCODEFRAME",
+  "D3D12_AUTO_BREADCRUMB_OP_RESOLVEENCODEROUTPUTMETADATA",
+  "D3D12_AUTO_BREADCRUMB_OP_BARRIER",
+  "D3D12_AUTO_BREADCRUMB_OP_BEGIN_COMMAND_LIST",
+  "D3D12_AUTO_BREADCRUMB_OP_DISPATCHGRAPH",
+  "D3D12_AUTO_BREADCRUMB_OP_SETPROGRAM"
+};
+
 void
 swap_chain_submit(SwapChain* swap_chain, const GpuDevice* device, const GpuTexture* rtv)
 {
@@ -2290,7 +2535,126 @@ swap_chain_submit(SwapChain* swap_chain, const GpuDevice* device, const GpuTextu
 
   u32 sync_interval = swap_chain->vsync ? 1 : 0;
   u32 present_flags = swap_chain->tearing_supported && !swap_chain->vsync ? DXGI_PRESENT_ALLOW_TEARING : 0;
-  HASSERT(swap_chain->d3d12_swap_chain->Present(sync_interval, present_flags));
+  HRESULT res = swap_chain->d3d12_swap_chain->Present(sync_interval, present_flags);
+  if (res == DXGI_ERROR_DEVICE_REMOVED || res == DXGI_ERROR_DEVICE_RESET )
+  {
+    GFSDK_Aftermath_CrashDump_Status status;
+    GFSDK_Aftermath_GetCrashDumpStatus(&status);
+    dbgln("GPU Device removed!! Waiting for Aftermath to generate crash dump...");
+    // Wait for timeout
+    while (status != GFSDK_Aftermath_CrashDump_Status_Finished)
+    {
+      _mm_pause();
+      _mm_pause();
+      _mm_pause();
+      _mm_pause();
+    }
+
+
+    dbgln("================ GPU Crash Dump: %s ================", g_AftermathManager->crash_dump_path);
+    if (device->flags & kGpuFlagsEnableValidationLayers)
+    {
+      dbgln("  NOTE: Aftermath crash information information is limited due to incompatibility of NVIDIA Aftermath and D3D12 validation layers.\n  Please run without -d3ddebug commandline args to get more information. Using DRED information instead.");
+      ID3D12DeviceRemovedExtendedData2* dred = nullptr;
+      HASSERT(device->d3d12->QueryInterface(IID_PPV_ARGS(&dred)));
+
+      D3D12_DRED_DEVICE_STATE state = dred->GetDeviceState();
+      switch (state)
+      {
+        case D3D12_DRED_DEVICE_STATE_HUNG:      dbgln("  GPU Device State: Hung");       break;
+        case D3D12_DRED_DEVICE_STATE_FAULT:     dbgln("  GPU Device State: Fault");      break;
+        case D3D12_DRED_DEVICE_STATE_PAGEFAULT: dbgln("  GPU Device State: Page Fault"); break;
+        case D3D12_DRED_DEVICE_STATE_UNKNOWN:   dbgln("  GPU Device State: Unknown");    break;
+      }
+
+      D3D12_DRED_AUTO_BREADCRUMBS_OUTPUT1 breadcrumbs;
+      D3D12_DRED_PAGE_FAULT_OUTPUT1       page_fault;
+      HASSERT(dred->GetAutoBreadcrumbsOutput1(&breadcrumbs));
+      HASSERT(dred->GetPageFaultAllocationOutput1(&page_fault));
+
+      dbgln("  GPU Page Fault at 0x%016llx", page_fault.PageFaultVA);
+      dbgln("    Allocated Resources:");
+
+      
+      for (const D3D12_DRED_ALLOCATION_NODE1* node = page_fault.pHeadExistingAllocationNode; node != nullptr; node = node->pNext)
+      {
+        dbgln("      %s", node->ObjectNameA);
+      }
+
+      dbgln("    Recently Freed Resources:");
+      for (const D3D12_DRED_ALLOCATION_NODE1* node = page_fault.pHeadRecentFreedAllocationNode; node != nullptr; node = node->pNext)
+      {
+        dbgln("      %s", node->ObjectNameA);
+      }
+
+      for (const D3D12_AUTO_BREADCRUMB_NODE1* node = breadcrumbs.pHeadAutoBreadcrumbNode; node != nullptr; node = node->pNext)
+      {
+        dbgln("  CmdList breadcrumbs: ");
+        for (u32 ibreadcrumb = 0; ibreadcrumb < node->BreadcrumbCount; ibreadcrumb++)
+        {
+          if (*node->pLastBreadcrumbValue == 0)
+          {
+            continue;
+          }
+
+          D3D12_AUTO_BREADCRUMB_OP op = node->pCommandHistory[ibreadcrumb];
+          if (ibreadcrumb == *node->pLastBreadcrumbValue)
+          {
+            dbgln("   -> %s", kD3D12DredBreadcrumbOpToString[op]);
+          }
+          else
+          {
+            dbgln("      %s", kD3D12DredBreadcrumbOpToString[op]);
+          }
+        }
+      }
+    }
+    else
+    {
+      GFSDK_Aftermath_PageFaultInformation page_fault_info{0};
+      GFSDK_Aftermath_GetPageFaultInformation(&page_fault_info);
+      if (page_fault_info.bHasPageFaultOccured)
+      {
+        dbgln("  GPU Page Fault at 0x%016llx", page_fault_info.faultingGpuVA);
+        dbgln("  Resource Size: %llu", page_fault_info.resourceDesc.size);
+        dbgln("  Resource Was Destroyed: %u", page_fault_info.resourceDesc.bWasDestroyed);
+      }
+
+#if 0
+      if (g_AftermathManager->crash_dump != nullptr && g_AftermathManager->crash_dump_size > 0)
+      {
+        GFSDK_Aftermath_GpuCrashDump_Decoder* decoder = nullptr;
+        GFSDK_Aftermath_Result res = GFSDK_Aftermath_GpuCrashDump_CreateDecoder(GFSDK_Aftermath_Version_API, g_AftermathManager->crash_dump, g_AftermathManager->crash_dump_size, &decoder);
+        if (GFSDK_Aftermath_SUCCEED(res))
+        {
+          u32 active_shader_count = 0;
+          res = GFSDK_Aftermath_GpuCrashDump_GetActiveShadersInfoCount(decoder, &active_shader_count);
+          if (GFSDK_Aftermath_SUCCEED(res))
+          {
+            static constexpr u32 kMaxActiveShaders = 1024;
+            GFSDK_Aftermath_GpuCrashDump_ShaderInfo active_shaders[];
+            GFSDK_Aftermath_GpuCrashDump_GetActiveShadersInfo(dcoder, );
+          }
+          else
+          {
+            dbgln("Failed to get active shaders info count! %u");
+          }
+        }
+        else
+        {
+          dbgln("AFTERMATH: Failed to create decoder for crash dump! %u", res);
+        }
+      }
+#endif
+    }
+
+    ASSERT_MSG_FATAL(false, "GPU Crash Occurred!");
+  }
+  else
+  {
+    HASSERT(res);
+  }
+
 
   swap_chain->back_buffer_index = swap_chain->d3d12_swap_chain->GetCurrentBackBufferIndex();
 }

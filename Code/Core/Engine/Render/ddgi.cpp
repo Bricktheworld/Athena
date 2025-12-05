@@ -67,7 +67,7 @@ render_handler_probe_trace_rays(RenderContext* ctx, const RenderSettings& settin
 {
   if (!g_TlasReady)
   {
-    return;
+    // return;
   }
 
   if (settings.disable_diffuse_gi)

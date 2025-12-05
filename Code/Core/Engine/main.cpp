@@ -34,7 +34,10 @@ ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
 
 Window*      g_MainWindow  = nullptr;
 
-static bool g_EnableFullscreen = false;
+// TODO(bshihabi): Move these elsewhere or into a single struct
+static bool g_EnableFullscreen       = false;
+static bool g_EnableValidationLayers = false;
+static bool g_EnableGpuValidation    = false;
 
 LRESULT CALLBACK
 window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM lparam) 
@@ -151,7 +154,18 @@ application_entry(HINSTANCE instance, int show_code)
   ShowWindow(window, show_code);
   UpdateWindow(window);
 
-  init_gpu_device(window);
+  u32 gpu_flags = 0;
+  if (g_EnableValidationLayers)
+  {
+    gpu_flags |= kGpuFlagsEnableValidationLayers;
+  }
+
+  if (g_EnableGpuValidation)
+  {
+    gpu_flags |= kGpuFlagsEnableGpuValidation;
+  }
+
+  init_gpu_device(window, gpu_flags);
   defer { destroy_gpu_device(); };
 
   init_asset_loader();
@@ -229,6 +243,9 @@ application_entry(HINSTANCE instance, int show_code)
     }
     break;
   }
+
+  // TODO(bshihabi): Remove this... It is temporary for BVH building
+  wait_for_gpu_device_idle(g_GpuDevice);
   build_acceleration_structures();
 
 
@@ -405,6 +422,14 @@ WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, int show_code
     {
       g_EnableFullscreen = true;
     }
+    else if (_stricmp(argv[iopt], "-d3ddebug") == 0)
+    {
+      g_EnableValidationLayers = true;
+    }
+    else if (_stricmp(argv[iopt], "-gpu_validation") == 0)
+    {
+      g_EnableGpuValidation = true;
+    }
   }
 
   set_current_thread_name(L"Athena Main");
@@ -414,7 +439,7 @@ WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, int show_code
   init_engine_memory();
   defer { destroy_engine_memory(); };
 
-  init_context(g_InitHeap, g_OverflowHeap);
+  init_thread_context();
 
   application_entry(instance, show_code);
 

@@ -952,12 +952,32 @@ compile_render_graph(AllocHeap heap, const RgBuilder& builder, RenderGraphDestro
 
   for (const RgPassBuilder& pass_builder : builder.render_passes)
   {
-    RenderPass* dst     = array_add(&g_RenderGraph->render_passes);
+    RenderPass* dst          = array_add(&g_RenderGraph->render_passes);
     dst->handler             = pass_builder.handler;
     dst->data                = pass_builder.data;
     dst->name                = pass_builder.name;
     dst->is_grv_barrier_pass = pass_builder.is_grv_barrier;
     dst->grv_idx             = pass_builder.grv_idx;
+  }
+
+  for (RgDependencyLevel& dependency_level : g_RenderGraph->dependency_levels)
+  {
+    if (dependency_level.render_passes.size > 1)
+    {
+      continue;
+    }
+
+    bool has_non_grv_pass = false;
+    for (RenderPassId pass_id : dependency_level.render_passes)
+    {
+      if (!g_RenderGraph->render_passes[pass_id].is_grv_barrier_pass)
+      {
+        has_non_grv_pass = true;
+        break;
+      }
+    }
+
+    dependency_level.has_non_grv_pass = has_non_grv_pass;
   }
 
   if (flags & kRgDestroyResourceHeaps)

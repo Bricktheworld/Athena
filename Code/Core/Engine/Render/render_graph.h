@@ -223,6 +223,7 @@ struct RgResourceBarrier
 
 struct RgDependencyLevel
 {
+  bool                     has_non_grv_pass;
   Array<RenderPassId>      render_passes;
   Array<RgResourceBarrier> barriers;
 };
@@ -335,7 +336,7 @@ RgPassBuilder* add_render_pass(
   AllocHeap heap,
   RgBuilder* builder,
   CmdQueueType queue,
-  const char* name,
+  STRING_LITERAL const char* name,
   void* data,
   RenderHandler* handler
 );
@@ -425,7 +426,7 @@ static constexpr u8 kInfiniteLifetime = 0xFF;
 
 RgHandle<GpuTexture> rg_create_texture(
   RgBuilder* builder,
-  const char* name,
+  STRING_LITERAL const char* name,
   u32 width,
   u32 height,
   GpuFormat format
@@ -433,7 +434,7 @@ RgHandle<GpuTexture> rg_create_texture(
 
 RgHandle<GpuTexture> rg_create_texture_ex(
   RgBuilder* builder,
-  const char* name,
+  STRING_LITERAL const char* name,
   u32 width,
   u32 height,
   GpuFormat format,
@@ -442,7 +443,7 @@ RgHandle<GpuTexture> rg_create_texture_ex(
 
 RgHandle<GpuTexture> rg_create_texture_array(
   RgBuilder* builder,
-  const char* name,
+  STRING_LITERAL const char* name,
   u32 width,
   u32 height,
   u16 array_size,
@@ -451,7 +452,7 @@ RgHandle<GpuTexture> rg_create_texture_array(
 
 RgHandle<GpuTexture> rg_create_texture_array_ex(
   RgBuilder* builder,
-  const char* name,
+  STRING_LITERAL const char* name,
   u32 width,
   u32 height,
   u16 array_size,
@@ -461,27 +462,27 @@ RgHandle<GpuTexture> rg_create_texture_array_ex(
 
 RgHandle<GpuBuffer> rg_create_buffer(
   RgBuilder* builder,
-  const char* name,
+  STRING_LITERAL const char* name,
   u32 size
 );
 
 RgHandle<GpuBuffer> rg_create_upload_buffer(
   RgBuilder* builder,
-  const char* name,
+  STRING_LITERAL const char* name,
   GpuHeapLocation location,
   u32 size
 );
 
 RgHandle<GpuBuffer> rg_create_buffer_ex(
   RgBuilder* builder,
-  const char* name,
+  STRING_LITERAL const char* name,
   u32 size,
   u8 temporal_lifetime
 );
 
 RgHandle<GpuRtTlas> rg_create_tlas(
   RgBuilder*  builder,
-  const char* name,
+  STRING_LITERAL const char* name,
   u32         max_instance_count,
   u32*        scratch_size
 );
@@ -494,13 +495,13 @@ struct RgHandleCountedBuffer
 
 RgHandleCountedBuffer rg_create_counted_buffer(
   RgBuilder*  builder,
-  const char* name,
+  STRING_LITERAL const char* name,
   u32         size
 );
 
 RgHandleCountedBuffer rg_create_counted_buffer_ex(
   RgBuilder*  builder,
-  const char* name,
+  STRING_LITERAL const char* name,
   u32         size,
   u8          temporal_lifetime
 );

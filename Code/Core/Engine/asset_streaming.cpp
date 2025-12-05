@@ -24,10 +24,13 @@ struct AssetLoader
   CmdQueue                                  async_compute_queue;
   CmdListAllocator                          cmd_list_allocator;
   GpuRingBuffer                             rtas_scratch_buffer;
+
+  GpuFence                                  async_compute_build_fence;
 };
 
 static AssetLoader*     g_AssetLoader      = nullptr;
 static GpuStreamDevice* g_GpuStreamDevice  = nullptr;
+static GpuBuildDevice*  g_GpuBuildDevice   = nullptr;
 
 static constexpr u32 kRtasScratchBufferMemory = MiB(4);
 static constexpr u32 kStagingBufferMemory     = MiB(32);
@@ -211,6 +214,11 @@ submit_gpu_stream_requests(void)
   }
 }
 
+static void
+submit_async_compute_requests()
+{
+}
+
 static void process_asset_loads(void);
 
 static u32
@@ -361,7 +369,7 @@ process_asset_loads(void)
       dbgln("Requested load for 0x%x", asset_id);
 
       AssetDesc* desc = hash_table_find(assets, asset_id);
-      ASSERT_MSG_FATAL(desc        != nullptr,             "Asset loader is in a bad state!");
+      ASSERT_MSG_FATAL(desc != nullptr, "Asset loader is in a bad state!");
       if (desc->state >= kAssetStreaming)
       {
         return;
@@ -553,9 +561,11 @@ process_asset_loads(void)
             index_start  += (u32)subsets[isubset].num_indices;
           }
 
-          // TODO(bshihabi): Can we do this in a batched way so that it's not a single command per cmd buffer?
           submit_cmd_lists(&g_AssetLoader->cmd_list_allocator, {cmd_list});
           cmd_queue_signal(&g_AssetLoader->async_compute_queue, &g_AssetLoader->rtas_scratch_buffer.fence);
+
+          // The GPU Build device is responsible for marking the asset as ready
+          desc->needs_init = true;
 
         } break;
         case AssetType::kTexture:
