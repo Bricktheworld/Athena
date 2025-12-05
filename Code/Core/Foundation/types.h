@@ -286,4 +286,6 @@ FOUNDATION_API void print_backtrace(const char* fmt, ...);
 
 #define UNREACHABLE ASSERT_MSG_FATAL(false, "Something that should never happen did! Check the code to see why this bug occurred."); __assume(false)
 
+#define STRING_LITERAL
+
 

@@ -15,7 +15,7 @@ struct Option
   Option() { zero_memory(&value, sizeof(T));  }
   Option(NoneT) { zero_memory(&value, sizeof(T)); }
   template <typename U>
-  Option(const U& v) : value(v), m_has_value(true) {}
+  Option(const U& v) : value(static_cast<T>(v)), m_has_value(true) {}
 
   operator bool() const { return m_has_value; }
 

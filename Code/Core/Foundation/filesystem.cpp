@@ -15,7 +15,7 @@ file_error_to_str(FileError err)
 }
 
 Result<FileStream, FileError>
-create_file(const char* path, FileCreateFlags flags)
+create_file(const char* path, u32 flags)
 {
   FileStream ret = {0};
 

@@ -286,6 +286,9 @@ namespace Athena
       conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\dstorage.dll");
       conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\dstoragecore.dll");
 
+      conf.LibraryFiles.Add(@"[project.SourceRootPath]\Lib\GFSDK_Aftermath_Lib.x64.lib");
+      conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\GFSDK_Aftermath_Lib.x64.dll");
+
       conf.LibraryFiles.Add(@"[project.SourceRootPath]\Lib\WinPixEventRuntime.lib");
       conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\WinPixEventRuntime.dll");
 

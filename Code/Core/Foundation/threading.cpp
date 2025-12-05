@@ -18,7 +18,7 @@ thread_entry_proc(LPVOID void_param)
   ThreadEntryProcParams params = *reinterpret_cast<ThreadEntryProcParams*>(void_param);
 
   // Initialize scratch arena for the thread
-  init_context(params.heap, params.overflow_heap);
+  init_thread_context();
 
   u32 res = params.proc(params.user_param);
 

@@ -3,6 +3,9 @@
 
 #define ALIGN_POW2(v, alignment) (((v) + ((alignment) - 1)) & ~(((v) - (v)) + (alignment) - 1))
 
+// TODO(bshihabi): This is x64 win32 specific. We should separate this stuff out into a platform layer
+static constexpr u32 kPageSize = KiB(4);
+
 inline bool
 is_pow2(u64 v)
 {
@@ -35,7 +38,11 @@ zero_memory(void* memory, size_t size)
   ZeroMemory(memory, size);
 }
 
+// OS Virtual Memory syscalls
 FOUNDATION_API void* reserve_commit_pages(size_t size, void* addr = 0);
+FOUNDATION_API void* reserve_pages(size_t size, void* addr = 0);
+FOUNDATION_API void  commit_pages(size_t size, void* addr);
+FOUNDATION_API void  decommit_pages(size_t size, void* addr);
 FOUNDATION_API void  free_pages(void* ptr);
 
 // Perhaps a better naming convention is in order, but there are basically 3 "tiers" of allocators,
@@ -117,16 +124,17 @@ struct ReallocFreeHeap
 #define HEAP_REALLOC(T, heap, ptr, count)( (T*)(heap).realloc_fn((heap).allocator, (ptr), (count) * sizeof(T), alignof(T)) )
 #define HEAP_REALLOC_ALIGNED(heap, ptr, size, alignment)( (T*)(heap).realloc_fn((heap).allocator, (ptr), (size), (alignment)) )
 
-FOUNDATION_API void* linear_alloc(void* linear_allocator, size_t size, size_t alignment);
+FOUNDATION_API void*  linear_alloc(void* linear_allocator, size_t size, size_t alignment);
+FOUNDATION_API size_t available_memory(void* linear_allocator);
 struct LinearAllocator
 {
   uintptr_t     start        = 0x0;
   uintptr_t     pos          = 0x0;
   size_t        size         = 0;
 
-  // A typical setup might be to back a linear allocator with a pool allocator with pages
-  // to allow for overflow.
-  FreeHeap      backing_heap = {0};
+  // Used for virtual memory overflowing
+  size_t        reserve_size = 0;
+  uintptr_t     commit_size  = 0;
 
   operator AllocHeap()
   {
@@ -137,7 +145,8 @@ struct LinearAllocator
   }
 };
 FOUNDATION_API LinearAllocator init_linear_allocator   (void* memory, size_t size);
-FOUNDATION_API LinearAllocator init_linear_allocator   (FreeHeap heap, size_t size);
+// max_size is used to allow for overflow by reserving virtual address space and only committing when needed
+FOUNDATION_API LinearAllocator init_linear_allocator   (size_t commit_size, size_t reserve_size);
 FOUNDATION_API void            reset_linear_allocator  (LinearAllocator* linear_allocator);
 FOUNDATION_API void            destroy_linear_allocator(LinearAllocator* linear_allocator);
 
@@ -171,24 +180,22 @@ FOUNDATION_API void          destroy_pool_allocator(PoolAllocator* pool_allocato
 
 struct StackAllocator
 {
-  struct FilledBuffer
-  {
-    FilledBuffer* prev = nullptr;
-  };
+  uintptr_t     memory              = 0x0;
+  uintptr_t     pos                 = 0x0;
 
-  uintptr_t     start        = 0x0;
-  uintptr_t     pos          = 0x0;
-  size_t        size         = 0;
-  FilledBuffer* prev         = nullptr;
+  size_t        commit_size         = 0;
 
-  FreeHeap      backing_heap = {0};
+  // Used for virtual memory overflowing
+  size_t        reserve_size        = 0;
+  size_t        initial_commit_size = 0;
 };
 FOUNDATION_API StackAllocator init_stack_allocator   (void* memory, size_t size);
-FOUNDATION_API StackAllocator init_stack_allocator   (FreeHeap heap, size_t size);
+FOUNDATION_API StackAllocator init_stack_allocator   (size_t commit_size, size_t reserve_size);
 FOUNDATION_API void           destroy_stack_allocator(StackAllocator* allocator);
 
-FOUNDATION_API void* push_stack(StackAllocator* allocator, size_t size, size_t alignment, size_t* out_allocated_size);
-FOUNDATION_API void  pop_stack (StackAllocator* allocator, size_t size);
+FOUNDATION_API void* push_stack (StackAllocator* allocator, size_t size, size_t alignment, size_t* out_allocated_size);
+FOUNDATION_API void  pop_stack  (StackAllocator* allocator, size_t size);
+FOUNDATION_API void  reset_stack(StackAllocator* allocator);
 
 
 FOUNDATION_API void* os_alloc(void* os_allocator, size_t size, size_t alignment);

@@ -9,6 +9,7 @@ struct FileStream
 
 enum FileCreateFlags : u32
 {
+  kFileCreateFlagsNone = 0,
   kCreateTruncateExisting = 1 << 0,
 };
 
@@ -22,7 +23,7 @@ enum FileError
 FOUNDATION_API const char* file_error_to_str(FileError err);
 
 
-FOUNDATION_API Result<FileStream, FileError> create_file(const char* path, FileCreateFlags flags);
+FOUNDATION_API Result<FileStream, FileError> create_file(const char* path, u32 flags);
 FOUNDATION_API Result<FileStream, FileError> open_file(const char* path);
 FOUNDATION_API void close_file(FileStream* file_stream);
 

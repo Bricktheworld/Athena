@@ -68,6 +68,26 @@ struct ModelMetadata
   Array<GpuRtBlas>           subset_rt_blases;
 };
 
+struct Asset
+{
+  AssetType  type  = AssetType::kModel;
+  AssetState state = kAssetUnloaded;
+};
+
+struct Model
+{
+  struct ModelSubset
+  {
+    u32 vertex_start;
+    u32 vertex_count;
+    u32 index_start;
+    u32 index_count;
+  };
+
+  Array<ModelSubset> subsets;
+};
+
+
 struct AssetDesc
 {
   AssetType  type       = AssetType::kModel;
@@ -104,6 +124,9 @@ struct GpuStreamDevice
 
   RingQueue<GpuStreamInFlight> in_flight_requests;
   RingQueue<AssetId>           asset_completed_streams;
+
+  CmdQueue                     copy_queue;
+  CmdListAllocator             cmd_list_allocator;
 };
 
 
@@ -120,6 +143,9 @@ struct GpuBuildDevice
                               
   RingQueue<GpuBuildInFlight> in_flight_rquests;
   RingQueue<AssetId>          asset_built_streams;
+
+  CmdQueue                    async_compute_queue;
+  CmdListAllocator             cmd_list_allocator;
 };
 
 

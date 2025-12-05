@@ -54,8 +54,10 @@ build_asset(const char* model_path, const char* project_root)
     }
   }
 
-  u32 texture_allocator_size = MiB(512);
-  LinearAllocator texture_allocator = init_linear_allocator(GLOBAL_HEAP, texture_allocator_size);
+  size_t kTextureAllocatorCommitSize  = MiB(512);
+  size_t kTextureAllocatorReserveSize = GiB(8);
+  LinearAllocator texture_allocator = init_linear_allocator(kTextureAllocatorCommitSize, kTextureAllocatorReserveSize);
+  defer { destroy_linear_allocator(&texture_allocator); };
 
   ID3D12Device* device = nullptr;
   HASSERT(D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&device)));
@@ -91,7 +93,6 @@ build_asset(const char* model_path, const char* project_root)
       }
     }
   }
-  destroy_linear_allocator(&texture_allocator);
 
   return true;
 }
@@ -120,7 +121,7 @@ int main(int argc, const char** argv)
 
   g_InitHeap                     = init_allocator;
 
-  init_context(g_InitHeap, GLOBAL_HEAP);
+  init_thread_context();
 
   bool res = build_asset(input_path, project_root);
   if (!res)

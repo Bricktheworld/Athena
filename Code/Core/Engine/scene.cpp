@@ -28,8 +28,6 @@ struct Scene
 
 static Scene* g_Scene = nullptr;
 
-bool g_TlasReady = false;
-
 void
 init_scene()
 {
@@ -351,8 +349,8 @@ render_handler_build_tlas(RenderContext* ctx, const RenderSettings&, const void*
 
   static bool s_WasInitialized = false;
 
-  // u32 build_flags = s_WasInitialized ? kGpuRtasBuildIncremental : 0;
-  ctx->build_tlas(params->dst, params->scratch, params->instances, instance_count, 0);
+  u32 build_flags = s_WasInitialized ? kGpuRtasBuildIncremental : 0;
+  ctx->build_tlas(params->dst, params->scratch, params->instances, instance_count, build_flags);
 
   if (!s_WasInitialized)
   {

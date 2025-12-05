@@ -200,7 +200,7 @@ int main(int argc, const char** argv)
 
   g_InitHeap = init_allocator;
 
-  init_context(g_InitHeap, GLOBAL_HEAP);
+  init_thread_context();
 
   if (argc != 3)
   {

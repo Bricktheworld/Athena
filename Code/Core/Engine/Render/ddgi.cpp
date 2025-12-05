@@ -65,11 +65,6 @@ struct RtDiffuseGiTraceRayParams
 static void
 render_handler_probe_trace_rays(RenderContext* ctx, const RenderSettings& settings, const void* data)
 {
-  if (!g_TlasReady)
-  {
-    // return;
-  }
-
   if (settings.disable_diffuse_gi)
   {
     return;

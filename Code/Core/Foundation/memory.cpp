@@ -9,6 +9,24 @@ reserve_commit_pages(size_t size, void* addr)
   return VirtualAlloc(addr, size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
 }
 
+void*
+reserve_pages(size_t size, void* addr)
+{
+  return VirtualAlloc(addr, size, MEM_RESERVE, PAGE_READWRITE);
+}
+
+void
+commit_pages(size_t size, void* addr)
+{
+  VirtualAlloc(addr, size, MEM_COMMIT, PAGE_READWRITE);
+}
+
+void
+decommit_pages(size_t size, void* addr)
+{
+  VirtualAlloc(addr, size, MEM_DECOMMIT, PAGE_READWRITE);
+}
+
 void 
 free_pages(void* ptr)
 {
@@ -46,6 +64,20 @@ linear_alloc(void* linear_allocator, size_t size, size_t alignment)
   return (void*)memory_start;
 }
 
+size_t
+available_memory(void* linear_allocator)
+{
+  LinearAllocator* self = (LinearAllocator*)linear_allocator;
+
+  if (self->pos >= self->start + self->size)
+  {
+    return 0;
+  }
+
+
+  return self->start + self->size - self->pos;
+}
+
 LinearAllocator
 init_linear_allocator(void* memory, size_t size)
 {
@@ -53,21 +85,29 @@ init_linear_allocator(void* memory, size_t size)
   ret.start           = (uintptr_t)memory;
   ret.pos             = ret.start;
   ret.size            = size;
-  ret.backing_heap    = {0};
+
+  ret.reserve_size    = 0;
+  ret.commit_size     = 0;
   return ret;
 }
 
 LinearAllocator
-init_linear_allocator(FreeHeap heap, size_t size)
+init_linear_allocator(size_t commit_size, size_t reserve_size)
 {
-  u8* memory          = HEAP_ALLOC(u8, heap, size);
+  commit_size  = ALIGN_POW2(commit_size,  kPageSize);
+  reserve_size = ALIGN_POW2(reserve_size, kPageSize);
+  ASSERT_MSG_FATAL(reserve_size >= commit_size, "It is not supported to create a linear allocator reserve size (%llu) smaller than it's initially committed size (%llu) (that wouldn't make any sense).", reserve_size, commit_size);
+
+  void* memory = reserve_pages(reserve_size);
+  commit_pages(commit_size, memory);
 
   LinearAllocator ret = {0};
   ret.start           = (uintptr_t)memory;
   ret.pos             = ret.start;
-  ret.size            = size;
-  ret.backing_heap    = heap;
+  ret.size            = commit_size;
 
+  ret.reserve_size    = reserve_size;
+  ret.commit_size     = commit_size;
   return ret;
 }
 
@@ -83,12 +123,10 @@ destroy_linear_allocator(LinearAllocator* self)
 {
   ASSERT(self->pos >= self->start);
 
-  if (!self->backing_heap.allocator)
+  if (self->commit_size != 0)
   {
-    return;
+    free_pages((void*)self->start);
   }
-
-  HEAP_FREE(self->backing_heap, (void*)self->start);
 }
 
 void*
@@ -179,26 +217,34 @@ init_stack_allocator(void* memory, size_t size)
 {
   StackAllocator ret = {0};
 
-  ret.start           = (uintptr_t)memory;
-  ret.pos             = ret.start;
-  ret.size            = size;
-  ret.prev            = nullptr;
-  ret.backing_heap    = {0};
+  ret.memory              = (uintptr_t)memory;
+  ret.pos                 = ret.memory;
+  ret.reserve_size        = 0;
+  ret.commit_size         = size;
+  ret.initial_commit_size = 0;
 
   return ret;
 }
 
 StackAllocator
-init_stack_allocator(FreeHeap heap, size_t size)
+init_stack_allocator(size_t commit_size, size_t reserve_size)
 {
-  u8* memory          = HEAP_ALLOC(u8, heap, size);
+  commit_size  = ALIGN_POW2(commit_size,  kPageSize);
+  reserve_size = ALIGN_POW2(reserve_size, kPageSize);
 
-  StackAllocator ret  = {0};
-  ret.start           = (uintptr_t)memory;
-  ret.pos             = ret.start;
-  ret.size            = size;
-  ret.prev            = nullptr;
-  ret.backing_heap    = heap;
+  ASSERT_MSG_FATAL(reserve_size >= commit_size, "It is not supported to create a linear allocator reserve size (%llu) smaller than it's initially committed size (%llu) (that wouldn't make any sense).", reserve_size, commit_size);
+
+  void* memory = reserve_pages(reserve_size);
+  commit_pages(commit_size, memory);
+
+  StackAllocator ret      = {0};
+
+  ret.memory              = (uintptr_t)memory;
+  ret.pos                 = ret.memory;
+
+  ret.reserve_size        = reserve_size;
+  ret.commit_size         = commit_size;
+  ret.initial_commit_size = commit_size;
 
   return ret;
 }
@@ -206,27 +252,41 @@ init_stack_allocator(FreeHeap heap, size_t size)
 void
 destroy_stack_allocator(StackAllocator* self)
 {
-  ASSERT(self->pos >= self->start);
+  ASSERT(self->pos >= self->memory);
 
-  if (!self->backing_heap.allocator)
-    return;
-
-  HEAP_FREE(self->backing_heap, (void*)self->start);
+  if (self->reserve_size != 0)
+  {
+    free_pages((void*)self->memory);
+  }
 }
 
 void*
 push_stack(StackAllocator* self, size_t size, size_t alignment, size_t* out_allocated_size)
 {
-  ASSERT(self->pos >= self->start);
+  ASSERT(self->pos >= self->memory);
 
   uintptr_t memory_start = align_address(self->pos, alignment);
   uintptr_t padding      = memory_start - (uintptr_t)self->pos;
 
   uintptr_t new_pos      = memory_start + size;
 
-  if (new_pos > self->start + self->size)
+  if (new_pos > self->memory + self->commit_size)
   {
-    return nullptr;
+    if (new_pos > self->memory + self->reserve_size)
+    {
+      return nullptr;
+    }
+    // Need to commit more pages! We overflowed :)
+    // TODO(bshihabi): We should have some global atomic thing of like, how many total pages have been committed
+    else
+    {
+      size_t new_commit_size = ALIGN_POW2(new_pos - self->memory, kPageSize);
+      ASSERT_MSG_FATAL(new_commit_size > self->commit_size, "Something went wrong internally in the stack allocator! Tracking of committed vs reserved memory didn't line up.");
+      self->commit_size = new_commit_size;
+      commit_pages(self->commit_size, (void*)self->memory);
+
+      // Now we're all good! The pages are committed and we can successfully return the pointer since the memory is now mapped
+    }
   }
 
   self->pos = new_pos;
@@ -239,8 +299,39 @@ push_stack(StackAllocator* self, size_t size, size_t alignment, size_t* out_allo
 void
 pop_stack(StackAllocator* self, size_t size)
 {
-  ASSERT(self->pos >= self->start + size);
+  ASSERT(self->pos >= self->memory + size);
   self->pos -= size;
+
+  // If we go over the allocator by 4 pages, and we popped off a lot of memory, then we should clean it up
+  static size_t kPageOverflowCountCleanupThreshold = 4;
+
+  size_t memory_usage = self->pos - self->memory;
+
+  // Do some clean up here for the pages
+  //   1. If we committed more than our initial budget
+  bool overflow_committed  = self->commit_size > self->initial_commit_size;
+  //   2. And we're no longer using more than kPageOverflowCountCleanupThreshold pages (there are 4 free pages available)
+  bool underused_committed = memory_usage + kPageOverflowCountCleanupThreshold * kPageSize < self->commit_size;
+  //   We should decommit
+  if (overflow_committed && underused_committed)
+  {
+    size_t    new_commit_size = ALIGN_POW2(memory_usage, kPageSize);
+    uintptr_t decommit_start  = self->memory + new_commit_size;
+    ASSERT_MSG_FATAL(new_commit_size > self->commit_size, "Something went wrong when calculating how much to decommit from stack allocator.");
+    size_t    decommit_size   = self->commit_size - new_commit_size;
+    ASSERT_MSG_FATAL((decommit_size % kPageSize) == 0, "Decommit size is not a power of kPageSize, so something went wrong in stack allocator.");
+    decommit_pages(decommit_size, (void*)decommit_start);
+
+    self->commit_size = new_commit_size;
+  }
+}
+
+void
+reset_stack(StackAllocator* self)
+{
+  ASSERT_MSG_FATAL(self->pos >= self->memory, "Something went wrong internally in the stack allcoator! pos < memory somehow. This is a bug.");
+  size_t usage = (size_t)(self->pos - self->memory);
+  pop_stack(self, usage);
 }
 
 void*
