@@ -291,7 +291,10 @@ push_stack(StackAllocator* self, size_t size, size_t alignment, size_t* out_allo
 
   self->pos = new_pos;
 
-  *out_allocated_size      = (size_t)(padding + size);
+  if (out_allocated_size != nullptr)
+  {
+    *out_allocated_size = (size_t)(padding + size);
+  }
 
   return (void*)memory_start;
 }

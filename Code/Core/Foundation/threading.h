@@ -2,7 +2,13 @@
 #include "Core/Foundation/types.h"
 #include "Core/Foundation/memory.h"
 
+#include <atomic>
+
 typedef u32 (*ThreadProc)(void*);
+
+// NOTE(bshihabi): I would've really preferred to use the intrinsics here, but it's just too complicated for me to reasonably do
+template <typename T>
+using Atomic = std::atomic<T>;
 
 struct Thread
 {
@@ -12,26 +18,12 @@ struct Thread
 
 FOUNDATION_API Thread init_thread(
   AllocHeap heap,
-  FreeHeap overflow_heap,
   u64 stack_size,
   ThreadProc proc,
   void* param,
   u8 core_index
 );
 
-template <typename T>
-inline Thread init_thread(
-  AllocHeap heap,
-  FreeHeap overflow_heap,
-  u64 stack_size,
-  ThreadProc proc,
-  const T& param,
-  u8 core_index
-) {
-  void* p = HEAP_ALLOC(T, heap, 1);
-  memcpy(p, &param, sizeof(T));
-  return init_thread(heap, overflow_heap, stack_size, proc, p, core_index);
-}
 FOUNDATION_API void destroy_thread(Thread* thread);
 FOUNDATION_API u32 get_num_physical_cores();
 FOUNDATION_API void set_thread_name(const Thread* thread, const wchar_t* name);
@@ -69,19 +61,19 @@ FOUNDATION_API void notify_all_thread_signal(ThreadSignal* signal);
 
 struct SpinLock
 {
-  volatile u64 value = 0;
+  u64 value = 0;
 };
 
-
-FOUNDATION_API void spin_acquire(SpinLock* spin_lock);
-FOUNDATION_API bool try_spin_acquire(SpinLock* spin_lock, u64 max_cycles);
-FOUNDATION_API void spin_release(SpinLock* spin_lock);
+FOUNDATION_API                    SpinLock init_spin_lock();
+FOUNDATION_API                    void spin_acquire(SpinLock* spin_lock);
+FOUNDATION_API DONT_IGNORE_RETURN bool try_spin_acquire(SpinLock* spin_lock, u64 max_cycles);
+FOUNDATION_API                    void spin_release(SpinLock* spin_lock);
 
 template <typename T>
 struct SpinLocked
 {
-  SpinLocked() = default;
-  SpinLocked(const T& val) : m_value(val) {}
+  SpinLocked() : m_lock(init_spin_lock()) {}
+  SpinLocked(const T& val) : m_value(val), m_lock(init_spin_lock()) {}
 
   template <typename F>
   auto acquire(F f)
@@ -96,30 +88,6 @@ struct SpinLocked
 };
 
 #define ACQUIRE(lock, var) (*lock) * [&](var)
-
-inline u32
-test_and_set(volatile u32* dst, u32 val)
-{
-  u32 prev, compare_operand;
-  do 
-  {
-    prev = InterlockedCompareExchange(dst, val, compare_operand);
-  } while (compare_operand != prev);
-
-  return prev;
-}
-
-inline s64
-test_and_set(volatile s64* dst, s64 val)
-{
-  s64 prev, compare_operand;
-  do 
-  {
-    prev = InterlockedCompareExchange64(dst, val, compare_operand);
-  } while (compare_operand != prev);
-
-  return prev;
-}
 
 template <typename T, typename F, typename R>
 struct __SpinUnlocked__
@@ -151,5 +119,27 @@ template <typename T, typename F>
 auto operator*(SpinLocked<T>& lock, F f)
 {
   return __SpinUnlocked__<T, F, decltype(f((T*)nullptr))>(&lock, f);
+}
+
+template <typename T>
+inline T
+atomic_load(const Atomic<T>& a)
+{
+  return a.load();
+}
+
+template <typename T>
+inline void
+atomic_store(Atomic<T>* lhs, T rhs)
+{
+  lhs->store(rhs);
+}
+
+
+template <typename T>
+inline bool
+atomic_compare_exchange(Atomic<T>* lhs, T rhs, T* expected)
+{
+  lhs->compare_exchange_weak(*expected, rhs);
 }
 

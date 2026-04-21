@@ -168,8 +168,12 @@ application_entry(HINSTANCE instance, int show_code)
   init_gpu_device(window, gpu_flags);
   defer { destroy_gpu_device(); };
 
-  init_asset_loader();
-  defer { destroy_asset_loader(); };
+  // init_asset_loader();
+  // defer { destroy_asset_loader(); };
+
+  init_asset_registry();
+  init_asset_streamer();
+  defer { destroy_asset_streamer(); };
 
   init_material_manager();
   defer { destroy_material_manager(); };
@@ -197,22 +201,22 @@ application_entry(HINSTANCE instance, int show_code)
 
   init_scene();
 
-  AssetId sponza_model = ASSET_ID("Assets/Source/sponza/Sponza.gltf");
-  kick_asset_load(sponza_model);
+  ModelHandle sponza_model = kick_model_load(ASSET_ID("Assets/Source/sponza/Sponza.gltf"));
+  // kick_asset_load(sponza_model);
   while (true)
   {
-    auto res = get_model_asset(sponza_model);
-    if (!res)
+    if (!sponza_model.is_loaded())
     {
       continue;
     }
 
-    const ModelMetadata* model = res.value();
-    for (u32 isubset = 0; isubset < model->subsets.size; isubset++)
+    for (u32 isubset = 0; isubset < sponza_model->subsets.size; isubset++)
     {
       SceneObjHandle handle = init_render_scene_obj(sponza_model, isubset);
       (void)handle;
     }
+
+    dbgln("Loaded sponza!");
     break;
   }
 
@@ -280,6 +284,8 @@ application_entry(HINSTANCE instance, int show_code)
     asset_server_update();
 
     reset_frame_heap();
+
+    asset_streamer_update();
 
     if (g_MainWindow->needs_resize)
     {

@@ -258,13 +258,13 @@ struct CmdListAllocator
   ID3D12CommandQueue*                    d3d12_queue = nullptr;
 
   RingQueue<CmdAllocator>                allocators;
-  RingQueue<ID3D12GraphicsCommandList4*> lists;
+  RingQueue<ID3D12GraphicsCommandList7*> lists;
   GpuFence                               fence;
 };
 
 struct CmdList
 {
-  ID3D12GraphicsCommandList4*   d3d12_list      = nullptr;
+  ID3D12GraphicsCommandList7*   d3d12_list      = nullptr;
   ID3D12CommandAllocator*       d3d12_allocator = nullptr;
 };
 
@@ -465,14 +465,24 @@ struct GpuRingBuffer
 };
 
 GpuRingBuffer alloc_gpu_ring_buffer_no_heap(AllocHeap heap, GpuBufferDesc desc, GpuHeapLocation location, const char* name);
-// Either returns the offset or the fence value to wait for
 
 struct GpuRingBufferAllocation
 {
-  FenceValue wait_for = 0;
-  u32        offset   = 0;
+  FenceValue    wait_for = 0;
+  u32           offset   = 0;
+  Option<void*> mapped   = nullptr;
 };
+
+// Blocking wait for available size
+void gpu_ring_buffer_wait(GpuRingBuffer* buffer, u32 size);
+
+// Either returns the offset or the fence value to wait for
 Result<u64, FenceValue> gpu_ring_buffer_alloc(GpuRingBuffer* buffer, u32 size);
+// You need to commit the allocations otherwise they will stall. 
+// Commit after you are done using the memory/submitted the command buffer using it.
+void gpu_ring_buffer_commit(const GpuRingBuffer* buffer, CmdQueue* queue);
+void gpu_ring_buffer_commit(const GpuRingBuffer* buffer, CmdListAllocator* cmd_buffer_allocator);
+
 void free_gpu_ring_buffer(GpuRingBuffer* buffer);
 
 
@@ -511,8 +521,8 @@ struct GpuRtBlas
   u32           scratch_size = 0;
 };
 
-// These are just stored as separate (non heaps) because there's no real reason to do anything else
-GpuRtBlas alloc_gpu_rt_blas_no_heap(
+GpuRtBlas alloc_gpu_rt_blas(
+  GpuAllocHeap heap,
   const GpuBuffer& vertex_buffer,
   const GpuBuffer& index_buffer,
 
@@ -967,6 +977,17 @@ void build_rt_tlas(
   u32              scratch_offset,
   u32              flags = 0
 );
+
+void gpu_copy_buffer(
+  CmdList* cmd,
+  const    GpuBuffer& dst,
+  u64      dst_offset,
+  const    GpuBuffer& src,
+  u64      src_offset,
+  u64      bytes
+);
+
+void gpu_memory_barrier(CmdList* cmd);
 
 void init_imgui_ctx(
   const GpuDevice* device,

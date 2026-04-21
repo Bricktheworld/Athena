@@ -940,7 +940,7 @@ compile_render_graph(AllocHeap heap, const RgBuilder& builder, RenderGraphDestro
 
   if (flags & kRgDestroyCmdListAllocators)
   {
-    g_RenderGraph->cmd_allocator     = init_cmd_list_allocator(heap, g_GpuDevice, &g_GpuDevice->graphics_queue, 4);
+    g_RenderGraph->cmd_allocator   = init_cmd_list_allocator(heap, g_GpuDevice, &g_GpuDevice->graphics_queue, 4);
   }
 
   g_RenderGraph->render_passes     = init_array<RenderPass>(heap, builder.render_passes.size);

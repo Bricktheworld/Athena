@@ -1,5 +1,6 @@
 #pragma once
 #include "Core/Foundation/assets.h"
+#include "Core/Foundation/threading.h"
 
 #include "Core/Engine/scene.h"
 #include "Core/Engine/job_system.h"
@@ -143,21 +144,26 @@ void destroy_renderer();
 
 struct UnifiedGeometryBuffer
 {
+  SpinLock  lock;
   // TODO(Brandon): In the future, we don't really want to linear allocate these buffers.
   // We want uber buffers, but we want to be able to allocate and free vertices as we need.
   GpuBuffer vertex_buffer;
   GpuBuffer index_buffer;
   u64       vertex_buffer_pos = 0;
   u64       index_buffer_pos  = 0;
+
+  GpuLinearAllocator blas_allocator;
 };
 
-u64 alloc_uber_vertex(u64 size);
-u64 alloc_uber_index(u64 size);
 
 extern UnifiedGeometryBuffer g_UnifiedGeometryBuffer;
 
 void init_unified_geometry_buffer(const GpuDevice* device);
 void destroy_unified_geometry_buffer();
+
+THREAD_SAFE u64       alloc_uber_vertex(u64 size);
+THREAD_SAFE u64       alloc_uber_index(u64 size);
+THREAD_SAFE GpuRtBlas alloc_uber_blas(u32 vertex_start, u32 vertex_count, u32 index_start, u32 index_count, const char* name);
 
 void build_acceleration_structures();
 

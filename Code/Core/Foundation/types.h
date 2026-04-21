@@ -63,6 +63,8 @@ using OffsetPtr = u64;
 #define S16_MIN ((s16)0x8000)
 #define S8_MIN ((s8)0x80)
 
+static constexpr u32 kCacheLineSize = 64;
+
 
 inline s32
 v_dbg(const char* fmt, bool newline, va_list args)
@@ -286,6 +288,5 @@ FOUNDATION_API void print_backtrace(const char* fmt, ...);
 
 #define UNREACHABLE ASSERT_MSG_FATAL(false, "Something that should never happen did! Check the code to see why this bug occurred."); __assume(false)
 
-#define STRING_LITERAL
-
+#define STRING_LITERAL 
 

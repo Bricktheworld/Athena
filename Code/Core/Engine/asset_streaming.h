@@ -54,114 +54,97 @@ enum AssetState : u32
   kAssetFailedToInitialize,
 };
 
-struct ModelSubsetMetadata
-{
-  u32 vertex_start;
-  u32 vertex_count;
-  u32 index_start;
-  u32 index_count;
-};
-
-struct ModelMetadata
-{
-  Array<ModelSubsetMetadata> subsets;
-  Array<GpuRtBlas>           subset_rt_blases;
-};
-
 struct Asset
 {
+  AssetId    id    = kNullAssetId;
   AssetType  type  = AssetType::kModel;
-  AssetState state = kAssetUnloaded;
+  u32        state = kAssetUnloaded;
+};
+
+// The template type needs to have a member "asset" of type "Asset"
+template <typename T>
+struct AssetHandle
+{
+  AssetId m_Id  = kNullAssetId;
+  T*      m_Ptr = nullptr;
+
+  bool is_valid() const
+  {
+    return m_Ptr->asset.id == m_Id;
+  }
+  const Asset* to_asset() const
+  {
+    return &deref()->asset;
+  }
+
+  operator       bool  ()      const { return is_valid();        }
+  operator const Asset*()      const { return to_asset();        }
+
+  AssetState get_asset_state() const { return (AssetState)to_asset()->state; }
+
+  bool       is_loaded()       const { return get_asset_state() == kAssetReady;                                            }
+  bool       is_streaming()    const { return get_asset_state() >= kAssetLoadRequested && get_asset_state() < kAssetReady; }
+
+  T* deref()
+  {
+    ASSERT_MSG_FATAL(is_valid(), "Asset handle for 0x%x pointing to 0x%llx is invalid! Check using is_valid() first!", m_Id, m_Ptr);
+    return m_Ptr;
+  }
+
+  const T* deref() const
+  {
+    ASSERT_MSG_FATAL(is_valid(), "Asset handle for 0x%x pointing to 0x%llx is invalid! Check using is_valid() first!", m_Id, m_Ptr);
+    return m_Ptr;
+  }
+
+  // Overloaded arrow operator allows for safe 
+  T* operator->()
+  {
+    ASSERT_MSG_FATAL(is_valid(), "Asset handle for 0x%x pointing to 0x%llx is invalid! Check using is_valid() first!", m_Id, m_Ptr);
+    return m_Ptr;
+  }
+
+  const T* operator->() const
+  {
+    ASSERT_MSG_FATAL(is_valid(), "Asset handle for 0x%x pointing to 0x%llx is invalid! Check using is_valid() first!", m_Id, m_Ptr);
+    return m_Ptr;
+  }
+};
+
+struct Texture
+{
+  Asset asset;
+};
+typedef AssetHandle<Texture> TextureHandle;
+
+struct Material
+{
+  Asset asset;
+  u32   gpu_id = 0;
+};
+typedef AssetHandle<Material> MaterialHandle;
+
+
+struct ModelSubset
+{
+  u32 vertex_start = 0;
+  u32 vertex_count = 0;
+  u32 index_start  = 0;
+  u32 index_count  = 0;
 };
 
 struct Model
 {
-  struct ModelSubset
-  {
-    u32 vertex_start;
-    u32 vertex_count;
-    u32 index_start;
-    u32 index_count;
-  };
-
-  Array<ModelSubset> subsets;
+  Asset                 asset;
+  Array<ModelSubset>    subsets;
+  Array<GpuRtBlas>      subset_rt_blases;
+  Array<MaterialHandle> materials;
 };
+typedef AssetHandle<Model> ModelHandle;
 
-
-struct AssetDesc
-{
-  AssetType  type       = AssetType::kModel;
-  AssetState state      = kAssetUnloaded;
-  bool       needs_init = false;
-
-  union
-  {
-    ModelMetadata model;
-    struct
-    {
-      GpuDescriptor descriptor;
-      GpuTexture    allocation;
-    } texture;
-    MaterialData material;
-    GpuShader    shader;
-  };
-};
-
-// GpuStreamDevice is responsible for copying stuff to the GPU asynchronously
-struct GpuStreamInFlight
-{
-  IDStorageFile* file        = nullptr;
-  AssetId        asset_id    = 0;
-  FenceValue     fence_value = 0;
-};
-
-struct GpuStreamDevice
-{
-  IDStorageFactory*            factory      = nullptr;
-
-  IDStorageQueue2*             file_queue   = nullptr;
-  GpuFence                     file_queue_fence;
-
-  RingQueue<GpuStreamInFlight> in_flight_requests;
-  RingQueue<AssetId>           asset_completed_streams;
-
-  CmdQueue                     copy_queue;
-  CmdListAllocator             cmd_list_allocator;
-};
-
-
-// GpuBuildDevice is responsible for any building tasks on the GPU
-struct GpuBuildInFlight
-{
-  AssetId    asset_id    = 0;
-  FenceValue fence_value = 0;
-};
-
-struct GpuBuildDevice
-{
-  GpuFence                    build_queue_fence;
-                              
-  RingQueue<GpuBuildInFlight> in_flight_rquests;
-  RingQueue<AssetId>          asset_built_streams;
-
-  CmdQueue                    async_compute_queue;
-  CmdListAllocator             cmd_list_allocator;
-};
-
-
-
-enum GpuStreamResult
-{
-  kGpuStreamOk,
-  kGpuStreamFailedToOpenFile,
-};
-
-            void init_asset_loader(void);
-THREAD_SAFE void kick_asset_load(AssetId asset_id);
-            void destroy_asset_loader(void);
-THREAD_SAFE Result<const GpuTexture*,    AssetState> get_gpu_model_asset(AssetId asset_id);
-THREAD_SAFE Result<const GpuTexture*,    AssetState> get_gpu_texture_asset(AssetId asset_id);
-THREAD_SAFE Result<Texture2DPtr<float4>, AssetState> get_srv_texture_asset(AssetId asset_id);
-THREAD_SAFE Result<const ModelMetadata*, AssetState> get_model_asset      (AssetId asset_id);
-THREAD_SAFE bool                                     is_model_bvh_built   (AssetId asset_id);
-THREAD_SAFE Result<const MaterialData*,  AssetState> get_material_asset   (AssetId asset_id);
+            void           init_asset_streamer(void);
+            void           destroy_asset_streamer(void);
+            void           asset_streamer_update(void);
+            void           init_asset_registry(void);
+THREAD_SAFE ModelHandle    kick_model_load(AssetId asset_id);
+THREAD_SAFE MaterialHandle kick_material_load(AssetId asset_id);

@@ -3,6 +3,10 @@
 
 #define ALIGN_POW2(v, alignment) (((v) + ((alignment) - 1)) & ~(((v) - (v)) + (alignment) - 1))
 
+#define ALIGN_UP(v, alignment) ((((v) + ((alignment) - 1)) / alignment) * alignment)
+
+#define ALLOC_OFF(base, size) (base); ((base) = (decltype(base))((uintptr_t)base + size))
+
 // TODO(bshihabi): This is x64 win32 specific. We should separate this stuff out into a platform layer
 static constexpr u32 kPageSize = KiB(4);
 
@@ -36,6 +40,13 @@ inline void
 zero_memory(void* memory, size_t size)
 {
   ZeroMemory(memory, size);
+}
+
+template <typename T>
+inline void 
+zero_struct(T* data)
+{
+  zero_memory(data, sizeof(T));
 }
 
 // OS Virtual Memory syscalls
@@ -193,7 +204,7 @@ FOUNDATION_API StackAllocator init_stack_allocator   (void* memory, size_t size)
 FOUNDATION_API StackAllocator init_stack_allocator   (size_t commit_size, size_t reserve_size);
 FOUNDATION_API void           destroy_stack_allocator(StackAllocator* allocator);
 
-FOUNDATION_API void* push_stack (StackAllocator* allocator, size_t size, size_t alignment, size_t* out_allocated_size);
+FOUNDATION_API void* push_stack (StackAllocator* allocator, size_t size, size_t alignment, size_t* out_allocated_size = nullptr);
 FOUNDATION_API void  pop_stack  (StackAllocator* allocator, size_t size);
 FOUNDATION_API void  reset_stack(StackAllocator* allocator);
 

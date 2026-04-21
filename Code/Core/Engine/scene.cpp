@@ -130,14 +130,14 @@ get_scene_obj_common(SceneObjHandle handle)
 }
 
 SceneObjHandle 
-init_render_scene_obj(AssetId model, u32 subset, u32 flags)
+init_render_scene_obj(ModelHandle model, u32 subset, u32 flags)
 {
   flags |= kSceneObjRender;
   SceneObjHandle ret = alloc_scene_obj(flags);
 
   SceneObj*      obj = get_scene_obj_common(ret);
-  obj->model_asset = model;
-  obj->subset_id   = subset;
+  obj->model         = model;
+  obj->subset_id     = subset;
   obj->needs_instance_data_gpu_upload = true;
 
   return ret;
@@ -182,7 +182,7 @@ get_mutable_scene_obj(SceneObjHandle handle)
 }
 
 void
-dynamic_scene_obj_attach_render_model(SceneObjHandle handle, AssetId model, u32 subset)
+dynamic_scene_obj_attach_render_model(SceneObjHandle handle, ModelHandle model, u32 subset)
 {
   auto res = get_mutable_scene_obj(handle);
   ASSERT_MSG_FATAL(res, "Scene object handle did not resolve!");
@@ -192,7 +192,7 @@ dynamic_scene_obj_attach_render_model(SceneObjHandle handle, AssetId model, u32 
   }
   
   SceneObj* obj = unwrap(res);
-  obj->model_asset = model;
+  obj->model       = model;
   obj->subset_id   = subset;
   obj->needs_instance_data_gpu_upload = true;
 }
@@ -219,38 +219,33 @@ render_handler_scene_gpu_upload(RenderContext* ctx, const RenderSettings&, const
   {
     ASSERT_MSG_FATAL(src->gpu_id < kMaxSceneObjs, "Invalid GPU ID 0x%x!", src->gpu_id);
 
-    dst->obj_to_world      = src->obj_to_world;
-    dst->prev_obj_to_world = src->prev_obj_to_world;
-    dst->mat_id            = src->mat_id;
+    dst->obj_to_world       = src->obj_to_world;
+    dst->prev_obj_to_world  = src->prev_obj_to_world;
+    dst->mat_id             = src->mat_id;
 
-      // This actually is a nice safeguard because we would never render a 0 index count object anyway even if we did make a draw call for it
-    dst->index_count       = 0;
-    dst->start_index       = 0;
-    dst->start_vertex      = 0;
-    if (src->needs_instance_data_gpu_upload && src->model_asset != kNullAssetId)
+    // This actually is a nice safeguard because we would never render a 0 index count object anyway even if we did make a draw call for it
+    dst->index_count        = 0;
+    dst->start_index        = 0;
+    dst->start_vertex       = 0;
+    if (src->needs_instance_data_gpu_upload && src->model && src->model.is_loaded())
     {
-      Result<const ModelMetadata*, AssetState> res = get_model_asset(src->model_asset);
-      // If the asset is actually loaded
-      if (res)
+      ModelHandle model     = src->model;
+      u32         subset_id = src->subset_id;
+      ASSERT_MSG_FATAL(subset_id < model->subsets.size, "Invalid subset ID on scene object %u", src->subset_id);
+
+      // If the subset ID is just straight up invalid, we're not gonna bother trying to do anything meaningful, just leave it as not drawing
+      if (subset_id < src->model->subsets.size)
       {
-        const ModelMetadata* model = res.value();
+        dst->index_count  = model->subsets[subset_id].index_count;
+        dst->start_index  = model->subsets[subset_id].index_start;
+        dst->start_vertex = model->subsets[subset_id].vertex_start;
+        dst->blas_addr    = model->subset_rt_blases[subset_id].buffer.gpu_addr;
 
-        u32   subset_id            = src->subset_id;
-        ASSERT_MSG_FATAL(subset_id < model->subsets.size, "Invalid subset ID on scene object %u", src->subset_id);
-        // If the subset ID is just straight up invalid, we're not gonna bother trying to do anything meaningful, just leave it as not drawing
-        if (subset_id < model->subsets.size)
-        {
-          dst->index_count  = model->subsets[subset_id].index_count;
-          dst->start_index  = model->subsets[subset_id].index_start;
-          dst->start_vertex = model->subsets[subset_id].vertex_start;
-          dst->blas_addr    = model->subset_rt_blases[subset_id].buffer.gpu_addr;
-
-          src->index_count  = dst->index_count;
-          src->start_index  = dst->start_index;
-        }
-
-        src->needs_instance_data_gpu_upload = false;
+        src->index_count  = dst->index_count;
+        src->start_index  = dst->start_index;
       }
+
+      src->needs_instance_data_gpu_upload = false;
     }
 
     src->needs_gpu_upload     = false;

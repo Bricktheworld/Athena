@@ -19,13 +19,15 @@
 #include "Core/Engine/Vendor/NVAftermath/GFSDK_Aftermath_GpuCrashDumpDecoding.h"
 
 #include <d3dcompiler.h>
+#include <shellapi.h>
 
 #pragma comment(lib, "d3d12.lib")
+#pragma comment(lib, "Shell32.lib")
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "dxguid.lib")
 #pragma comment(lib, "d3dcompiler.lib")
 
-extern "C" { __declspec(dllexport) extern const UINT D3D12SDKVersion = 614;}
+extern "C" { __declspec(dllexport) extern const UINT D3D12SDKVersion = 619;}
 extern "C" { __declspec(dllexport) extern const char* D3D12SDKPath = "."; }
 
 #if defined(DEBUG)
@@ -303,7 +305,7 @@ init_cmd_list_allocator(
   ret.d3d12_queue = queue->d3d12_queue;
   ret.fence = init_gpu_fence();
   ret.allocators = init_ring_queue<CmdAllocator>(heap, pool_size);
-  ret.lists = init_ring_queue<ID3D12GraphicsCommandList4*>(heap, pool_size);
+  ret.lists = init_ring_queue<ID3D12GraphicsCommandList7*>(heap, pool_size);
 
   CmdAllocator allocator = {0};
   for (u16 i = 0; i < pool_size; i++)
@@ -320,7 +322,7 @@ init_cmd_list_allocator(
 
   for (u16 i = 0; i < pool_size; i++)
   {
-    ID3D12GraphicsCommandList4* list = nullptr;
+    ID3D12GraphicsCommandList7* list = nullptr;
     HASSERT(
       device->d3d12->CreateCommandList(
         0,
@@ -345,7 +347,7 @@ destroy_cmd_list_allocator(CmdListAllocator* allocator)
 
   while (!ring_queue_is_empty(allocator->lists))
   {
-    ID3D12GraphicsCommandList4* list = nullptr;
+    ID3D12GraphicsCommandList7* list = nullptr;
     ring_queue_pop(&allocator->lists, &list);
     COM_RELEASE(list);
   }
@@ -489,7 +491,7 @@ init_gpu_profiler(void)
   desc.NodeMask = 0;
 
   g_GpuDevice->d3d12->CreateQueryHeap(&desc, IID_PPV_ARGS(&profiler->d3d12_timestamp_heap));
-  GpuBufferDesc readback_desc = {0};
+  GpuBufferDesc readback_desc = {};
   readback_desc.size          = sizeof(u64) * desc.Count * kBackBufferCount;
 
   profiler->timestamp_readback = alloc_gpu_buffer_no_heap(g_GpuDevice, readback_desc, kGpuHeapSysRAMGpuToCpu, "Timestamp readback");
@@ -754,7 +756,7 @@ enable_aftermath_gpu_crash_dumps()
     snprintf(
       manager->crash_dump_path,
       sizeof(manager->crash_dump_path),
-      "GpuDumps/%04d-%02d-%02d_%02d-%02d-%02d.nv-gpudmp",
+      "GpuDumps\\%04d-%02d-%02d_%02d-%02d-%02d.nv-gpudmp",
       st.wYear,
       st.wMonth,
       st.wDay,
@@ -774,7 +776,7 @@ enable_aftermath_gpu_crash_dumps()
       dbgln("Failed to allocate pages for GPU crash dump of size %u in memory!", manager->crash_dump_size);
     }
 
-    Result<FileStream, FileError> res = create_file(manager->crash_dump_path, 0);
+    Result<FileStream, FileError> res = create_file(manager->crash_dump_path, kFileCreateFlagsNone);
     if (!res)
     {
       ASSERT_MSG_FATAL(false, "GPU Crash Dump failed to create file! %s", file_error_to_str(res.error()));
@@ -825,7 +827,15 @@ enable_aftermath_gpu_crash_dumps()
     nullptr,                                            // Register callback for marker resolution (R495 or later NVIDIA graphics driver).
     g_AftermathManager
   );
-  ASSERT_MSG_FATAL(GFSDK_Aftermath_SUCCEED(res), "Aftermath failed to enable GPU crash dumps!");
+
+  if (res == GFSDK_Aftermath_Result_FAIL_InvalidAdapter)
+  {
+    dbgln("AFTERMATH ERROR: Only NVIDIA GPUs are supported. Failed to enable.");
+    g_AftermathManager = nullptr;
+    return;
+  }
+
+  ASSERT_MSG_FATAL(GFSDK_Aftermath_SUCCEED(res), "AFTERMATH ERROR: Failed to enable GPU crash dumps!");
 }
 
 static void
@@ -872,8 +882,9 @@ init_gpu_device(HWND window, u32 flags)
     ID3D12DeviceRemovedExtendedDataSettings1* dred_settings = nullptr;
     HASSERT(D3D12GetDebugInterface(IID_PPV_ARGS(&dred_settings)));
 
-    dred_settings->SetAutoBreadcrumbsEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
-    dred_settings->SetPageFaultEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+    dred_settings->SetAutoBreadcrumbsEnablement  (D3D12_DRED_ENABLEMENT_FORCED_ON);
+    dred_settings->SetBreadcrumbContextEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+    dred_settings->SetPageFaultEnablement        (D3D12_DRED_ENABLEMENT_FORCED_ON);
 
     if (flags & kGpuFlagsEnableGpuValidation)
     {
@@ -1242,11 +1253,9 @@ alloc_gpu_ring_buffer_no_heap(AllocHeap heap, GpuBufferDesc desc, GpuHeapLocatio
   return ret;
 }
 
-// Either returns the offset or the fence value to wait for
-Result<u64, FenceValue>
-gpu_ring_buffer_alloc(GpuRingBuffer* buffer, u32 size)
+static void
+gpu_ring_buffer_consume_finished(GpuRingBuffer* buffer)
 {
-
   FenceValue current_fence_value = poll_gpu_fence_value(&buffer->fence);
   while (!ring_queue_is_empty(buffer->queued_fences))
   {
@@ -1261,8 +1270,39 @@ gpu_ring_buffer_alloc(GpuRingBuffer* buffer, u32 size)
 
     ring_queue_pop(&buffer->queued_fences);
     buffer->read  = allocation_fence.offset;
+    ASSERT_MSG_FATAL(allocation_fence.size <= buffer->used, "GpuRingBuffer::GpuAllocationFence size is bigger than the tracked usage in GpuRingBuffer. This is a bug in the GpuRingBuffer.");
     buffer->used -= allocation_fence.size;
+
+    if (buffer->used == 0)
+    {
+      buffer->read = buffer->write = 0;
+    }
   }
+}
+
+void
+gpu_ring_buffer_wait(GpuRingBuffer* buffer, u32 size)
+{
+  u32 capacity = buffer->buffer.desc.size;
+  while (true)
+  {
+    gpu_ring_buffer_consume_finished(buffer);
+    if (buffer->used + size > capacity)
+    {
+      ASSERT_MSG_FATAL(!ring_queue_is_empty(buffer->queued_fences), "For some reason fence queue for ring buffer is empty, but the read/write tails say there is no room available...");
+
+      // Block until the next even is completed and then consume more
+      block_gpu_fence(&buffer->fence, buffer->fence.last_completed_value + 1);
+      continue;
+    }
+  }
+}
+
+// Either returns the offset or the fence value to wait for
+Result<u64, FenceValue>
+gpu_ring_buffer_alloc(GpuRingBuffer* buffer, u32 size)
+{
+  gpu_ring_buffer_consume_finished(buffer);
 
   u32 capacity = buffer->buffer.desc.size;
   ASSERT_MSG_FATAL(size < capacity, "Attempted to allocate %u bytes from GPU ring buffer with capacity %u", size, capacity);
@@ -1340,6 +1380,18 @@ gpu_ring_buffer_alloc(GpuRingBuffer* buffer, u32 size)
   ring_queue_peak_front(buffer->queued_fences, &allocation_fence);
 
   return Err(allocation_fence.value);
+}
+
+void
+gpu_ring_buffer_commit(const GpuRingBuffer* buffer, CmdListAllocator* cmd_buffer_allocator)
+{
+  HASSERT(cmd_buffer_allocator->d3d12_queue->Signal(buffer->fence.d3d12_fence, buffer->fence.value));
+}
+
+void
+gpu_ring_buffer_commit(const GpuRingBuffer* buffer, CmdQueue* queue)
+{
+  HASSERT(queue->d3d12_queue->Signal(buffer->fence.d3d12_fence, buffer->fence.value));
 }
 
 void
@@ -1976,7 +2028,8 @@ get_d3d12_blas_desc(
 }
 
 GpuRtBlas
-alloc_gpu_rt_blas_no_heap(
+alloc_gpu_rt_blas(
+  GpuAllocHeap heap,
   const GpuBuffer& vertex_buffer,
   const GpuBuffer& index_buffer,
 
@@ -2021,7 +2074,7 @@ alloc_gpu_rt_blas_no_heap(
   GpuRtBlas ret;
   ret.desc         = desc;
   ret.scratch_size = (u32)prebuild_info.ScratchDataSizeInBytes;
-  ret.buffer       = alloc_gpu_buffer_no_heap(g_GpuDevice, buffer_desc, kGpuHeapGpuOnly, name);
+  ret.buffer       = alloc_gpu_buffer(g_GpuDevice, heap, buffer_desc, name);
   return ret;
 }
 
@@ -2648,7 +2701,28 @@ swap_chain_submit(SwapChain* swap_chain, const GpuDevice* device, const GpuTextu
 #endif
     }
 
+    if (g_AftermathManager && g_AftermathManager->crash_dump_path[0] != '\0')
+    {
+      char msg[kMaxPathLength + 128];
+      snprintf(msg, sizeof(msg), "GPU crash dump saved to:\n%s\n\nWould you like to open it?", g_AftermathManager->crash_dump_path);
+      if (MessageBoxA(nullptr, msg, "GPU Crash", MB_YESNO | MB_ICONERROR) == IDYES)
+      {
+        SHELLEXECUTEINFOA info = {};
+        info.cbSize            = sizeof(info);
+        info.fMask             = SEE_MASK_NOASYNC;
+        info.lpVerb            = "open";
+        info.lpFile            = g_AftermathManager->crash_dump_path;
+        info.nShow             = SW_SHOW;
+        ShellExecuteExA(&info);
+
+        char wait_msg[kMaxPathLength + 128];
+        snprintf(wait_msg, sizeof(wait_msg), "Opening:\n%s\n\nClick OK once Nsight Graphics has opened.", g_AftermathManager->crash_dump_path);
+        MessageBoxA(nullptr, wait_msg, "GPU Crash", MB_OK | MB_ICONINFORMATION);
+      }
+    }
+
     ASSERT_MSG_FATAL(false, "GPU Crash Occurred!");
+    ExitProcess(1);
   }
   else
   {
@@ -2780,13 +2854,9 @@ build_rt_blas(
   desc.DestAccelerationStructureData    = blas.buffer.gpu_addr;
   desc.ScratchAccelerationStructureData = scratch.gpu_addr + scratch_offset;
 
-  D3D12_RESOURCE_BARRIER uav_barrier = {};
-  uav_barrier.Type                   = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-  uav_barrier.UAV.pResource          = blas.buffer.d3d12_buffer;
-
-  cmd->d3d12_list->ResourceBarrier(1, &uav_barrier);
+  gpu_memory_barrier(cmd);
   cmd->d3d12_list->BuildRaytracingAccelerationStructure(&desc, 0, nullptr);
-  cmd->d3d12_list->ResourceBarrier(1, &uav_barrier);
+  gpu_memory_barrier(cmd);
 }
 
 void
@@ -2821,13 +2891,39 @@ build_rt_tlas(
   desc.DestAccelerationStructureData    = tlas.buffer.gpu_addr;
   desc.ScratchAccelerationStructureData = scratch.gpu_addr + scratch_offset;
 
-  D3D12_RESOURCE_BARRIER uav_barrier = {};
-  uav_barrier.Type                   = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-  uav_barrier.UAV.pResource          = tlas.buffer.d3d12_buffer;
-
-  cmd->d3d12_list->ResourceBarrier(1, &uav_barrier);
+  gpu_memory_barrier(cmd);
   cmd->d3d12_list->BuildRaytracingAccelerationStructure(&desc, 0, nullptr);
-  cmd->d3d12_list->ResourceBarrier(1, &uav_barrier);
+  gpu_memory_barrier(cmd);
+}
+
+void
+gpu_copy_buffer(
+  CmdList* cmd,
+  const    GpuBuffer& dst,
+  u64      dst_offset,
+  const    GpuBuffer& src,
+  u64      src_offset,
+  u64      bytes
+) {
+  cmd->d3d12_list->CopyBufferRegion(dst.d3d12_buffer, dst_offset, src.d3d12_buffer, src_offset, bytes);
+}
+
+void
+gpu_memory_barrier(CmdList* cmd)
+{
+  // TODO(bshihabi): We can add more fine-grained caches in the future, this is fine for now.
+  D3D12_GLOBAL_BARRIER barrier;
+  barrier.SyncBefore   = D3D12_BARRIER_SYNC_ALL;
+  barrier.SyncAfter    = D3D12_BARRIER_SYNC_ALL;
+  barrier.AccessBefore = D3D12_BARRIER_ACCESS_COMMON;
+  barrier.AccessAfter = D3D12_BARRIER_ACCESS_COMMON;
+
+  D3D12_BARRIER_GROUP group;
+  group.Type            = D3D12_BARRIER_TYPE_GLOBAL;
+  group.NumBarriers     = 1;
+  group.pGlobalBarriers = &barrier;
+
+  cmd->d3d12_list->Barrier(1, &group);
 }
 
 void

@@ -191,6 +191,7 @@ init_unified_geometry_buffer(const GpuDevice* device)
   GpuBufferDesc vertex_uber_desc = {0};
   vertex_uber_desc.size = kVertexBufferSize;
 
+  g_UnifiedGeometryBuffer.lock              = init_spin_lock();
   g_UnifiedGeometryBuffer.vertex_buffer     = alloc_gpu_buffer_no_heap(device, vertex_uber_desc, kGpuHeapGpuOnly, "Vertex Buffer");
   g_UnifiedGeometryBuffer.vertex_buffer_pos = 0;
 
@@ -199,6 +200,8 @@ init_unified_geometry_buffer(const GpuDevice* device)
 
   g_UnifiedGeometryBuffer.index_buffer     = alloc_gpu_buffer_no_heap(device, index_uber_desc, kGpuHeapGpuOnly, "Index Buffer");
   g_UnifiedGeometryBuffer.index_buffer_pos = 0;
+
+  g_UnifiedGeometryBuffer.blas_allocator   = init_gpu_linear_allocator(MiB(32), kGpuHeapGpuOnly);
 }
 
 void
@@ -213,6 +216,9 @@ destroy_unified_geometry_buffer()
 u64
 alloc_uber_vertex(u64 size)
 {
+  spin_acquire(&g_UnifiedGeometryBuffer.lock);
+  defer { spin_release(&g_UnifiedGeometryBuffer.lock); };
+
   u64 ret      = g_UnifiedGeometryBuffer.vertex_buffer_pos;
   u64 capacity = g_UnifiedGeometryBuffer.vertex_buffer.desc.size;
   ASSERT_MSG_FATAL(ret + size <= capacity, "Failed to allocate %llu bytes from uber vertex buffer which already has %llu/%llu bytes allocated (%f %%). Consider bumping kVertexBufferSize.", size, ret, capacity, ((f64)ret / (f64)capacity * 100.0));
@@ -223,9 +229,30 @@ alloc_uber_vertex(u64 size)
 u64
 alloc_uber_index(u64 size)
 {
+  spin_acquire(&g_UnifiedGeometryBuffer.lock);
+  defer { spin_release(&g_UnifiedGeometryBuffer.lock); };
+
   u64 ret      = g_UnifiedGeometryBuffer.index_buffer_pos;
   u64 capacity = g_UnifiedGeometryBuffer.index_buffer.desc.size;
   ASSERT_MSG_FATAL(ret + size <= capacity, "Failed to allocate %llu bytes from uber index buffer which already has %llu/%llu bytes allocated (%f %%). Consider bumping kIndexBufferSize.", size, ret, capacity, ((f64)ret / (f64)capacity * 100.0));
   g_UnifiedGeometryBuffer.index_buffer_pos += size;
   return ret;
+}
+
+GpuRtBlas
+alloc_uber_blas(u32 vertex_start, u32 vertex_count, u32 index_start, u32 index_count, const char* name)
+{
+  spin_acquire(&g_UnifiedGeometryBuffer.lock);
+  defer { spin_release(&g_UnifiedGeometryBuffer.lock); };
+
+  GpuRtBlasDesc desc;
+  desc.vertex_start  = vertex_start;
+  desc.vertex_count  = vertex_count;
+  // TODO(bshihabi): When we add vertex buffer compression we'll need to figure out how to construct the BLAS with the compressed data
+  desc.vertex_format = kGpuFormatRGB32Float;
+  desc.vertex_stride = sizeof(Vertex);
+  desc.index_start   = index_start;
+  desc.index_count   = index_count;
+
+  return alloc_gpu_rt_blas(g_UnifiedGeometryBuffer.blas_allocator, g_UnifiedGeometryBuffer.vertex_buffer, g_UnifiedGeometryBuffer.index_buffer, desc, name);
 }
