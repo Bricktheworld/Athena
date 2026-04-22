@@ -70,7 +70,7 @@ struct AssetHandle
 
   bool is_valid() const
   {
-    return m_Ptr->asset.id == m_Id;
+    return m_Ptr && m_Ptr->asset.id == m_Id;
   }
   const Asset* to_asset() const
   {
@@ -113,14 +113,22 @@ struct AssetHandle
 
 struct Texture
 {
-  Asset asset;
+  Asset         asset;
+
+  u32           width;
+  u32           height;
+  TextureFormat format;
+
+  GpuTexture    gpu_texture;
+  GpuDescriptor srv_descriptor;
 };
 typedef AssetHandle<Texture> TextureHandle;
 
 struct Material
 {
-  Asset asset;
-  u32   gpu_id = 0;
+  Asset                asset;
+  u32                  gpu_id = 0;
+  Array<TextureHandle> textures;
 };
 typedef AssetHandle<Material> MaterialHandle;
 
@@ -148,3 +156,4 @@ typedef AssetHandle<Model> ModelHandle;
             void           init_asset_registry(void);
 THREAD_SAFE ModelHandle    kick_model_load(AssetId asset_id);
 THREAD_SAFE MaterialHandle kick_material_load(AssetId asset_id);
+THREAD_SAFE TextureHandle  kick_texture_load(AssetId asset_id);

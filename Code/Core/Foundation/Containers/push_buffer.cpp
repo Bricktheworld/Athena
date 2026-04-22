@@ -113,6 +113,13 @@ locked_push_buffer_flush_head(PushBuffer* pb)
 {
   // Load the segment that we want to flush
   Segment* flush_segment = pb->write_head;
+
+  // Don't flush empty segment
+  if (flush_segment == nullptr)
+  {
+    return 0;
+  }
+
   u64      size          = (u64)(flush_segment->write - flush_segment->base);
 
   // Don't flush an empty segment
@@ -145,7 +152,7 @@ static void*
 alloc_from_segment(Segment* segment, u64 size)
 {
   u64   available = segment->segment_size - (u64)(segment->write - segment->base);
-  ASSERT_MSG_FATAL(available > size, "Not enough space in segment to allocate %llu bytes from! Only %llu bytes available. This is a bug in the PushBuffer and this should've been handled further up the call stack.", size, available);
+  ASSERT_MSG_FATAL(available >= size, "Not enough space in segment to allocate %llu bytes from! Only %llu bytes available. This is a bug in the PushBuffer and this should've been handled further up the call stack.", size, available);
 
   void* ret       = (void*)segment->write;
   segment->write += size;
@@ -161,6 +168,7 @@ push_buffer_begin_edit(PushBuffer* pb, u64 size)
 
   auto allocate_segment = [pb](u64 size) -> Segment*
   {
+    ASSERT_MSG(false, "Overflowed push buffer! Allocated %llu bytes. This incurs a memory allocation which could be slow. Consider bumping this push buffer.", size);
     Segment* ret      = (Segment*)push_stack(&pb->allocator, sizeof(Segment), alignof(Segment));
     ret->base         = (uintptr_t)push_stack(&pb->allocator, size, 1);
     ret->write        = ret->base;
@@ -186,7 +194,7 @@ push_buffer_begin_edit(PushBuffer* pb, u64 size)
   {
     Segment* segment = pb->write_head;
 
-    u64 remaining_space = segment->segment_size - (u64)(segment->write - segment->base);
+    u64 remaining_space = segment ? (segment->segment_size - (u64)(segment->write - segment->base)) : 0;
     if (size > remaining_space)
     {
       // Flush the latest segment
@@ -206,6 +214,12 @@ push_buffer_begin_edit(PushBuffer* pb, u64 size)
     segment->write_semaphore++;
 
     void* dst = alloc_from_segment(segment, size);
+
+    uintptr_t segment_offset = (uintptr_t)dst - pb->commit_segments_memory;
+    if (segment_offset >= pb->commit_size)
+    {
+      pb->overflow_write_semaphore++;
+    }
 
     return dst;
   }

@@ -156,16 +156,15 @@ read_file(FileStream file_stream, void* dst, u64 size, u64 offset)
   return ReadFile(file_stream.handle, dst, (u32)size, NULL, NULL);
 }
 
-Result<AsyncFilePromise, FileError>
-read_file(AsyncFileStream file_stream, void* dst, u64 size, u64 offset)
+Result<void, FileError>
+read_file(AsyncFileStream file_stream, AsyncFilePromise* out_promise, void* dst, u64 size, u64 offset)
 {
   ASSERT_MSG_FATAL(size <= U32_MAX,   "Reading from file with size %lu not supported currently due to 32-bit limit.", size);
 
-  OVERLAPPED overlapped{};
-  overlapped.Offset     = (DWORD)(offset & 0xFFFFFFFF);
-  overlapped.OffsetHigh = (DWORD)(offset >> 32);
+  out_promise->overlapped.Offset     = (DWORD)(offset & 0xFFFFFFFF);
+  out_promise->overlapped.OffsetHigh = (DWORD)(offset >> 32);
 
-  BOOL ok = ReadFile(file_stream.file_handle, dst, (u32)size, NULL, &overlapped);
+  BOOL ok = ReadFile(file_stream.file_handle, dst, (u32)size, NULL, &out_promise->overlapped);
 
   DWORD err = GetLastError();
   if (!ok && err != ERROR_IO_PENDING)
@@ -182,13 +181,13 @@ read_file(AsyncFileStream file_stream, void* dst, u64 size, u64 offset)
     );
 
     dbgln("Failed to read file: %s", err_msg);
+    out_promise->io_completion_port = nullptr;
     return Err(kFileFailedToRead);
   }
 
-  AsyncFilePromise ret = {0};
-  ret.io_completion_port = file_stream.io_completion_port;
+  out_promise->io_completion_port = file_stream.io_completion_port;
 
-  return Ok(ret);
+  return Ok();
 }
 
 AwaitError

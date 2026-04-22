@@ -113,7 +113,7 @@ check_hdr_support(IDXGIAdapter1* adapter, HWND window)
 }
 
 static void
-init_d3d12_device(HWND window, IDXGIFactory7* factory, IDXGIAdapter1** out_adapter, ID3D12Device6** out_device, wchar_t out_name[128])
+init_d3d12_device(HWND window, IDXGIFactory7* factory, IDXGIAdapter1** out_adapter, ID3D12Device15** out_device, wchar_t out_name[128])
 {
   *out_adapter = nullptr;
   *out_device  = nullptr;
@@ -123,11 +123,11 @@ init_d3d12_device(HWND window, IDXGIFactory7* factory, IDXGIAdapter1** out_adapt
   for (u32 i = 0; factory->EnumAdapters1(i, &current_adapter) != DXGI_ERROR_NOT_FOUND; i++)
   {
     DXGI_ADAPTER_DESC1 dxgi_adapter_desc = {0};
-    ID3D12Device6* current_device = nullptr;
+    ID3D12Device15* current_device = nullptr;
     HASSERT(current_adapter->GetDesc1(&dxgi_adapter_desc));
 
     if ((dxgi_adapter_desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) != 0 || 
-      FAILED(D3D12CreateDevice(current_adapter, D3D_FEATURE_LEVEL_12_0, __uuidof(ID3D12Device6), (void**)&current_device)) ||
+      FAILED(D3D12CreateDevice(current_adapter, D3D_FEATURE_LEVEL_12_0, __uuidof(ID3D12Device15), (void**)&current_device)) ||
       dxgi_adapter_desc.DedicatedVideoMemory <= max_dedicated_vram)
     {
       COM_RELEASE(current_device);
@@ -2144,162 +2144,6 @@ alloc_gpu_rt_tlas_no_heap(
   ret.scratch_size  = size_info.scratch_size;
   ret.buffer        = alloc_gpu_buffer_no_heap(g_GpuDevice, buffer_desc, kGpuHeapGpuOnly, name);
   return ret;
-}
-
-GpuBvh
-init_gpu_bvh(
-  GpuDevice* device,
-  const GpuBuffer& vertex_uber_buffer,
-  u32 vertex_count,
-  u32 vertex_stride,
-  const GpuBuffer& index_uber_buffer,
-  u32 index_count,
-  const char* name
-) {
-  // TODO(bshihabi): Give the acceleration structure a name!
-  UNREFERENCED_PARAMETER(name);
-  GpuBvh ret = {0};
-
-  D3D12_RAYTRACING_GEOMETRY_DESC geometry_desc = {};
-  geometry_desc.Type                                 = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
-  geometry_desc.Flags                                = D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
-  geometry_desc.Triangles.IndexBuffer                = index_uber_buffer.gpu_addr;
-  geometry_desc.Triangles.IndexCount                 = index_count;
-  geometry_desc.Triangles.IndexFormat                = DXGI_FORMAT_R16_UINT;
-  geometry_desc.Triangles.Transform3x4               = 0;
-  geometry_desc.Triangles.VertexFormat               = DXGI_FORMAT_R32G32B32_FLOAT;
-  geometry_desc.Triangles.VertexCount                = vertex_count;
-  geometry_desc.Triangles.VertexBuffer.StartAddress  = vertex_uber_buffer.gpu_addr;
-  geometry_desc.Triangles.VertexBuffer.StrideInBytes = vertex_stride;
-  
-  D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS bottom_level_inputs = {};
-  bottom_level_inputs.DescsLayout    = D3D12_ELEMENTS_LAYOUT_ARRAY;
-  bottom_level_inputs.Flags          = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
-  bottom_level_inputs.NumDescs       = 1;
-  bottom_level_inputs.Type           = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
-  bottom_level_inputs.pGeometryDescs = &geometry_desc;
-
-  D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO bottom_level_prebuild_info;
-  device->d3d12->GetRaytracingAccelerationStructurePrebuildInfo(&bottom_level_inputs, &bottom_level_prebuild_info);
-  bottom_level_prebuild_info.ScratchDataSizeInBytes   = ALIGN_POW2(bottom_level_prebuild_info.ScratchDataSizeInBytes,   D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT);
-  bottom_level_prebuild_info.ResultDataMaxSizeInBytes = ALIGN_POW2(bottom_level_prebuild_info.ResultDataMaxSizeInBytes, D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT);
-  ASSERT(bottom_level_prebuild_info.ResultDataMaxSizeInBytes > 0);
-
-  ret.blas = alloc_gpu_buffer_no_heap(
-    device,
-    {
-      .size = (u32)bottom_level_prebuild_info.ResultDataMaxSizeInBytes,
-      .flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
-      .initial_state = D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE
-    },
-    kGpuHeapGpuOnly,
-    "Bottom BVH Buffer"
-  );
-
-  D3D12_RAYTRACING_INSTANCE_DESC instance_desc = {};
-  instance_desc.Transform[0][0] = 1;
-  instance_desc.Transform[1][1] = 1;
-  instance_desc.Transform[2][2] = 1;
-  instance_desc.InstanceID      = 0;
-  instance_desc.InstanceMask    = 0xFF;
-  instance_desc.InstanceContributionToHitGroupIndex = 0;
-  instance_desc.Flags = D3D12_RAYTRACING_INSTANCE_FLAG_TRIANGLE_CULL_DISABLE;
-  instance_desc.AccelerationStructure = ret.blas.gpu_addr;
-  ret.instance_desc_buffer = alloc_gpu_buffer_no_heap(
-    device,
-    {.size = ALIGN_POW2(sizeof(instance_desc), D3D12_RAYTRACING_INSTANCE_DESCS_BYTE_ALIGNMENT)},
-    kGpuHeapSysRAMCpuToGpu,
-    "Instance Desc"
-  );
-  memcpy(unwrap(ret.instance_desc_buffer.mapped), &instance_desc, sizeof(instance_desc));
-
-  D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS top_level_inputs = {};
-  top_level_inputs.DescsLayout    = D3D12_ELEMENTS_LAYOUT_ARRAY;
-  top_level_inputs.Flags          = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
-  top_level_inputs.NumDescs       = 1;
-  top_level_inputs.Type           = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;
-  top_level_inputs.pGeometryDescs = nullptr;
-  top_level_inputs.InstanceDescs  = ret.instance_desc_buffer.gpu_addr;
-
-  D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO top_level_prebuild_info;
-  device->d3d12->GetRaytracingAccelerationStructurePrebuildInfo(&top_level_inputs, &top_level_prebuild_info);
-  top_level_prebuild_info.ScratchDataSizeInBytes = ALIGN_POW2(top_level_prebuild_info.ScratchDataSizeInBytes, D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT);
-  top_level_prebuild_info.ResultDataMaxSizeInBytes = ALIGN_POW2(top_level_prebuild_info.ResultDataMaxSizeInBytes, D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT);
-  ASSERT(top_level_prebuild_info.ResultDataMaxSizeInBytes > 0);
-
-  ret.tlas = alloc_gpu_buffer_no_heap(
-    device,
-    {
-      .size = (u32)top_level_prebuild_info.ResultDataMaxSizeInBytes,
-      .flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
-      .initial_state = D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE
-    },
-    kGpuHeapGpuOnly,
-    "Top BVH Buffer"
-  );
-
-  GpuBuffer top_level_scratch = alloc_gpu_buffer_no_heap(
-    device,
-    {
-      .size = (u32)top_level_prebuild_info.ScratchDataSizeInBytes,
-      .flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS
-    },
-    kGpuHeapGpuOnly,
-    "BVH Scratch Buffer"
-  );
-
-  GpuBuffer bottom_level_scratch = alloc_gpu_buffer_no_heap(
-    device,
-    {
-      .size = (u32)bottom_level_prebuild_info.ScratchDataSizeInBytes,
-      .flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS
-    },
-    kGpuHeapGpuOnly,
-    "BVH Scratch Buffer"
-  );
-
-  defer
-  {
-    free_gpu_buffer(&top_level_scratch); 
-    free_gpu_buffer(&bottom_level_scratch);
-  };
-
-  D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC bottom_level_build_desc = {};
-  bottom_level_build_desc.Inputs                           = bottom_level_inputs;
-  bottom_level_build_desc.ScratchAccelerationStructureData = bottom_level_scratch.gpu_addr;
-  bottom_level_build_desc.DestAccelerationStructureData    = ret.blas.gpu_addr;
-
-  D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC top_level_build_desc = {};
-  top_level_build_desc.Inputs                           = top_level_inputs;
-  top_level_build_desc.ScratchAccelerationStructureData = top_level_scratch.gpu_addr;
-  top_level_build_desc.DestAccelerationStructureData    = ret.tlas.gpu_addr;
-
-
-  CmdList cmd_list = alloc_cmd_list(&device->graphics_cmd_allocator);
-  D3D12_RESOURCE_BARRIER uav_barrier = {};
-  uav_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-  uav_barrier.UAV.pResource = nullptr;
-  cmd_list.d3d12_list->BuildRaytracingAccelerationStructure(&bottom_level_build_desc, 0, nullptr);
-  cmd_list.d3d12_list->ResourceBarrier(1, &uav_barrier);
-  cmd_list.d3d12_list->BuildRaytracingAccelerationStructure(&top_level_build_desc, 0, nullptr);
-  cmd_list.d3d12_list->ResourceBarrier(1, &uav_barrier);
-  GpuFence fence = init_gpu_fence();
-  defer { destroy_gpu_fence(&fence); };
-
-  FenceValue fence_value = submit_cmd_lists(&device->graphics_cmd_allocator, {cmd_list}, &fence);
-
-  block_gpu_fence(&fence, fence_value);
-
-  return ret;
-}
-
-void
-destroy_acceleration_structure(GpuBvh* bvh)
-{
-  free_gpu_buffer(&bvh->instance_desc_buffer);
-  free_gpu_buffer(&bvh->blas);
-  free_gpu_buffer(&bvh->tlas);
-  zero_memory(bvh, sizeof(GpuBvh));
 }
 
 RayTracingPSO

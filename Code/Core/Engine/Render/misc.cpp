@@ -1,6 +1,5 @@
 #include "Core/Engine/memory.h"
 #include "Core/Engine/asset_streaming.h"
-#include "Core/Engine/material_manager.h"
 
 #include "Core/Engine/Render/misc.h"
 #include "Core/Engine/Render/renderer.h"

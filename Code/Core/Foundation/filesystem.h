@@ -10,18 +10,22 @@ struct FileStream
 
 struct AsyncFileStream
 {
-  HANDLE file_handle        = nullptr;
-  HANDLE io_completion_port = nullptr;
+  HANDLE     file_handle        = nullptr;
+  HANDLE     io_completion_port = nullptr;
+  OVERLAPPED overlapped;
+
 };
 
 struct AsyncFilePromise
 {
   // This pointer is not _owned_ by the promise, so it does not need to be freed.
   // This could technically lead to a dangling pointer bug, but I haven't found a better way to structure these
-  HANDLE io_completion_port = nullptr;
+  HANDLE     io_completion_port = nullptr;
+
+  OVERLAPPED overlapped;
 };
 
-static constexpr AsyncFilePromise kAsyncFileError = AsyncFilePromise{ .io_completion_port = nullptr };
+static constexpr AsyncFilePromise kAsyncFileError{};
 
 enum FileCreateFlags : u32
 {
@@ -63,7 +67,7 @@ FOUNDATION_API void close_file(AsyncFileStream* file_stream);
 FOUNDATION_API DONT_IGNORE_RETURN bool write_file(FileStream file_stream, const void* src, u64 size);
 FOUNDATION_API DONT_IGNORE_RETURN bool write_file(FileStream file_stream, const void* src, u64 size);
 FOUNDATION_API DONT_IGNORE_RETURN bool read_file(FileStream file_stream, void* dst, u64 size, u64 offset);
-FOUNDATION_API DONT_IGNORE_RETURN Result<AsyncFilePromise, FileError> read_file(AsyncFileStream file_stream, void* dst, u64 size, u64 offset);
+FOUNDATION_API DONT_IGNORE_RETURN Result<void, FileError> read_file(AsyncFileStream file_stream, AsyncFilePromise* out_promise, void* dst, u64 size, u64 offset);
 
 FOUNDATION_API DONT_IGNORE_RETURN AwaitError await_io(const AsyncFilePromise& promise, Option<u32> timeout_ms = None);
 

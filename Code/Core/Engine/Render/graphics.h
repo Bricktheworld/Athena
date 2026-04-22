@@ -559,18 +559,6 @@ GpuRtTlas alloc_gpu_rt_tlas(
   const char*      name
 );
 
-// TODO(Brandon): We eventually will want to have this not take uber buffers but instead be more fine-grained...
-GpuBvh init_gpu_bvh(
-  GpuDevice* device,
-  const GpuBuffer& vertex_uber_buffer,
-  u32 vertex_count,
-  u32 vertex_stride,
-  const GpuBuffer& index_uber_buffer,
-  u32 index_count,
-  const char* name
-);
-void destroy_acceleration_structure(GpuBvh* bvh);
-
 enum DescriptorType : u8
 {
   kDescriptorTypeNull       = 0x0,
@@ -877,7 +865,7 @@ struct GpuProfiler
 
 struct GpuDevice
 {
-  ID3D12Device6*          d3d12           = nullptr;
+  ID3D12Device15*         d3d12           = nullptr;
   IDXGIDebug*             dxgi_debug      = nullptr;
   u32                     flags;
 
