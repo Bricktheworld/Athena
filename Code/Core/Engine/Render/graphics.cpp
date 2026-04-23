@@ -1010,14 +1010,24 @@ get_typeless_depth_format(GpuFormat format)
   }
 }
 
-GpuTexture
-alloc_gpu_texture_no_heap(const GpuDevice* device, GpuTextureDesc desc, const char* name)
+static D3D12_BARRIER_LAYOUT
+gpu_texture_layout_to_d3d12(GpuTextureLayout layout)
 {
-  GpuTexture ret = {0};
-  ret.desc = desc;
+  switch (layout)
+  {
+    case kGpuTextureLayoutGeneral:         return D3D12_BARRIER_LAYOUT_COMMON;
+    case kGpuTextureLayoutUnorderedAccess: return D3D12_BARRIER_LAYOUT_UNORDERED_ACCESS;
+    case kGpuTextureLayoutRenderTarget:    return D3D12_BARRIER_LAYOUT_RENDER_TARGET;
+    case kGpuTextureLayoutDepthStencil:    return D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE;
+    case kGpuTextureLayoutDiscard:         return D3D12_BARRIER_LAYOUT_UNDEFINED;
+    default: UNREACHABLE;
+  }
+}
 
-  D3D12_HEAP_PROPERTIES heap_props = CD3DX12_HEAP_PROPERTIES(get_d3d12_heap_location(kGpuHeapGpuOnly));
-  D3D12_RESOURCE_DESC resource_desc;
+static D3D12_RESOURCE_DESC1
+d3d12_resource_desc(const GpuTextureDesc& desc)
+{
+  D3D12_RESOURCE_DESC1 resource_desc;
   resource_desc.Dimension          = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
   resource_desc.Format             = gpu_format_to_d3d12(desc.format);
   resource_desc.Alignment          = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
@@ -1029,6 +1039,23 @@ alloc_gpu_texture_no_heap(const GpuDevice* device, GpuTextureDesc desc, const ch
   resource_desc.SampleDesc.Quality = 0;
   resource_desc.Layout             = D3D12_TEXTURE_LAYOUT_UNKNOWN;
   resource_desc.Flags              = desc.flags;
+
+  resource_desc.SamplerFeedbackMipRegion.Width  = 0;
+  resource_desc.SamplerFeedbackMipRegion.Height = 0;
+  resource_desc.SamplerFeedbackMipRegion.Depth  = 0;
+
+  return resource_desc;
+}
+
+GpuTexture
+alloc_gpu_texture_no_heap(const GpuDevice* device, GpuTextureDesc desc, const char* name)
+{
+  GpuTexture ret = {0};
+  ret.desc = desc;
+  ret.layout = kGpuTextureLayoutGeneral;
+
+  D3D12_RESOURCE_DESC1  resource_desc = d3d12_resource_desc(desc);
+  D3D12_HEAP_PROPERTIES heap_props    = CD3DX12_HEAP_PROPERTIES(get_d3d12_heap_location(kGpuHeapGpuOnly));
 
   D3D12_CLEAR_VALUE  clear_value;
   D3D12_CLEAR_VALUE* p_clear_value = nullptr;
@@ -1050,12 +1077,15 @@ alloc_gpu_texture_no_heap(const GpuDevice* device, GpuTextureDesc desc, const ch
   }
 
   HASSERT(
-    device->d3d12->CreateCommittedResource(
+    device->d3d12->CreateCommittedResource3(
       &heap_props,
       D3D12_HEAP_FLAG_NONE,
       &resource_desc,
-      desc.initial_state,
+      gpu_texture_layout_to_d3d12(ret.layout),
       p_clear_value,
+      nullptr,
+      0,
+      nullptr,
       IID_PPV_ARGS(&ret.d3d12_texture)
     )
   );
@@ -1074,25 +1104,6 @@ free_gpu_texture(GpuTexture* texture)
   zero_memory(texture, sizeof(GpuTexture));
 }
 
-static D3D12_RESOURCE_DESC
-d3d12_resource_desc(GpuTextureDesc desc)
-{
-  D3D12_RESOURCE_DESC resource_desc;
-  resource_desc.Dimension          = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-  resource_desc.Format             = gpu_format_to_d3d12(desc.format);
-  resource_desc.Alignment          = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
-  resource_desc.Width              = desc.width;
-  resource_desc.Height             = desc.height;
-  resource_desc.DepthOrArraySize   = desc.array_size;
-  resource_desc.MipLevels          = 1;
-  resource_desc.SampleDesc.Count   = 1;
-  resource_desc.SampleDesc.Quality = 0;
-  resource_desc.Layout             = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-  resource_desc.Flags              = desc.flags;
-
-  return resource_desc;
-}
-
 
 GpuTexture
 alloc_gpu_texture(
@@ -1102,11 +1113,12 @@ alloc_gpu_texture(
   const char* name
 ) {
   GpuTexture ret = {0};
-  ret.desc     = desc;
+  ret.desc       = desc;
+  ret.layout     = kGpuTextureLayoutGeneral;
 
-  D3D12_RESOURCE_DESC resource_desc   = d3d12_resource_desc(desc);
+  D3D12_RESOURCE_DESC1 resource_desc   = d3d12_resource_desc(desc);
 
-  D3D12_RESOURCE_ALLOCATION_INFO info = device->d3d12->GetResourceAllocationInfo(0, 1, &resource_desc);
+  D3D12_RESOURCE_ALLOCATION_INFO info = device->d3d12->GetResourceAllocationInfo2(0, 1, &resource_desc, nullptr);
 
   GpuAllocation allocation = GPU_HEAP_ALLOC(heap, (u32)info.SizeInBytes, (u32)info.Alignment);
 
@@ -1130,12 +1142,14 @@ alloc_gpu_texture(
   }
 
   HASSERT(
-    device->d3d12->CreatePlacedResource(
+    device->d3d12->CreatePlacedResource2(
       allocation.d3d12_heap,
       allocation.offset,
       &resource_desc,
-      desc.initial_state,
+      gpu_texture_layout_to_d3d12(ret.layout),
       p_clear_value,
+      0,
+      nullptr,
       IID_PPV_ARGS(&ret.d3d12_texture)
     )
   );
@@ -1158,14 +1172,27 @@ alloc_gpu_buffer_no_heap(
   ret.desc = desc;
 
   D3D12_HEAP_PROPERTIES heap_props = CD3DX12_HEAP_PROPERTIES(get_d3d12_heap_location(location));
-  auto resource_desc = CD3DX12_RESOURCE_DESC::Buffer(desc.size, desc.flags);
+  D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE;
+  if (location != kGpuHeapSysRAMCpuToGpu && location != kGpuHeapSysRAMGpuToCpu)
+  {
+    flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+  }
+
+  if (desc.is_rt_bvh)
+  {
+    flags |= D3D12_RESOURCE_FLAG_RAYTRACING_ACCELERATION_STRUCTURE;
+  }
+  auto resource_desc = CD3DX12_RESOURCE_DESC1::Buffer(desc.size, flags);
 
   HASSERT(
-    device->d3d12->CreateCommittedResource(
+    device->d3d12->CreateCommittedResource3(
       &heap_props,
       D3D12_HEAP_FLAG_NONE,
       &resource_desc,
-      desc.initial_state,
+      D3D12_BARRIER_LAYOUT_UNDEFINED,
+      nullptr,
+      nullptr,
+      0,
       nullptr,
       IID_PPV_ARGS(&ret.d3d12_buffer)
     )
@@ -1208,14 +1235,26 @@ alloc_gpu_buffer(
   GpuBuffer ret = {0};
   ret.desc = desc;
 
-  auto resource_desc = CD3DX12_RESOURCE_DESC::Buffer(desc.size, desc.flags);
+  D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE;
+  if (allocation.location != kGpuHeapSysRAMCpuToGpu && allocation.location != kGpuHeapSysRAMGpuToCpu)
+  {
+    flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+  }
+
+  if (desc.is_rt_bvh)
+  {
+    flags |= D3D12_RESOURCE_FLAG_RAYTRACING_ACCELERATION_STRUCTURE;
+  }
+  auto resource_desc = CD3DX12_RESOURCE_DESC1::Buffer(desc.size, flags);
 
   HASSERT(
-    device->d3d12->CreatePlacedResource(
+    device->d3d12->CreatePlacedResource2(
       allocation.d3d12_heap,
       allocation.offset,
       &resource_desc,
-      desc.initial_state,
+      D3D12_BARRIER_LAYOUT_UNDEFINED,
+      nullptr,
+      0,
       nullptr,
       IID_PPV_ARGS(&ret.d3d12_buffer)
     )
@@ -2068,8 +2107,8 @@ alloc_gpu_rt_blas(
   GpuBufferDesc buffer_desc = {};
   buffer_desc.size          = (u32)prebuild_info.ResultDataMaxSizeInBytes;
   // TODO(bshihabi): Maybe we should just use a convention where we put everything in common and transition to something else and back whenever we need
-  buffer_desc.initial_state = D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE;
   buffer_desc.flags         = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+  buffer_desc.is_rt_bvh     = true;
 
   GpuRtBlas ret;
   ret.desc         = desc;
@@ -2115,9 +2154,8 @@ alloc_gpu_rt_tlas(
 
   GpuBufferDesc buffer_desc = {};
   buffer_desc.size          = size_info.max_size;
-  // TODO(bshihabi): Maybe we should just use a convention where we put everything in common and transition to something else and back whenever we need
-  buffer_desc.initial_state = D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE;
   buffer_desc.flags         = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+  buffer_desc.is_rt_bvh     = true;
   
   GpuRtTlas ret;
   ret.max_instances = num_instances;
@@ -2135,9 +2173,8 @@ alloc_gpu_rt_tlas_no_heap(
 
   GpuBufferDesc buffer_desc = {};
   buffer_desc.size          = size_info.max_size;
-  // TODO(bshihabi): Maybe we should just use a convention where we put everything in common and transition to something else and back whenever we need
-  buffer_desc.initial_state = D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE;
   buffer_desc.flags         = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+  buffer_desc.is_rt_bvh     = true;
   
   GpuRtTlas ret;
   ret.max_instances = num_instances;
@@ -2229,14 +2266,14 @@ alloc_back_buffers_from_swap_chain(
   u32 num_back_buffers
 ) {
   GpuTextureDesc desc = {0};
-  desc.width = swap_chain->width;
+  desc.width  = swap_chain->width;
   desc.height = swap_chain->height;
   desc.format = swap_chain->format;
-  desc.initial_state = D3D12_RESOURCE_STATE_PRESENT;
   for (u32 i = 0; i < num_back_buffers; i++)
   {
     HASSERT(swap_chain->d3d12_swap_chain->GetBuffer(i, IID_PPV_ARGS(&back_buffers[i]->d3d12_texture)));
-    back_buffers[i]->desc = desc;
+    back_buffers[i]->desc   = desc;
+    back_buffers[i]->layout = kGpuTextureLayoutGeneral;
   }
 }
 
@@ -2757,10 +2794,10 @@ gpu_memory_barrier(CmdList* cmd)
 {
   // TODO(bshihabi): We can add more fine-grained caches in the future, this is fine for now.
   D3D12_GLOBAL_BARRIER barrier;
-  barrier.SyncBefore   = D3D12_BARRIER_SYNC_ALL;
-  barrier.SyncAfter    = D3D12_BARRIER_SYNC_ALL;
-  barrier.AccessBefore = D3D12_BARRIER_ACCESS_COMMON;
-  barrier.AccessAfter = D3D12_BARRIER_ACCESS_COMMON;
+  barrier.SyncBefore    = D3D12_BARRIER_SYNC_ALL;
+  barrier.SyncAfter     = D3D12_BARRIER_SYNC_ALL;
+  barrier.AccessBefore  = D3D12_BARRIER_ACCESS_COMMON;
+  barrier.AccessAfter   = D3D12_BARRIER_ACCESS_COMMON;
 
   D3D12_BARRIER_GROUP group;
   group.Type            = D3D12_BARRIER_TYPE_GLOBAL;
@@ -2768,6 +2805,27 @@ gpu_memory_barrier(CmdList* cmd)
   group.pGlobalBarriers = &barrier;
 
   cmd->d3d12_list->Barrier(1, &group);
+}
+
+void
+gpu_texture_layout_transition(CmdList* cmd, GpuTexture* texture, GpuTextureLayout layout)
+{
+  D3D12_TEXTURE_BARRIER barrier;
+  barrier.SyncBefore     = D3D12_BARRIER_SYNC_ALL;
+  barrier.SyncAfter      = D3D12_BARRIER_SYNC_ALL;
+  barrier.AccessBefore   = D3D12_BARRIER_ACCESS_COMMON;
+  barrier.AccessAfter    = D3D12_BARRIER_ACCESS_COMMON;
+  barrier.LayoutBefore   = gpu_texture_layout_to_d3d12(texture->layout);
+  barrier.LayoutAfter    = gpu_texture_layout_to_d3d12(layout);
+
+  D3D12_BARRIER_GROUP group;
+  group.Type             = D3D12_BARRIER_TYPE_TEXTURE;
+  group.NumBarriers      = 1;
+  group.pTextureBarriers = &barrier;
+
+  cmd->d3d12_list->Barrier(1, &group);
+
+  texture->layout = layout;
 }
 
 void

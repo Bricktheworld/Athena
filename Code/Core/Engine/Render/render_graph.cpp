@@ -434,7 +434,6 @@ init_physical_resources(
       desc.height         = resource_desc->texture_desc.height;
       desc.array_size     = resource_desc->texture_desc.array_size;
       desc.format         = resource_desc->texture_desc.format;
-      desc.initial_state  = D3D12_RESOURCE_STATE_COMMON;
       desc.flags          = *hash_table_find(&physical_flags, resource.id);
 
       if (is_depth_format(desc.format))

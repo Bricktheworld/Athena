@@ -363,6 +363,9 @@ reset_gpu_linear_allocator(GpuLinearAllocator* allocator)
   allocator->pos = 0;
 }
 
+enum GpuTextureUsageFlags
+{
+};
 
 
 struct GpuTextureDesc
@@ -373,8 +376,6 @@ struct GpuTextureDesc
 
   // TODO(Brandon): Eventually make these less verbose and platform agnostic.
   GpuFormat             format        = kGpuFormatRGBA8Unorm;
-  D3D12_RESOURCE_STATES initial_state = D3D12_RESOURCE_STATE_COMMON;
-
   D3D12_RESOURCE_FLAGS  flags         = D3D12_RESOURCE_FLAG_NONE;
   union
   {
@@ -387,10 +388,21 @@ struct GpuTextureDesc
   };
 };
 
+
+enum GpuTextureLayout : u32
+{
+  kGpuTextureLayoutGeneral = 0,
+  kGpuTextureLayoutUnorderedAccess,
+  kGpuTextureLayoutRenderTarget,
+  kGpuTextureLayoutDepthStencil,
+  kGpuTextureLayoutDiscard,
+};
+
 struct GpuTexture
 {
   GpuTextureDesc        desc;
   ID3D12Resource*       d3d12_texture = nullptr;
+  GpuTextureLayout      layout        = kGpuTextureLayoutGeneral;
 };
 
 GpuTexture alloc_gpu_texture_no_heap(
@@ -417,9 +429,9 @@ bool is_depth_format(GpuFormat format);
 
 struct GpuBufferDesc
 {
-  u32                   size          = 0;
-  D3D12_RESOURCE_FLAGS  flags         = D3D12_RESOURCE_FLAG_NONE;
-  D3D12_RESOURCE_STATES initial_state = D3D12_RESOURCE_STATE_COMMON;
+  u32                   size      = 0;
+  D3D12_RESOURCE_FLAGS  flags     = D3D12_RESOURCE_FLAG_NONE;
+  bool                  is_rt_bvh = false;
 };
 
 struct GpuBuffer
@@ -976,6 +988,9 @@ void gpu_copy_buffer(
 );
 
 void gpu_memory_barrier(CmdList* cmd);
+// NOTE(bshihabi): It is the caller's responsibility to not submit the CmdList's out of order here. 
+// Doing so would put the GpuTexture in a bad state since the layout is tracked within the GpuTexture struct
+void gpu_texture_layout_transition(CmdList* cmd, GpuTexture* texture, GpuTextureLayout layout);
 
 void init_imgui_ctx(
   const GpuDevice* device,
