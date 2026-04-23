@@ -6,13 +6,6 @@
 
 #include "Core/Engine/Render/graphics.h"
 
-struct AssetLoader;
-struct GpuStreamDevice;
-struct IDStorageFactory;
-struct IDStorageQueue2;
-struct IDStorageFile;
-struct IDStorageStatusArray;
-
 static constexpr u32 kMaxAssetLoadRequests = 0x1000;
 
 enum AssetGpuLoadType

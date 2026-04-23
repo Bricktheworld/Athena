@@ -70,7 +70,8 @@ struct AssetStreamer
 {
   SpinLocked<RingQueue<AssetStreamRequest>> asset_stream_requests;
 
-  PushBuffer                                file_io_buffer;
+  PushBuffer                                header_file_io_buffer;
+  PushBuffer                                content_file_io_buffer;
   PushBuffer                                gpu_io_buffer;
   PushBuffer                                asset_dependency_queue;
 
@@ -79,7 +80,9 @@ struct AssetStreamer
   PushBuffer                                main_thread_cmd_queue;
 
   // Caches the next in queue file I/O and Gpu commands
-  FileStreamingCmdHeader                    next_file_io_cmd;
+  FileStreamingCmdHeader                    next_header_file_io_cmd;
+  FileStreamingCmdHeader                    next_content_file_io_cmd;
+  u32                                       file_io_assets_in_flight = 0;
   GpuStreamingCmdHeader                     next_gpu_cmd;
   AssetDependencyCmdHeader                  next_asset_dependency_cmd;
 
@@ -235,8 +238,8 @@ kick_model_load(ModelRegistry* registry, AssetStreamer* streamer, AssetId asset_
     // Allocate some scratch memory in the ring buffer to read the file data
     u64   scratch_size   = sizeof(FileStreamingCmdHeader)         +
                            sizeof(ModelFileHeaderStreamingPacket);
-    void* file_io_memory = push_buffer_begin_edit(&streamer->file_io_buffer, scratch_size);
-    defer { push_buffer_end_edit(&streamer->file_io_buffer, file_io_memory); };
+    void* file_io_memory = push_buffer_begin_edit(&streamer->header_file_io_buffer, scratch_size);
+    defer { push_buffer_end_edit(&streamer->header_file_io_buffer, file_io_memory); };
 
     void* scratch_memory = file_io_memory;
 
@@ -256,7 +259,7 @@ kick_model_load(ModelRegistry* registry, AssetStreamer* streamer, AssetId asset_
     if (!file_read_ok)
     {
       dbgln("Failed to read file for asset 0x%x.", asset_id);
-      model->asset.state   = kAssetFailedToLoad;
+      model->asset.state = kAssetFailedToLoad;
       return;
     }
   }
@@ -273,7 +276,7 @@ process_model_file_request(AssetStreamer* streamer, FileStreamingCmdHeader heade
     {
       // Pop the rest of the packet off of the queue
       ModelFileHeaderStreamingPacket src_pkt;
-      push_buffer_pop(&streamer->file_io_buffer, &src_pkt, sizeof(src_pkt));
+      push_buffer_pop(&streamer->header_file_io_buffer, &src_pkt, sizeof(src_pkt));
 
       Model*  model    = src_pkt.model;
       AssetId asset_id = model->asset.id;
@@ -322,8 +325,8 @@ process_model_file_request(AssetStreamer* streamer, FileStreamingCmdHeader heade
                            sizeof(ModelFileContentStreamingPacket) +
                            read_size;
 
-      void* file_io_memory = push_buffer_begin_edit(&streamer->file_io_buffer, scratch_size);
-      defer { push_buffer_end_edit(&streamer->file_io_buffer, file_io_memory); };
+      void* file_io_memory = push_buffer_begin_edit(&streamer->content_file_io_buffer, scratch_size);
+      defer { push_buffer_end_edit(&streamer->content_file_io_buffer, file_io_memory); };
 
       // Initialize the packets to push to the queue
       void* scratch_memory = file_io_memory;
@@ -350,7 +353,7 @@ process_model_file_request(AssetStreamer* streamer, FileStreamingCmdHeader heade
     case kModelCpuStreamContent:
     {
       ModelFileContentStreamingPacket src_pkt;
-      push_buffer_pop(&streamer->file_io_buffer, &src_pkt, sizeof(src_pkt));
+      push_buffer_pop(&streamer->content_file_io_buffer, &src_pkt, sizeof(src_pkt));
 
       // !!! WARNING !!!
       //
@@ -387,7 +390,7 @@ process_model_file_request(AssetStreamer* streamer, FileStreamingCmdHeader heade
       }
 
       // Now that we know there's not some weird corruption happening, we can safely pop off the rest of the packet
-      defer { push_buffer_pop(&streamer->file_io_buffer, src_pkt.size); };
+      defer { push_buffer_pop(&streamer->content_file_io_buffer, src_pkt.size); };
 
       ASSERT_MSG_FATAL(await_result != kAwaitInFlight, "In flight requests should be handled earlier up the call stack, something went wrong in the asset streamer.");
       if (await_result == kAwaitFailed)
@@ -618,8 +621,8 @@ kick_material_load(MaterialRegistry* registry, AssetStreamer* streamer, AssetId 
 
     u64   scratch_size   = sizeof(FileStreamingCmdHeader)            +
                            sizeof(MaterialFileHeaderStreamingPacket);
-    void* file_io_memory = push_buffer_begin_edit(&streamer->file_io_buffer, scratch_size);
-    defer { push_buffer_end_edit(&streamer->file_io_buffer, file_io_memory); };
+    void* file_io_memory = push_buffer_begin_edit(&streamer->header_file_io_buffer, scratch_size);
+    defer { push_buffer_end_edit(&streamer->header_file_io_buffer, file_io_memory); };
 
     void* scratch_memory = file_io_memory;
 
@@ -650,7 +653,7 @@ process_material_file_request(AssetStreamer* streamer, FileStreamingCmdHeader he
     case kMaterialCpuStreamHeader:
     {
       MaterialFileHeaderStreamingPacket src_pkt;
-      push_buffer_pop(&streamer->file_io_buffer, &src_pkt, sizeof(src_pkt));
+      push_buffer_pop(&streamer->header_file_io_buffer, &src_pkt, sizeof(src_pkt));
 
       Material* material = src_pkt.material;
       AssetId   asset_id = material->asset.id;
@@ -688,8 +691,8 @@ process_material_file_request(AssetStreamer* streamer, FileStreamingCmdHeader he
                            sizeof(MaterialFileContentStreamingPacket) +
                            read_size;
 
-      void* file_io_memory = push_buffer_begin_edit(&streamer->file_io_buffer, scratch_size);
-      defer { push_buffer_end_edit(&streamer->file_io_buffer, file_io_memory); };
+      void* file_io_memory = push_buffer_begin_edit(&streamer->content_file_io_buffer, scratch_size);
+      defer { push_buffer_end_edit(&streamer->content_file_io_buffer, file_io_memory); };
 
       void* scratch_memory = file_io_memory;
 
@@ -715,7 +718,7 @@ process_material_file_request(AssetStreamer* streamer, FileStreamingCmdHeader he
     case kMaterialCpuStreamContent:
     {
       MaterialFileContentStreamingPacket src_pkt;
-      push_buffer_pop(&streamer->file_io_buffer, &src_pkt, sizeof(src_pkt));
+      push_buffer_pop(&streamer->content_file_io_buffer, &src_pkt, sizeof(src_pkt));
 
       // !!! WARNING !!!
       //
@@ -750,7 +753,7 @@ process_material_file_request(AssetStreamer* streamer, FileStreamingCmdHeader he
         return;
       }
 
-      defer { push_buffer_pop(&streamer->file_io_buffer, src_pkt.size); };
+      defer { push_buffer_pop(&streamer->content_file_io_buffer, src_pkt.size); };
 
       ASSERT_MSG_FATAL(await_result != kAwaitInFlight, "In flight requests should be handled earlier up the call stack, something went wrong in the asset streamer.");
       if (await_result == kAwaitFailed)
@@ -1003,8 +1006,8 @@ kick_texture_load(TextureRegistry* registry, AssetStreamer* streamer, AssetId as
 
     u64   scratch_size   = sizeof(FileStreamingCmdHeader)           +
                            sizeof(TextureFileHeaderStreamingPacket);
-    void* file_io_memory = push_buffer_begin_edit(&streamer->file_io_buffer, scratch_size);
-    defer { push_buffer_end_edit(&streamer->file_io_buffer, file_io_memory); };
+    void* file_io_memory = push_buffer_begin_edit(&streamer->header_file_io_buffer, scratch_size);
+    defer { push_buffer_end_edit(&streamer->header_file_io_buffer, file_io_memory); };
 
     void* scratch_memory = file_io_memory;
 
@@ -1034,7 +1037,7 @@ process_texture_file_request(AssetStreamer* streamer, FileStreamingCmdHeader hea
     case kTextureCpuStreamHeader:
     {
       TextureFileHeaderStreamingPacket src_pkt;
-      push_buffer_pop(&streamer->file_io_buffer, &src_pkt, sizeof(src_pkt));
+      push_buffer_pop(&streamer->header_file_io_buffer, &src_pkt, sizeof(src_pkt));
 
       Texture* texture  = src_pkt.texture;
       AssetId  asset_id = texture->asset.id;
@@ -1052,7 +1055,7 @@ process_texture_file_request(AssetStreamer* streamer, FileStreamingCmdHeader hea
 
       char asset_id_str[512];
       asset_id_to_path(asset_id_str, asset_id);
-      CPU_PROFILE_SCOPE("Texture CPU Stream Header", asset_id_str);
+      CPU_PROFILE_SCOPE("Texture CPU Stream Content", asset_id_str);
 
       ASSERT_MSG_FATAL(src_pkt.asset_header.metadata.magic_number == kAssetMagicNumber,    "Texture header data is corrupted for asset 0x%x. Expected magic number 0x%x but got 0x%x",    asset_id, kAssetMagicNumber,       src_pkt.asset_header.metadata.magic_number);
       ASSERT_MSG_FATAL(src_pkt.asset_header.metadata.asset_hash   == asset_id,             "Texture header data is corrupted for asset 0x%x. Expected asset ID 0x%x but got 0x%x",         asset_id, asset_id,              src_pkt.asset_header.metadata.asset_hash);
@@ -1076,8 +1079,8 @@ process_texture_file_request(AssetStreamer* streamer, FileStreamingCmdHeader hea
                            sizeof(TextureFileContentStreamingPacket) +
                            read_size;
 
-      void* file_io_memory = push_buffer_begin_edit(&streamer->file_io_buffer, scratch_size);
-      defer { push_buffer_end_edit(&streamer->file_io_buffer, file_io_memory); };
+      void* file_io_memory = push_buffer_begin_edit(&streamer->content_file_io_buffer, scratch_size);
+      defer { push_buffer_end_edit(&streamer->content_file_io_buffer, file_io_memory); };
 
       void* scratch_memory = file_io_memory;
 
@@ -1103,12 +1106,16 @@ process_texture_file_request(AssetStreamer* streamer, FileStreamingCmdHeader hea
     case kTextureCpuStreamContent:
     {
       TextureFileContentStreamingPacket src_pkt;
-      push_buffer_pop(&streamer->file_io_buffer, &src_pkt, sizeof(src_pkt));
+      push_buffer_pop(&streamer->content_file_io_buffer, &src_pkt, sizeof(src_pkt));
 
       Texture* texture  = src_pkt.texture;
       AssetId  asset_id = texture->asset.id;
 
       texture->asset.state = kAssetStreaming;
+
+      char asset_id_str[512];
+      asset_id_to_path(asset_id_str, asset_id);
+      CPU_PROFILE_SCOPE("Texture GPU Stream Content", asset_id_str);
 
       ASSERT_MSG_FATAL(src_pkt.asset_header.metadata.magic_number == kAssetMagicNumber,    "Texture header data is corrupted for asset 0x%x. Expected magic number 0x%x but got 0x%x",    asset_id, kAssetMagicNumber,       src_pkt.asset_header.metadata.magic_number);
       ASSERT_MSG_FATAL(src_pkt.asset_header.metadata.asset_hash   == asset_id,             "Texture header data is corrupted for asset 0x%x. Expected asset ID 0x%x but got 0x%x",         asset_id, asset_id,              src_pkt.asset_header.metadata.asset_hash);
@@ -1126,7 +1133,7 @@ process_texture_file_request(AssetStreamer* streamer, FileStreamingCmdHeader hea
         return;
       }
 
-      defer { push_buffer_pop(&streamer->file_io_buffer, src_pkt.size); };
+      defer { push_buffer_pop(&streamer->content_file_io_buffer, src_pkt.size); };
 
       ASSERT_MSG_FATAL(await_result != kAwaitInFlight, "In flight requests should be handled earlier up the call stack, something went wrong in the asset streamer.");
       if (await_result == kAwaitFailed)
@@ -1197,45 +1204,74 @@ process_texture_gpu_request(AssetStreamer* streamer, GpuStreamingCmdHeader heade
 }
 
 static void
-process_file_io(AssetStreamer* streamer)
+process_header_file_io(AssetStreamer* streamer)
 {
-  while (true)
+  static constexpr u32 kMaxContentFileIoAssetsInFlight = 8;
+
+  // Rate limit the header file requests because file I/O buffer is often bottleneck and we don't want to fill it up too fast
+  while (streamer->file_io_assets_in_flight < kMaxContentFileIoAssetsInFlight)
   {
     // Pop the next file I/O command off the stack if ready and we don't already have one that we're waiting for
-    if (streamer->next_file_io_cmd.cmd == kNullStreamingCmd)
+    if (streamer->next_header_file_io_cmd.cmd == kNullStreamingCmd)
     {
-      if (!try_push_buffer_pop(&streamer->file_io_buffer, &streamer->next_file_io_cmd, sizeof(FileStreamingCmdHeader)))
+      if (!try_push_buffer_pop(&streamer->header_file_io_buffer, &streamer->next_header_file_io_cmd, sizeof(FileStreamingCmdHeader)))
       {
         return;
       }
     }
 
-    AwaitError ready = await_io(streamer->next_file_io_cmd.file_promise, kFileIOBlockRateMs);
+    AwaitError ready = await_io(streamer->next_header_file_io_cmd.file_promise, kFileIOBlockRateMs);
     // If it's still in flight after some time, then move on and try again later
     if (ready == kAwaitInFlight)
     {
       return;
     }
 
-    if      (streamer->next_file_io_cmd.cmd <= kModelCpuStreamContent)
+    switch (streamer->next_header_file_io_cmd.cmd)
     {
-      process_model_file_request(streamer, streamer->next_file_io_cmd, ready);
-      zero_memory(&streamer->next_file_io_cmd, sizeof(streamer->next_file_io_cmd));
+      case kModelCpuStreamHeader:    process_model_file_request   (streamer, streamer->next_header_file_io_cmd, ready);  break;
+      case kMaterialCpuStreamHeader: process_material_file_request(streamer, streamer->next_header_file_io_cmd, ready);  break;
+      case kTextureCpuStreamHeader:  process_texture_file_request (streamer, streamer->next_header_file_io_cmd, ready);  break;
+      default: ASSERT_MSG_FATAL(false, "Invalid streaming command received %u!", streamer->next_header_file_io_cmd.cmd); return;
     }
-    else if (streamer->next_file_io_cmd.cmd <= kMaterialCpuStreamContent)
+    zero_memory(&streamer->next_header_file_io_cmd, sizeof(streamer->next_header_file_io_cmd));
+    streamer->file_io_assets_in_flight++;
+  }
+}
+
+static void
+process_content_file_io(AssetStreamer* streamer)
+{
+  // Consume in-flight content file I/O requests as fast as possible since they are the bottleneck typically
+  while (true)
+  {
+    // Pop the next file I/O command off the stack if ready and we don't already have one that we're waiting for
+    if (streamer->next_content_file_io_cmd.cmd == kNullStreamingCmd)
     {
-      process_material_file_request(streamer, streamer->next_file_io_cmd, ready);
-      zero_memory(&streamer->next_file_io_cmd, sizeof(streamer->next_file_io_cmd));
+      if (!try_push_buffer_pop(&streamer->content_file_io_buffer, &streamer->next_content_file_io_cmd, sizeof(FileStreamingCmdHeader)))
+      {
+        return;
+      }
     }
-    else if (streamer->next_file_io_cmd.cmd <= kTextureCpuStreamContent)
+
+    AwaitError ready = await_io(streamer->next_content_file_io_cmd.file_promise, kFileIOBlockRateMs);
+    // If it's still in flight after some time, then move on and try again later
+    if (ready == kAwaitInFlight)
     {
-      process_texture_file_request(streamer, streamer->next_file_io_cmd, ready);
-      zero_memory(&streamer->next_file_io_cmd, sizeof(streamer->next_file_io_cmd));
+      return;
     }
-    else
+
+    switch (streamer->next_content_file_io_cmd.cmd)
     {
-      ASSERT_MSG_FATAL(false, "Invalid streaming command received %u!", streamer->next_file_io_cmd.cmd);
+      case kModelCpuStreamContent:    process_model_file_request   (streamer, streamer->next_content_file_io_cmd, ready); break;
+      case kMaterialCpuStreamContent: process_material_file_request(streamer, streamer->next_content_file_io_cmd, ready); break;
+      case kTextureCpuStreamContent:  process_texture_file_request (streamer, streamer->next_content_file_io_cmd, ready); break;
+      default: ASSERT_MSG_FATAL(false, "Invalid streaming command received %u!", streamer->next_content_file_io_cmd.cmd); return;
     }
+    zero_memory(&streamer->next_content_file_io_cmd, sizeof(streamer->next_content_file_io_cmd));
+
+    ASSERT_MSG_FATAL(streamer->file_io_assets_in_flight > 0, "file_io_assets_in_flight is 0 which means there is a mismatch between increments and decrements for the rate limiter. This is a bug in the asset streamer.");
+    streamer->file_io_assets_in_flight--;
   }
 }
 
@@ -1277,7 +1313,7 @@ process_gpu_io(AssetStreamer* streamer)
     }
     else
     {
-      ASSERT_MSG_FATAL(false, "Invalid streaming command received %u!", streamer->next_file_io_cmd.cmd);
+      ASSERT_MSG_FATAL(false, "Invalid streaming command received %u!", streamer->next_content_file_io_cmd.cmd);
     }
   }
 }
@@ -1431,7 +1467,8 @@ asset_streaming_thread(void* param)
   AssetStreamer* streamer = (AssetStreamer*)param;
   while (!atomic_load(streamer->kill))
   {
-      // Consume stuff from the asset stream queue to kick off early asset loads as soon as possible and to avoid the buffer filling up
+    // Consume stuff from the asset stream queue to kick off asset loads
+    //
     while (true)
     {
       AssetStreamRequest request;
@@ -1460,7 +1497,8 @@ asset_streaming_thread(void* param)
     }
 
     // Once there are no more for some period of time, start processing the file I/O
-    process_file_io(streamer);
+    process_header_file_io(streamer);
+    process_content_file_io(streamer);
     process_gpu_io(streamer);
   }
 
@@ -1475,17 +1513,20 @@ init_asset_streamer_impl(void)
 
 
   // TODO(bshihabi): These should probably be adjusted
-  u64 kFileIOBufferSize         = MiB(256);
+  u64 kHeaderFileIOBufferSize   = MiB(4);
+  u64 kContentFileIOBufferSize  = MiB(256);
   u64 kGpuStreamQueueSize       = MiB(128);
   u64 kAssetDependencyQueueSize = KiB(4);
   u32 kGpuStagingBufferSize     = MiB(64);
   u32 kGpuScratchBufferSize     = MiB(8);
 
-  ret->file_io_buffer           = init_push_buffer(MiB(16), kFileIOBufferSize,         GiB(1));
-  ret->gpu_io_buffer            = init_push_buffer(KiB(1),  kGpuStreamQueueSize,       GiB(1));
-  ret->asset_dependency_queue   = init_push_buffer(KiB(1),  kAssetDependencyQueueSize, MiB(1));
-  ret->next_file_io_cmd.cmd     = kNullStreamingCmd;
-  ret->next_gpu_cmd.cmd         = kNullStreamingCmd;
+  ret->header_file_io_buffer        = init_push_buffer(KiB(1),  kHeaderFileIOBufferSize,   MiB(8));
+  ret->content_file_io_buffer       = init_push_buffer(MiB(16), kContentFileIOBufferSize,  GiB(1));
+  ret->gpu_io_buffer                = init_push_buffer(KiB(1),  kGpuStreamQueueSize,       GiB(1));
+  ret->asset_dependency_queue       = init_push_buffer(KiB(1),  kAssetDependencyQueueSize, MiB(1));
+  ret->next_header_file_io_cmd.cmd  = kNullStreamingCmd;
+  ret->next_content_file_io_cmd.cmd = kNullStreamingCmd;
+  ret->next_gpu_cmd.cmd             = kNullStreamingCmd;
   ret->next_asset_dependency_cmd.dependency_count = 0;
 
   GpuBufferDesc staging_desc    = {0};
@@ -1528,7 +1569,7 @@ destroy_asset_streamer(void)
 static void
 asset_streamer_flush(AssetStreamer* streamer)
 {
-  push_buffer_flush(&streamer->file_io_buffer);
+  push_buffer_flush(&streamer->content_file_io_buffer);
   push_buffer_flush(&streamer->gpu_io_buffer);
 }
 

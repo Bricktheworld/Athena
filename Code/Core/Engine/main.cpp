@@ -197,23 +197,26 @@ application_entry(HINSTANCE instance, int show_code)
 
   init_scene();
 
-  ModelHandle sponza_model = kick_model_load(ASSET_ID("Assets/Source/sponza/Sponza.gltf"));
-  // kick_asset_load(sponza_model);
-  while (true)
   {
-    if (!sponza_model.is_loaded())
+    CPU_PROFILE_SCOPE("Load Sponza");
+    ModelHandle sponza_model = kick_model_load(ASSET_ID("Assets/Source/sponza/Sponza.gltf"));
+    // kick_asset_load(sponza_model);
+    while (true)
     {
-      continue;
-    }
+      if (!sponza_model.is_loaded())
+      {
+        continue;
+      }
 
-    for (u32 isubset = 0; isubset < sponza_model->subsets.size; isubset++)
-    {
-      SceneObjHandle handle = init_render_scene_obj(sponza_model, isubset);
-      (void)handle;
-    }
+      for (u32 isubset = 0; isubset < sponza_model->subsets.size; isubset++)
+      {
+        SceneObjHandle handle = init_render_scene_obj(sponza_model, isubset);
+        (void)handle;
+      }
 
-    dbgln("Loaded sponza!");
-    break;
+      dbgln("Loaded sponza!");
+      break;
+    }
   }
 
   // TODO(bshihabi): Remove this... It is temporary for BVH building
