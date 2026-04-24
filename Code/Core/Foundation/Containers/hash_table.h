@@ -92,7 +92,7 @@ private:
   }
 
   size_t m_increment_idx(size_t idx) const
-  { 
+  {
     ASSERT(idx < groups_size * 16);
     idx++;
 
@@ -126,8 +126,8 @@ private:
       }
 
       offset      = 0;
-      group_index = (group_index + 1) % groups_size;
-    } while (group_index != start_index);
+      group_index++;
+    } while (group_index < groups_size);
 
     return m_end_idx();
   }
@@ -186,8 +186,9 @@ init_hash_table(AllocHeap heap, u64 capacity)
 {
   HashTable<K, V> ret = {};
 
-  capacity = capacity * 4 / 3 + 15;
+  capacity        = ALIGN_POW2(capacity * 4 / 3 + 15, 16);
   ret.groups_size = (capacity + 15) / 16;
+
   using GroupType = typename HashTable<K, V>::Group;
   ret.groups      = HEAP_ALLOC(GroupType, heap, ret.groups_size);
   zero_memory(ret.groups, ret.groups_size * sizeof(typename HashTable<K, V>::Group));

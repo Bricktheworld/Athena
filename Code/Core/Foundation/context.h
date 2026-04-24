@@ -26,8 +26,12 @@ struct ScratchAllocator
   }
 };
 
-FOUNDATION_API Context init_context(AllocHeap heap, FreeHeap overflow_heap);
+FOUNDATION_API Context init_thread_context();
 
 FOUNDATION_API ScratchAllocator alloc_scratch_arena();
-FOUNDATION_API void free_scratch_arena(ScratchAllocator* allocator);
+FOUNDATION_API void  free_scratch_arena(ScratchAllocator* allocator);
+
+// Quick and easy scratch allocate (needs to be reset every once in a while to prevent leaking)
+FOUNDATION_API void* scratch_alloc(size_t size, size_t alignment = 0);
+FOUNDATION_API void  reset_scratch_allocator();
 

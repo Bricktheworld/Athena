@@ -16,7 +16,6 @@
 #define kDebugVertexBufferSlot 33
 #define kDebugSdfBufferSlot 34
 
-#define kAccelerationStructureSlot 1
 #define kIndexBufferSlot           2
 #define kVertexBufferSlot          3
 
@@ -58,7 +57,7 @@ SamplerState                              g_BilinearSamplerWrap   : register(s0)
 SamplerState                              g_BilinearSamplerClamp  : register(s1);
 
 // Can't move these to GRVs for now because of stupid reasons
-ByteAddressBuffer                         g_IndexBuffer           : register(t1);
+StructuredBuffer<u16>                     g_IndexBuffer           : register(t1);
 StructuredBuffer<Vertex>                  g_VertexBuffer          : register(t2);
 
 ////////////// GRVs //////////////

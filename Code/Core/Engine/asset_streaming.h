@@ -6,42 +6,7 @@
 
 #include "Core/Engine/Render/graphics.h"
 
-struct AssetLoader;
-struct GpuStreamDevice;
-struct IDStorageFactory;
-struct IDStorageQueue2;
-struct IDStorageFile;
-struct IDStorageStatusArray;
-
 static constexpr u32 kMaxAssetLoadRequests = 0x1000;
-
-enum AssetGpuLoadType
-{
-  kAssetGpuLoadTypeBuffer,
-  kAssetGpuLoadTypeTexture,
-};
-
-struct AssetGpuLoadRequest
-{
-  AssetId          asset_id          = 0;
-  AssetGpuLoadType type              = kAssetGpuLoadTypeBuffer;
-  u64              src_offset        = 0;
-  u32              compressed_size   = 0;
-  u32              uncompressed_size = 0;
-
-  union
-  {
-    struct
-    {
-      const GpuBuffer*  dst;
-      u64               dst_offset;
-    } buffer;
-    union
-    {
-      const GpuTexture* dst;
-    } texture;
-  };
-};
 
 enum AssetState : u32
 {
@@ -54,55 +19,124 @@ enum AssetState : u32
   kAssetFailedToInitialize,
 };
 
-struct AssetDesc
+struct Asset
 {
-  AssetType  type  = AssetType::kModel;
-  AssetState state = kAssetUnloaded;
-  union
+  AssetId    id       = kNullAssetId;
+  AssetType  type     = AssetType::kModel;
+  u32        state    = kAssetUnloaded;
+  u32        __pad0__ = 0;
+};
+
+// The template type needs to have a member "asset" of type "Asset"
+template <typename T>
+struct AssetHandle
+{
+  AssetId m_Id  = kNullAssetId;
+  T*      m_Ptr = nullptr;
+
+  bool is_valid() const
   {
-    struct 
-    {
-    } model;
-    struct
-    {
-      GpuDescriptor descriptor;
-      GpuTexture    allocation;
-    } texture;
-    MaterialData material;
-    GpuShader    shader;
-  };
+    return m_Ptr && m_Ptr->asset.id == m_Id;
+  }
+  const Asset* to_asset() const
+  {
+    return &deref()->asset;
+  }
+
+  operator       bool  ()      const { return is_valid();        }
+  operator const Asset*()      const { return to_asset();        }
+
+  AssetState get_asset_state() const { return (AssetState)to_asset()->state; }
+
+  bool       is_loaded()       const { return get_asset_state() == kAssetReady;                                            }
+  bool       is_broken()       const { return get_asset_state() >= kAssetFailedToLoad;                                     }
+  bool       is_streaming()    const { return get_asset_state() >= kAssetLoadRequested && get_asset_state() < kAssetReady; }
+
+  T* deref()
+  {
+    ASSERT_MSG_FATAL(is_valid(), "Asset handle for 0x%x pointing to 0x%llx is invalid! Check using is_valid() first!", m_Id, m_Ptr);
+    return m_Ptr;
+  }
+
+  const T* deref() const
+  {
+    ASSERT_MSG_FATAL(is_valid(), "Asset handle for 0x%x pointing to 0x%llx is invalid! Check using is_valid() first!", m_Id, m_Ptr);
+    return m_Ptr;
+  }
+
+  // Overloaded arrow operator allows for safe 
+  T* operator->()
+  {
+    ASSERT_MSG_FATAL(is_valid(), "Asset handle for 0x%x pointing to 0x%llx is invalid! Check using is_valid() first!", m_Id, m_Ptr);
+    return m_Ptr;
+  }
+
+  const T* operator->() const
+  {
+    ASSERT_MSG_FATAL(is_valid(), "Asset handle for 0x%x pointing to 0x%llx is invalid! Check using is_valid() first!", m_Id, m_Ptr);
+    return m_Ptr;
+  }
 };
 
-struct GpuStreamInFlight
+struct Texture
 {
-  IDStorageFile* file        = nullptr;
-  AssetId        asset_id    = 0;
-  FenceValue     fence_value = 0;
-};
+  Asset          asset;
 
-struct GpuStreamDevice
+  u32            width;
+  u32            height;
+  TextureFormat  format;
+  ColorSpaceName color_space;
+
+  GpuTexture     gpu_texture;
+  GpuDescriptor  srv_descriptor;
+};
+typedef AssetHandle<Texture> TextureHandle;
+
+struct Material
 {
-  IDStorageFactory*            factory      = nullptr;
-
-  IDStorageQueue2*             file_queue   = nullptr;
-  GpuFence                     file_queue_fence;
-
-  RingQueue<GpuStreamInFlight> in_flight_requests;
-  RingQueue<AssetId>           asset_completed_streams;
+  Asset                asset;
+  u32                  gpu_id = 0;
+  Array<TextureHandle> textures;
 };
+typedef AssetHandle<Material> MaterialHandle;
 
 
-
-enum GpuStreamResult
+struct ModelSubset
 {
-  kGpuStreamOk,
-  kGpuStreamFailedToOpenFile,
+  u32 vertex_start = 0;
+  u32 vertex_count = 0;
+  u32 index_start  = 0;
+  u32 index_count  = 0;
+  u32 mat_gpu_id   = 0;
 };
 
-            void init_asset_loader(void);
-THREAD_SAFE void kick_asset_load(AssetId asset_id);
-            void destroy_asset_loader(void);
+struct Model
+{
+  Asset                 asset;
+  Array<ModelSubset>    subsets;
+  Array<GpuRtBlas>      subset_rt_blases;
+  Array<MaterialHandle> materials;
+};
+typedef AssetHandle<Model> ModelHandle;
 
-THREAD_SAFE Result<const GpuTexture*,    AssetState> get_gpu_texture_asset(AssetId asset_id);
-THREAD_SAFE Result<Texture2DPtr<float4>, AssetState> get_srv_texture_asset(AssetId asset_id);
-THREAD_SAFE Result<const MaterialData*,  AssetState> get_material_asset   (AssetId asset_id);
+            void           init_asset_streamer(void);
+            void           destroy_asset_streamer(void);
+            void           asset_streamer_update(void);
+            void           init_asset_registry(void);
+THREAD_SAFE ModelHandle    kick_model_load(AssetId asset_id);
+THREAD_SAFE MaterialHandle kick_material_load(AssetId asset_id);
+THREAD_SAFE TextureHandle  kick_texture_load(AssetId asset_id);
+
+struct AssetStreamingStatistics
+{
+  alignas(kCacheLineSize) Atomic<u64> file_io_bpf         = 0;
+  alignas(kCacheLineSize) Atomic<u64> file_io_elapsed_ms  = 0;
+  alignas(kCacheLineSize) Atomic<u64> gpu_io_bpf          = 0;
+  alignas(kCacheLineSize) Atomic<u64> gpu_io_elapsed_ms   = 0;
+
+  // EMA-smoothed bandwidth in bytes/sec, updated on the main thread
+  f64                                 file_io_bps         = 0.0;
+  f64                                 gpu_io_bps          = 0.0;
+};
+
+extern AssetStreamingStatistics g_AssetStreamingStats;

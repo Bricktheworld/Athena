@@ -1,6 +1,8 @@
 #pragma once
 #include "Core/Foundation/assets.h"
+#include "Core/Foundation/threading.h"
 
+#include "Core/Engine/scene.h"
 #include "Core/Engine/job_system.h"
 
 #include "Core/Engine/Render/render_graph.h"
@@ -18,7 +20,6 @@ struct Window;
 
 extern ShaderManager*  g_ShaderManager;
 extern DescriptorPool* g_DescriptorCbvSrvUavPool;
-extern Scene*          g_Scene;
 extern Window*         g_MainWindow;
 
 struct Window
@@ -26,23 +27,6 @@ struct Window
   SwapChain swap_chain;
   bool      needs_resize = false;
 };
-
-// TODO(Brandon): This entire system will be reworked once I figure out,
-// generally how I want to handle render entries in this engine. For now,
-// everything will just get created at the start and there will be no streaming.
-
-struct UploadContext
-{
-  GpuBuffer staging_buffer;
-  u64 staging_offset = 0;
-  CmdListAllocator cmd_list_allocator;
-  CmdList cmd_list;
-  const GpuDevice* device = nullptr;
-  LinearAllocator cpu_upload_arena;
-};
-
-void init_global_upload_context(const GpuDevice* device);
-void destroy_global_upload_context();
 
 struct ShaderManager
 {
@@ -54,17 +38,6 @@ void destroy_shader_manager();
 const GpuShader* get_engine_shader(u32 index);
 void reload_engine_shader(const char* entry_point_name, const u8* bin, u64 bin_size);
 
-
-struct RenderModelSubset
-{
-  GraphicsPSO       gbuffer_pso;
-  u32               index_buffer_offset = 0;
-  u32               index_count         = 0;
-  EngineShaderIndex vertex_shader       = kVS_Basic;
-  EngineShaderIndex material_shader     = kPS_BasicNormalGloss;
-
-  AssetId           material            = kNullAssetId;
-};
 
 enum ResolutionScale
 {
@@ -80,13 +53,6 @@ static const GpuFormat kGBufferRenderTargetFormats[] =
   kGpuFormatRGBA8Unorm,  // RGB -> Diffuse, A -> Metallic
   kGpuFormatRGBA16Float, // RGB -> Normal,  A -> Roughness
   kGpuFormatRG32Float,   // RG -> Velocity
-};
-
-struct Camera
-{
-  Vec3 world_pos = Vec3(0, 0, -1);
-  f32  pitch     = 0;
-  f32  yaw       = 0;
 };
 
 // !!WARNING!! !!WARNING!! !!WARNING!!
@@ -152,8 +118,6 @@ struct Renderer
 
   DescriptorLinearAllocator imgui_descriptor_heap;
 
-  Array<RenderModelSubset> meshes;
-
   Camera prev_camera;
   Camera camera;
   Vec2   taa_jitter;
@@ -178,64 +142,27 @@ void renderer_hot_reload(const GpuDevice* device, const SwapChain* swap_chain);
 void destroy_renderer();
 
 
-void begin_renderer_recording();
-void submit_mesh(RenderModelSubset mesh);
-
-enum SceneObjectFlags : u8
-{
-  kSceneObjectPendingLoad = 0x1,
-  kSceneObjectLoaded      = 0x2,
-  kSceneObjectMesh        = 0x4,
-};
-
-struct RenderModel
-{
-  Array<RenderModelSubset> model_subsets;
-};
-
-struct SceneObject
-{
-  RenderModel model;
-  u8 flags = 0;
-};
-
 struct UnifiedGeometryBuffer
 {
+  SpinLock  lock;
   // TODO(Brandon): In the future, we don't really want to linear allocate these buffers.
   // We want uber buffers, but we want to be able to allocate and free vertices as we need.
   GpuBuffer vertex_buffer;
   GpuBuffer index_buffer;
-  u32       vertex_buffer_offset = 0;
-  u32       index_buffer_offset = 0;
+  u64       vertex_buffer_pos = 0;
+  u64       index_buffer_pos  = 0;
 
-  GpuBvh    bvh;
+  GpuLinearAllocator blas_allocator;
 };
+
 
 extern UnifiedGeometryBuffer g_UnifiedGeometryBuffer;
 
 void init_unified_geometry_buffer(const GpuDevice* device);
 void destroy_unified_geometry_buffer();
 
-struct Scene
-{
-  GpuBuffer top_bvh;
-  GpuBuffer bottom_bvh;
-  
-  Array<SceneObject> scene_objects;
-  Array<PointLight>  point_lights;
-  Camera             camera;
-  DirectionalLight   directional_light;
-  LinearAllocator    scene_object_allocator;
-};
-
-SceneObject* add_scene_object(
-  const ModelData& model,
-  EngineShaderIndex vertex_shader,
-  EngineShaderIndex material_shader
-);
-PointLight* add_point_light(Scene* scene);
-
-void build_acceleration_structures(GpuDevice* device);
-void submit_scene();
+THREAD_SAFE u64       alloc_uber_vertex(u64 size);
+THREAD_SAFE u64       alloc_uber_index(u64 size);
+THREAD_SAFE GpuRtBlas alloc_uber_blas(u32 vertex_start, u32 vertex_count, u32 index_start, u32 index_count, const char* name);
 
 

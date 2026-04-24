@@ -15,4 +15,8 @@ namespace profiler
 
 FOUNDATION_API u64 begin_cpu_profiler_timestamp(void);
 FOUNDATION_API f64 end_cpu_profiler_timestamp(u64 start_time);
+FOUNDATION_API void begin_cpu_instrumentation_scope(const char* name, const char* data = nullptr);
+FOUNDATION_API void end_cpu_instrumentation_scope();
+
+#define CPU_PROFILE_SCOPE(name, ...) begin_cpu_instrumentation_scope(name, ##__VA_ARGS__); defer { end_cpu_instrumentation_scope(); }
 

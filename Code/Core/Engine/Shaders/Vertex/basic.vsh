@@ -8,11 +8,20 @@ BasicVSOut VS_Basic(uint vert_id: SV_VertexID)
 {
   BasicVSOut ret;
 
-  ConstantBuffer<Transform> transform = DEREF(g_Srt.transform);
+  // ConstantBuffer<Transform> transform = DEREF(g_Srt.transform);
+  SceneObjGpu scene_obj = g_SceneObjs[g_Srt.gpu_id];
 
-  Vertex vertex = g_VertexBuffer[vert_id];
+  Vertex vertex = g_VertexBuffer[scene_obj.start_vertex + vert_id];
 
-  ret.world_pos = mul(transform.model, float4(vertex.position.xyz, 1.0f));
+  static const float4x4 kIdentity =
+  {
+    1, 0, 0, 0,
+    0, 1, 0, 0,
+    0, 0, 1, 0,
+    0, 0, 0, 1
+  };
+
+  ret.world_pos = mul(kIdentity, float4(vertex.position.xyz, 1.0f));
   ret.ndc_pos   = mul(g_ViewportBuffer.view_proj, ret.world_pos);
 
   ret.curr_pos  = ret.ndc_pos;
@@ -20,7 +29,7 @@ BasicVSOut VS_Basic(uint vert_id: SV_VertexID)
 
   ret.ndc_pos  += float4(g_ViewportBuffer.taa_jitter * ret.ndc_pos.w, 0.0f, 0.0f);
 
-  float3x3 normal_matrix = (float3x3)transpose(transform.model_inverse);
+  float3x3 normal_matrix = (float3x3)transpose(kIdentity);
   float3   normal        = normalize(mul(normal_matrix, vertex.normal.xyz));
 
   // tangent = normalize(tangent - mul(dot(tangent, normal), normal));

@@ -273,6 +273,18 @@ array_copy(Array<T, S>* dst, const Span<T>& src)
   dst->size = src.size;
 }
 
+template <typename T, size_t S>
+inline void
+array_copy(Array<T, S>* dst, const T* src, size_t count)
+{
+  ASSERT(src != nullptr && dst->memory != nullptr);
+  ASSERT(dst->size == 0);
+  ASSERT(MAX(dst->capacity, S) >= count);
+
+  memcpy(dst->memory, src, sizeof(T) * count);
+  dst->size = count;
+}
+
 template <typename T>
 inline Array<T>
 init_array(AllocHeap heap, const Span<T>& src)

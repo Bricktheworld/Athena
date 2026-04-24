@@ -6,10 +6,10 @@
 #include "Core/Foundation/filesystem.h"
 
 #include "Core/Engine/memory.h"
+#include "Core/Engine/scene.h"
 #include "Core/Engine/job_system.h"
 #include "Core/Engine/asset_streaming.h"
 #include "Core/Engine/asset_server.h"
-#include "Core/Engine/material_manager.h"
 
 #include "Core/Engine/Render/graphics.h"
 #include "Core/Engine/Render/renderer.h"
@@ -33,7 +33,10 @@ ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
 
 Window*      g_MainWindow  = nullptr;
 
-static bool g_EnableFullscreen = false;
+// TODO(bshihabi): Move these elsewhere or into a single struct
+static bool g_EnableFullscreen       = false;
+static bool g_EnableValidationLayers = false;
+static bool g_EnableGpuValidation    = false;
 
 LRESULT CALLBACK
 window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM lparam) 
@@ -150,14 +153,22 @@ application_entry(HINSTANCE instance, int show_code)
   ShowWindow(window, show_code);
   UpdateWindow(window);
 
-  init_gpu_device(window);
+  u32 gpu_flags = 0;
+  if (g_EnableValidationLayers)
+  {
+    gpu_flags |= kGpuFlagsEnableValidationLayers;
+  }
+
+  if (g_EnableGpuValidation)
+  {
+    gpu_flags |= kGpuFlagsEnableGpuValidation;
+  }
+
+  init_gpu_device(window, gpu_flags);
   defer { destroy_gpu_device(); };
 
-  init_asset_loader();
-  defer { destroy_asset_loader(); };
-
-  init_material_manager();
-  defer { destroy_material_manager(); };
+  // init_asset_loader();
+  // defer { destroy_asset_loader(); };
 
   g_MainWindow = HEAP_ALLOC(Window, g_InitHeap, 1);
 
@@ -171,44 +182,22 @@ application_entry(HINSTANCE instance, int show_code)
   }
   defer { destroy_asset_server(); };
 
-  init_global_upload_context(g_GpuDevice);
-  defer { destroy_global_upload_context(); };
-
   init_shader_manager(g_GpuDevice);
   defer { destroy_shader_manager(); };
 
   init_renderer(g_GpuDevice, &g_MainWindow->swap_chain, window);
   defer { destroy_renderer(); };
 
+  init_asset_registry();
+  init_asset_streamer();
+  defer { destroy_asset_streamer(); };
+
   init_unified_geometry_buffer(g_GpuDevice);
   defer { destroy_unified_geometry_buffer(); };
 
-  SceneObject* sponza = nullptr;
-  {
-    OSAllocator allocator = init_os_allocator();
-    FreeHeap    heap      = (FreeHeap)allocator;
+  init_scene();
 
-    AssetId sponza_model = ASSET_ID("Assets/Source/sponza/Sponza.gltf");
-    auto sponza_built_file = open_built_asset_file(sponza_model);
-    // TODO test USD cube here // mfrieden
-    ASSERT_MSG_FATAL(sponza_built_file, "Failed to load sponza file! Did you run the AssetBuilder? You should see file Assets/Built/0x%0x.built", sponza_model);
-    defer { close_file(&sponza_built_file.value()); };
 
-    u64 buf_size = get_file_size(sponza_built_file.value());
-    u8* buf      = HEAP_ALLOC(u8, heap, buf_size);
-    defer { HEAP_FREE(heap, buf); };
-
-    ASSERT_MSG_FATAL(read_file(sponza_built_file.value(), buf, buf_size, 0), "Failed to read sponza file into memory.");
-
-    ModelData model;
-    AssetLoadResult res = load_model((AllocHeap)heap, buf, buf_size, &model);
-    ASSERT(res == AssetLoadResult::kOk);
-
-    sponza = add_scene_object(model, kVS_Basic, kPS_BasicNormalGloss);
-  }
-  kick_asset_load(ASSET_ID("Assets/Source/sponza/Sponza.gltf"));
-
-  build_acceleration_structures(g_GpuDevice);
 
   DirectX::Keyboard d3d12_keyboard;
   DirectX::Mouse d3d12_mouse;
@@ -226,15 +215,25 @@ application_entry(HINSTANCE instance, int show_code)
     lpp_agent.EnableModule(lpp::LppGetCurrentModulePath(), lpp::LPP_MODULES_OPTION_ALL_IMPORT_MODULES, nullptr, nullptr);
   }
 
-  g_Scene->camera.world_pos = Vec3(8.28f, 4.866f, 0.685f);
-  g_Scene->camera.pitch     = -0.203f;
-  g_Scene->camera.yaw       = -1.61f;
-  g_Scene->directional_light.direction.x = -0.380f;
-  g_Scene->directional_light.direction.y = -1.0f;
-  g_Scene->directional_light.direction.z = -0.180f;
-  g_Scene->directional_light.sky_diffuse     = Vec3(0.529, 0.807, 0.921);
-  g_Scene->directional_light.sky_illuminance = 20000;
+  Camera* camera = get_scene_camera();
+  camera->world_pos = Vec3(8.28f, 4.866f, 0.685f);
+  camera->pitch     = -0.203f;
+  camera->yaw       = -1.61f;
 
+  DirectionalLight* directional_light = get_scene_directional_light();
+  directional_light->temperature = 5000;
+  directional_light->direction = Vec3(-1.0f, -1.0f, 0.0f);
+  directional_light->illuminance = 75000.0f;
+  directional_light->direction.x = -0.380f;
+  directional_light->direction.y = -1.0f;
+  directional_light->direction.z = -0.180f;
+  directional_light->sky_diffuse     = Vec3(0.529, 0.807, 0.921);
+  directional_light->sky_illuminance = 20000;
+
+  u64 sponza_load_start_timestamp = begin_cpu_profiler_timestamp();
+  ModelHandle sponza_model = kick_model_load(ASSET_ID("Assets/Source/sponza/Sponza.gltf"));
+
+  bool is_model_loaded = false;
   bool done = false;
   while (!done)
   {
@@ -260,7 +259,22 @@ application_entry(HINSTANCE instance, int show_code)
       }
     }
 
+
+    if (!is_model_loaded && sponza_model.is_loaded())
+    {
+      is_model_loaded = true;
+      f64 sponza_load_time_ms = end_cpu_profiler_timestamp(sponza_load_start_timestamp);
+      dbgln("Loaded sponza in %f ms!", sponza_load_time_ms);
+
+      for (u32 isubset = 0; isubset < sponza_model->subsets.size; isubset++)
+      {
+        SceneObjHandle handle = init_render_scene_obj(sponza_model, isubset);
+        (void)handle;
+      }
+    }
+
     asset_server_update();
+    asset_streamer_update();
 
     reset_frame_heap();
 
@@ -306,8 +320,8 @@ application_entry(HINSTANCE instance, int show_code)
     if (mouse.positionMode == DirectX::Mouse::MODE_RELATIVE)
     {
       Vec2 delta = Vec2(f32(mouse.x), f32(mouse.y)) * 0.001f;
-      g_Scene->camera.pitch -= delta.y;
-      g_Scene->camera.yaw   += delta.x;
+      camera->pitch -= delta.y;
+      camera->yaw   += delta.x;
     }
     else if (mouse.positionMode == DirectX::Mouse::MODE_ABSOLUTE)
     {
@@ -342,17 +356,14 @@ application_entry(HINSTANCE instance, int show_code)
       move.y -= 1.0f;
     }
     // TODO(Brandon): Something is completely fucked with my quaternion math...
-    Quat rot = quat_from_rotation_y(g_Scene->camera.yaw); // * quat_from_rotation_x(-scene.camera.pitch);  //quat_from_euler_yxz(scene.camera.yaw, 0, 0);
+    Quat rot = quat_from_rotation_y(camera->yaw); // * quat_from_rotation_x(-scene.camera.pitch);  //quat_from_euler_yxz(scene.camera.yaw, 0, 0);
     move = rotate_vec3_by_quat(move, rot);
     move *= 2.0f / 60.0f;
 
-    g_Scene->camera.world_pos += move;
+    camera->world_pos += move;
 
     if (done)
       break;
-
-    begin_renderer_recording();
-    submit_scene();
 
     execute_render_graph(back_buffer, g_Renderer.settings);
     g_CpuEffectiveTime = end_cpu_profiler_timestamp(effective_cpu_start_time);
@@ -380,6 +391,14 @@ WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, int show_code
     {
       g_EnableFullscreen = true;
     }
+    else if (_stricmp(argv[iopt], "-d3ddebug") == 0)
+    {
+      g_EnableValidationLayers = true;
+    }
+    else if (_stricmp(argv[iopt], "-gpu_validation") == 0)
+    {
+      g_EnableGpuValidation = true;
+    }
   }
 
   set_current_thread_name(L"Athena Main");
@@ -389,7 +408,7 @@ WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, int show_code
   init_engine_memory();
   defer { destroy_engine_memory(); };
 
-  init_context(g_InitHeap, g_OverflowHeap);
+  init_thread_context();
 
   application_entry(instance, show_code);
 

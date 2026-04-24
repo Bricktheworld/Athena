@@ -15,7 +15,7 @@ namespace asset_builder
     u32          num_indices;
                  
     VertexAsset* vertices;
-    u32*         indices;
+    u16*         indices;
                  
     AssetId      material;
     Aabb3d       aabb;

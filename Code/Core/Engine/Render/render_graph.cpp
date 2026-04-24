@@ -5,6 +5,7 @@
 #include "Core/Engine/Render/renderer.h"
 
 #include "Core/Engine/Shaders/root_signature.hlsli"
+#include "Core/Engine/Shaders/Include/clear_common.hlsli"
 
 #include "Core/Vendor/D3D12/d3dx12.h"
 
@@ -81,7 +82,8 @@ init_adjacency_list(AllocHeap heap, const RgBuilder& builder)
       if (other_builder.pass_id == pass_builder.pass_id)
         continue;
 
-      if (builder.frame_init && pass_builder.pass_id == unwrap(builder.frame_init))
+      // If the we are a GRV barrier, then by definition we only place dependencies on other passes that have a greater pass ID
+      if (other_builder.pass_id > pass_builder.pass_id && pass_builder.is_grv_barrier)
       {
         *array_add(&dst->dependent_passes) = other_builder.pass_id;
       }
@@ -103,7 +105,7 @@ init_adjacency_list(AllocHeap heap, const RgBuilder& builder)
             &other_builder.write_resources,
             it->handle.id == write_resource.handle.id && it->handle.version == write_resource.handle.version + 1
           );
-  
+
           if (other_depends_on_pass)
           {
             *array_add(&dst->dependent_passes) = other_builder.pass_id;
@@ -111,6 +113,7 @@ init_adjacency_list(AllocHeap heap, const RgBuilder& builder)
           }
         }
       }
+
 
     }
   }
@@ -292,6 +295,7 @@ struct PhysicalResourceMap
 {
   HashTable<RgResourceKey, GpuBuffer > buffers;
   HashTable<RgResourceKey, GpuTexture> textures;
+  HashTable<RgResourceKey, GpuRtTlas > tlases;
 };
 
 static PhysicalResourceMap
@@ -306,7 +310,8 @@ init_physical_resources(
 #endif
   GpuLinearAllocator* temporal_heaps,
   u32 buffer_count,
-  u32 texture_count
+  u32 texture_count,
+  u32 tlas_count
 ) {
   ScratchAllocator scratch_arena = alloc_scratch_arena();
   defer { free_scratch_arena(&scratch_arena); };
@@ -378,6 +383,7 @@ init_physical_resources(
 
   HashTable physical_buffers  = init_hash_table<RgResourceKey, GpuBuffer >(heap, buffer_count );
   HashTable physical_textures = init_hash_table<RgResourceKey, GpuTexture>(heap, texture_count);
+  HashTable physical_tlases   = init_hash_table<RgResourceKey, GpuRtTlas >(heap, tlas_count   );
   for (ResourceHandle resource : builder.resource_list)
   {
     if (resource.id == builder.back_buffer.id)
@@ -428,7 +434,6 @@ init_physical_resources(
       desc.height         = resource_desc->texture_desc.height;
       desc.array_size     = resource_desc->texture_desc.array_size;
       desc.format         = resource_desc->texture_desc.format;
-      desc.initial_state  = D3D12_RESOURCE_STATE_COMMON;
       desc.flags          = *hash_table_find(&physical_flags, resource.id);
 
       if (is_depth_format(desc.format))
@@ -459,12 +464,20 @@ init_physical_resources(
   
         *dst               = alloc_gpu_texture(device, *local_heap, desc, resource_desc->name);
       }
+    }
+    else if (resource.type == kResourceTypeRtTlas)
+    {
+      ASSERT_MSG_FATAL(resource_desc->temporal_lifetime == 0 || resource_desc->temporal_lifetime == kInfiniteLifetime, "TLAS resources are not supported as temporal!");
+      key.temporal_frame = 0;
+      GpuRtTlas*    dst  = hash_table_insert(&physical_tlases, key);
+      *dst               = alloc_gpu_rt_tlas(*local_heap, resource_desc->tlas_desc.max_instances, resource_desc->name);
     } else { UNREACHABLE; }
   }
 
   PhysicalResourceMap ret = {0};
   ret.buffers  = physical_buffers;
   ret.textures = physical_textures;
+  ret.tlases   = physical_tlases;
 
   return ret;
 }
@@ -484,7 +497,8 @@ init_physical_descriptors(
     const RgPassBuilder& pass_builder = builder.render_passes[render_pass_id];
     RenderPass*          pass         = &render_passes[render_pass_id];
 
-    pass->descriptors                  = init_array_zeroed<GpuDescriptor>(heap, pass_builder.descriptor_idx);
+    bool                 is_grv       = pass_builder.is_grv_barrier;
+    pass->descriptors                 = init_array_zeroed<GpuDescriptor>(heap, pass_builder.descriptor_idx);
 
     for (const RgPassBuilder::ResourceAccessData& desc : pass_builder.read_resources)
     {
@@ -506,33 +520,46 @@ init_physical_descriptors(
           const GpuBuffer* buffer = hash_table_find(&resource_map.buffers, resource_key);
           if (desc.descriptor_type == kDescriptorTypeSrv)
           {
-            GpuDescriptor* dst = desc.is_grv ? grv_descriptors + desc.descriptor_idx : &pass->descriptors[desc.descriptor_idx + iframe];
+            GpuDescriptor* dst = is_grv ? grv_descriptors + desc.descriptor_idx : &pass->descriptors[desc.descriptor_idx + iframe];
 
-            ASSERT_MSG_FATAL(!desc.is_grv || temporal_lifetime == 0, "GRV descriptor attached to SRV buffer (%s) which is temporal. Not supported!", resource_name);
-            *dst = desc.is_grv ? alloc_table_descriptor(g_DescriptorCbvSrvUavPool, kGrvTemporalCount * kBackBufferCount + desc.descriptor_idx) : alloc_descriptor(g_DescriptorCbvSrvUavPool);
+            ASSERT_MSG_FATAL(!is_grv || temporal_lifetime == 0, "GRV descriptor attached to SRV buffer (%s) which is temporal. Not supported!", resource_name);
+            *dst = is_grv ? alloc_table_descriptor(g_DescriptorCbvSrvUavPool, kGrvTemporalCount * kBackBufferCount + desc.descriptor_idx) : alloc_descriptor(g_DescriptorCbvSrvUavPool);
             init_buffer_srv(dst, buffer, desc.buffer_srv);
           }
           else if (desc.descriptor_type == kDescriptorTypeCbv)
           {
-            GpuDescriptor* dst = desc.is_grv ? grv_temporal_descriptors + kGrvTemporalCount * iframe + desc.descriptor_idx : &pass->descriptors[desc.descriptor_idx + iframe];
+            GpuDescriptor* dst = is_grv ? grv_temporal_descriptors + kGrvTemporalCount * iframe + desc.descriptor_idx : &pass->descriptors[desc.descriptor_idx + iframe];
 
-            *dst = desc.is_grv ? alloc_table_descriptor(g_DescriptorCbvSrvUavPool, kGrvTemporalCount * iframe + desc.descriptor_idx) : alloc_descriptor(g_DescriptorCbvSrvUavPool);
+            *dst = is_grv ? alloc_table_descriptor(g_DescriptorCbvSrvUavPool, kGrvTemporalCount * iframe + desc.descriptor_idx) : alloc_descriptor(g_DescriptorCbvSrvUavPool);
             init_buffer_cbv(dst, buffer, desc.buffer_cbv);
           }
           else
           {
             // This means that it's a vertex/index buffer
-            ASSERT_MSG_FATAL(!desc.is_grv, "GRV descriptor attached to unsupported resource (%s) type %u", resource_name, desc.handle.type);
+            ASSERT_MSG_FATAL(!is_grv, "GRV descriptor attached to unsupported resource (%s) type %u", resource_name, desc.handle.type);
           }
+        }
+        else if (desc.handle.type == kResourceTypeRtTlas)
+        {
+          const GpuRtTlas* tlas = hash_table_find(&resource_map.tlases, resource_key);
+          if (desc.descriptor_type == kDescriptorTypeSrv)
+          {
+            GpuDescriptor* dst = is_grv ? grv_descriptors + desc.descriptor_idx : &pass->descriptors[desc.descriptor_idx + iframe];
+
+            ASSERT_MSG_FATAL(!is_grv || temporal_lifetime == 0, "GRV descriptor attached to SRV buffer (%s) which is temporal. Not supported!", resource_name);
+            *dst = is_grv ? alloc_table_descriptor(g_DescriptorCbvSrvUavPool, kGrvTemporalCount * kBackBufferCount + desc.descriptor_idx) : alloc_descriptor(g_DescriptorCbvSrvUavPool);
+            init_bvh_srv(dst, tlas);
+          }
+          else { UNREACHABLE; }
         }
         else if(desc.handle.type == kResourceTypeTexture)
         {
-          GpuDescriptor* dst = desc.is_grv ? grv_descriptors + desc.descriptor_idx : &pass->descriptors[desc.descriptor_idx + iframe];
+          GpuDescriptor* dst = is_grv ? grv_descriptors + desc.descriptor_idx : &pass->descriptors[desc.descriptor_idx + iframe];
           const GpuTexture* texture = hash_table_find(&resource_map.textures, resource_key);
           if (desc.descriptor_type == kDescriptorTypeSrv)
           {
-            ASSERT_MSG_FATAL(!desc.is_grv || temporal_lifetime == 0, "GRV descriptor attached to SRV texture which is temporal. Not supported!");
-            *dst = desc.is_grv ? alloc_table_descriptor(g_DescriptorCbvSrvUavPool, kGrvTemporalCount * kBackBufferCount + desc.descriptor_idx) : alloc_descriptor(g_DescriptorCbvSrvUavPool);
+            ASSERT_MSG_FATAL(!is_grv || temporal_lifetime == 0, "GRV descriptor attached to SRV texture which is temporal. Not supported!");
+            *dst = is_grv ? alloc_table_descriptor(g_DescriptorCbvSrvUavPool, kGrvTemporalCount * kBackBufferCount + desc.descriptor_idx) : alloc_descriptor(g_DescriptorCbvSrvUavPool);
             init_texture_srv(dst, texture, desc.texture_srv);
           }
           else { UNREACHABLE; }
@@ -552,43 +579,72 @@ init_physical_descriptors(
         continue;
       }
 
+      if (desc.handle.type == kResourceTypeBuffer && desc.access == kWriteBufferCopyDst)
+      {
+        continue;
+      }
+      else if (desc.handle.type == kResourceTypeTexture && desc.access == kWriteTextureCopyDst)
+      {
+        continue;
+      }
+      else if (desc.handle.type == kResourceTypeRtTlas && desc.access == kWriteTlasBuild)
+      {
+        continue;
+      }
+
       u8 temporal_lifetime = get_temporal_lifetime(desc.handle.temporal_lifetime);
       for (u32 iframe = 0; iframe <= temporal_lifetime; iframe++)
       {
         resource_key.temporal_frame = iframe;
 
-        GpuDescriptor* dst = desc.is_grv ? grv_descriptors + desc.descriptor_idx : &pass->descriptors[desc.descriptor_idx + iframe];
 
         if (desc.handle.type == kResourceTypeBuffer)
         {
           const GpuBuffer* buffer = hash_table_find(&resource_map.buffers, resource_key);
           if (desc.descriptor_type == kDescriptorTypeUav)
           {
-            ASSERT_MSG_FATAL(!desc.is_grv || temporal_lifetime == 0, "GRV descriptor attached to UAV buffer which is temporal. Not supported!");
-            *dst = desc.is_grv ? alloc_table_descriptor(g_DescriptorCbvSrvUavPool, kGrvTemporalCount * kBackBufferCount + desc.descriptor_idx) : alloc_descriptor(g_DescriptorCbvSrvUavPool);
-            init_buffer_uav(dst, buffer, desc.buffer_uav);
+            GpuDescriptor* dst = is_grv ? grv_descriptors + desc.descriptor_idx : &pass->descriptors[desc.descriptor_idx + iframe];
+
+            ASSERT_MSG_FATAL(!is_grv || temporal_lifetime == 0, "GRV descriptor attached to UAV buffer which is temporal. Not supported!");
+            *dst = is_grv ? alloc_table_descriptor(g_DescriptorCbvSrvUavPool, kGrvTemporalCount * kBackBufferCount + desc.descriptor_idx) : alloc_descriptor(g_DescriptorCbvSrvUavPool);
+            if (desc.counter.id != 0)
+            {
+              RgResourceKey counter_key  = {0};
+              counter_key.id             = desc.counter.id;
+              counter_key.temporal_frame = iframe;
+
+              ASSERT_MSG_FATAL(desc.counter.type == kResourceTypeBuffer, "Bound a non-buffer to the counter of a write access!");
+              const GpuBuffer* counter = hash_table_find(&resource_map.buffers, counter_key);
+              init_buffer_counted_uav(dst, buffer, counter, desc.buffer_uav);
+            }
+            else 
+            {
+              init_buffer_uav(dst, buffer, desc.buffer_uav);
+            }
           }
           else { UNREACHABLE; }
         }
-        else if(desc.handle.type == kResourceTypeTexture)
+        else if (desc.handle.type == kResourceTypeTexture)
         {
+          GpuDescriptor* dst = is_grv ? grv_descriptors + desc.descriptor_idx : &pass->descriptors[desc.descriptor_idx + iframe];
+
           const GpuTexture* texture = hash_table_find(&resource_map.textures, resource_key);
           if (desc.descriptor_type == kDescriptorTypeUav)
           {
-            ASSERT_MSG_FATAL(!desc.is_grv || temporal_lifetime == 0, "GRV descriptor attached to UAV texture which is temporal. Not supported!");
+            ASSERT_MSG_FATAL(!is_grv || temporal_lifetime == 0, "GRV descriptor attached to UAV texture which is temporal. Not supported!");
 
-            *dst = desc.is_grv ? alloc_table_descriptor(g_DescriptorCbvSrvUavPool, kGrvTemporalCount * kBackBufferCount + desc.descriptor_idx) : alloc_descriptor(g_DescriptorCbvSrvUavPool);
+            *dst = is_grv ? alloc_table_descriptor(g_DescriptorCbvSrvUavPool, kGrvTemporalCount * kBackBufferCount + desc.descriptor_idx) : alloc_descriptor(g_DescriptorCbvSrvUavPool);
             init_texture_uav(dst, texture, desc.texture_uav);
           }
           else if (desc.descriptor_type == kDescriptorTypeRtv)
           {
-            ASSERT_MSG_FATAL(!desc.is_grv, "GRV descriptor attached to RTV resource. Not supported!");
+            ASSERT_MSG_FATAL(!is_grv, "GRV descriptor attached to RTV resource. Not supported!");
             *dst = alloc_descriptor(&descriptor_heap->rtv);
             init_rtv(dst, texture);
           }
           else if (desc.descriptor_type == kDescriptorTypeDsv)
           {
-            ASSERT_MSG_FATAL(!desc.is_grv, "GRV descriptor attached to DSV resource. Not supported!");
+            ASSERT_MSG_FATAL(!is_grv, "GRV descriptor attached to DSV resource. Not supported!");
             *dst = alloc_descriptor(&descriptor_heap->dsv);
             init_dsv(dst, texture);
           }
@@ -646,8 +702,17 @@ get_d3d12_resource_state(RgPassBuilder::ResourceAccessData data)
       if (access == kWriteBufferUav)
       {
         ret = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+      }
+      else if (access == kWriteBufferCopyDst)
+      {
+        ret = D3D12_RESOURCE_STATE_COPY_DEST;
       } else { UNREACHABLE; }
     }
+  }
+  else if (data.handle.type == kResourceTypeRtTlas)
+  {
+    // This is the only valid state for TLASes
+    ret = D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE;
   }
   else if (data.handle.type == kResourceTypeTexture)
   {
@@ -737,8 +802,17 @@ init_dependency_barriers(
       key.temporal_frame        = temporal_frame;
 
       ResourceStates* dst = hash_table_insert(&resource_states, key);
-      dst->current        = D3D12_RESOURCE_STATE_COMMON;
-      dst->history        = D3D12_RESOURCE_STATE_COMMON;
+      // For some reason, D3D12 doesn't let you transition into acceleration structure state... so why even put it in the enum??
+      if (handle.type == kResourceTypeRtTlas)
+      {
+        dst->current      = D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE;
+        dst->history      = D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE;
+      }                   
+      else                
+      {                   
+        dst->current      = D3D12_RESOURCE_STATE_COMMON;
+        dst->history      = D3D12_RESOURCE_STATE_COMMON;
+      }
       dst->touched        = false;
     }
   }
@@ -820,6 +894,12 @@ init_dependency_barriers(
 
   for (ResourceHandle handle : builder.resource_list)
   {
+    // For some reason, D3D12 doesn't let you transition into acceleration structure state... so why even put it in the enum??
+    if (handle.type == kResourceTypeRtTlas)
+    {
+      continue;
+    }
+
     s32 temporal_frame = 0;
     for (u32 i = 0; i <= get_temporal_lifetime(handle.temporal_lifetime); i++, temporal_frame--)
     {
@@ -859,7 +939,7 @@ compile_render_graph(AllocHeap heap, const RgBuilder& builder, RenderGraphDestro
 
   if (flags & kRgDestroyCmdListAllocators)
   {
-    g_RenderGraph->cmd_allocator     = init_cmd_list_allocator(heap, g_GpuDevice, &g_GpuDevice->graphics_queue, 4);
+    g_RenderGraph->cmd_allocator   = init_cmd_list_allocator(heap, g_GpuDevice, &g_GpuDevice->graphics_queue, 4);
   }
 
   g_RenderGraph->render_passes     = init_array<RenderPass>(heap, builder.render_passes.size);
@@ -867,13 +947,36 @@ compile_render_graph(AllocHeap heap, const RgBuilder& builder, RenderGraphDestro
   g_RenderGraph->back_buffer       = builder.back_buffer;
   g_RenderGraph->width             = builder.width;
   g_RenderGraph->height            = builder.height;
+  g_RenderGraph->clear_buffer_pso  = init_compute_pipeline(g_GpuDevice, get_engine_shader(kCS_ClearStructuredBuffer), "Clear RWStructuredBuffer<uint>");
 
   for (const RgPassBuilder& pass_builder : builder.render_passes)
   {
-    RenderPass* dst     = array_add(&g_RenderGraph->render_passes);
-    dst->handler        = pass_builder.handler;
-    dst->data           = pass_builder.data;
-    dst->name           = pass_builder.name;
+    RenderPass* dst          = array_add(&g_RenderGraph->render_passes);
+    dst->handler             = pass_builder.handler;
+    dst->data                = pass_builder.data;
+    dst->name                = pass_builder.name;
+    dst->is_grv_barrier_pass = pass_builder.is_grv_barrier;
+    dst->grv_idx             = pass_builder.grv_idx;
+  }
+
+  for (RgDependencyLevel& dependency_level : g_RenderGraph->dependency_levels)
+  {
+    if (dependency_level.render_passes.size > 1)
+    {
+      continue;
+    }
+
+    bool has_non_grv_pass = false;
+    for (RenderPassId pass_id : dependency_level.render_passes)
+    {
+      if (!g_RenderGraph->render_passes[pass_id].is_grv_barrier_pass)
+      {
+        has_non_grv_pass = true;
+        break;
+      }
+    }
+
+    dependency_level.has_non_grv_pass = has_non_grv_pass;
   }
 
   if (flags & kRgDestroyResourceHeaps)
@@ -901,6 +1004,7 @@ compile_render_graph(AllocHeap heap, const RgBuilder& builder, RenderGraphDestro
 
   u32 buffer_count          = 0;
   u32 texture_count         = 0;
+  u32 tlas_count            = 0;
   for (ResourceHandle resource : builder.resource_list)
   {
     if (resource.id == builder.back_buffer.id)
@@ -908,6 +1012,7 @@ compile_render_graph(AllocHeap heap, const RgBuilder& builder, RenderGraphDestro
 
     if      (resource.type == kResourceTypeBuffer)  { buffer_count++;  }
     else if (resource.type == kResourceTypeTexture) { texture_count++; }
+    else if (resource.type == kResourceTypeRtTlas)  { tlas_count++;    }
     else                                            { UNREACHABLE;     }
   }
 
@@ -932,7 +1037,8 @@ compile_render_graph(AllocHeap heap, const RgBuilder& builder, RenderGraphDestro
 #endif
       g_RenderGraph->temporal_heaps.memory,
       buffer_count,
-      texture_count
+      texture_count,
+      tlas_count
     );
 
     init_dependency_barriers(heap, builder, g_RenderGraph->dependency_levels, &g_RenderGraph->exit_barriers);
@@ -950,6 +1056,7 @@ compile_render_graph(AllocHeap heap, const RgBuilder& builder, RenderGraphDestro
     g_RenderGraph->descriptor_heap = descriptor_heap;
     g_RenderGraph->buffer_map      = physical_resource_map.buffers;
     g_RenderGraph->texture_map     = physical_resource_map.textures;
+    g_RenderGraph->rt_tlas_map     = physical_resource_map.tlases;
   }
 }
 
@@ -1062,6 +1169,11 @@ get_d3d12_resource_barrier(const RenderGraph* graph, const RgResourceBarrier& ba
       {
         GpuBuffer* buffer = hash_table_find(&graph->buffer_map, key);
         d3d12_resource    = buffer->d3d12_buffer;
+      }
+      else if (barrier.transition.resource_type == kResourceTypeRtTlas)
+      {
+        GpuRtTlas* tlas   = hash_table_find(&graph->rt_tlas_map, key);
+        d3d12_resource    = tlas->buffer.d3d12_buffer;
       } else { UNREACHABLE; }
 
       *dst = CD3DX12_RESOURCE_BARRIER::Transition(d3d12_resource, barrier.transition.before, barrier.transition.after);
@@ -1087,6 +1199,11 @@ get_d3d12_resource_barrier(const RenderGraph* graph, const RgResourceBarrier& ba
       {
         GpuBuffer* buffer = hash_table_find(&graph->buffer_map, key);
         d3d12_resource    = buffer->d3d12_buffer;
+      }
+      else if (barrier.transition.resource_type == kResourceTypeRtTlas)
+      {
+        GpuRtTlas* tlas   = hash_table_find(&graph->rt_tlas_map, key);
+        d3d12_resource    = tlas->buffer.d3d12_buffer;
       } else { UNREACHABLE; }
 
       *dst = CD3DX12_RESOURCE_BARRIER::UAV(d3d12_resource);
@@ -1110,11 +1227,12 @@ execute_render_graph(const GpuTexture* back_buffer, const RenderSettings& settin
   ctx.m_CmdBuffer          = cmd_buffer;
   ctx.m_Width              = g_RenderGraph->width;
   ctx.m_Height             = g_RenderGraph->height;
+  ctx.m_ClearBufferPso     = g_RenderGraph->clear_buffer_pso;
 
   {
-    GPU_SCOPED_EVENT(PIX_COLOR_DEFAULT, cmd_buffer, "Frame %lu", g_FrameId);
-    begin_gpu_profiler_timestamp(cmd_buffer, kTotalFrameGpuMarker);
-    defer { end_gpu_profiler_timestamp(cmd_buffer, kTotalFrameGpuMarker); };
+    GPU_SCOPED_EVENT(PIX_COLOR_DEFAULT, &cmd_buffer, "Frame %lu", g_FrameId);
+    begin_gpu_profiler_timestamp(&cmd_buffer, kTotalFrameGpuMarker);
+    defer { end_gpu_profiler_timestamp(&cmd_buffer, kTotalFrameGpuMarker); };
 
     set_descriptor_heaps(&cmd_buffer, {g_DescriptorCbvSrvUavPool});
 
@@ -1129,14 +1247,14 @@ execute_render_graph(const GpuTexture* back_buffer, const RenderSettings& settin
     // Main render loop
     for (u32 ilevel = 0; ilevel < g_RenderGraph->dependency_levels.size; ilevel++)
     {
-      GPU_SCOPED_EVENT(PIX_COLOR_DEFAULT, cmd_buffer, "Dependency Level %u", ilevel);
+      GPU_SCOPED_EVENT(PIX_COLOR_DEFAULT, &cmd_buffer, "Dependency Level %u", ilevel);
 
 
       RG_DBGLN("Level %u", ilevel);
       const RgDependencyLevel& level = g_RenderGraph->dependency_levels[ilevel];
       if (level.barriers.size > 0)
       {
-        GPU_SCOPED_EVENT(PIX_COLOR_DEFAULT, cmd_buffer, "Resource Barriers");
+        GPU_SCOPED_EVENT(PIX_COLOR_DEFAULT, &cmd_buffer, "Resource Barriers");
         ScratchAllocator scratch_arena = alloc_scratch_arena();
         defer { free_scratch_arena(&scratch_arena); };
 
@@ -1161,6 +1279,12 @@ execute_render_graph(const GpuTexture* back_buffer, const RenderSettings& settin
 
       for (RenderPassId pass_id : level.render_passes)
       {
+        // GRV barrier passes aren't actually utilized in the runtime
+        if (g_RenderGraph->render_passes[pass_id].is_grv_barrier_pass)
+        {
+          continue;
+        }
+
         set_descriptor_heaps(&cmd_buffer, {g_DescriptorCbvSrvUavPool});
 
         RG_DBGLN("%s", g_RenderGraph->render_passes[pass_id].name);
@@ -1173,7 +1297,7 @@ execute_render_graph(const GpuTexture* back_buffer, const RenderSettings& settin
 
         g_HandlerId = pass_id;
         const RenderPass& pass = g_RenderGraph->render_passes[pass_id];
-        GPU_SCOPED_EVENT(PIX_COLOR_DEFAULT, cmd_buffer, pass.name);
+        GPU_SCOPED_EVENT(PIX_COLOR_DEFAULT, &cmd_buffer, pass.name);
         (*pass.handler)(&ctx, settings, pass.data);
 
         set_descriptor_heaps(&cmd_buffer, {g_DescriptorCbvSrvUavPool});
@@ -1209,8 +1333,7 @@ add_render_pass(
   CmdQueueType queue,
   const char* name,
   void* data,
-  RenderHandler* handler,
-  bool is_frame_init
+  RenderHandler* handler
 ) {
   RgPassBuilder* ret   = array_add(&graph->render_passes);
 
@@ -1220,18 +1343,37 @@ add_render_pass(
   ret->handler         = handler;
   ret->data            = data;
   ret->graph           = graph;
+  ret->is_grv_barrier  = false;
+  ret->grv_idx         = 0;
 
   ret->read_resources  = init_array<RgPassBuilder::ResourceAccessData>(heap, 32);
   ret->write_resources = init_array<RgPassBuilder::ResourceAccessData>(heap, 32);
 
-  if (is_frame_init)
-  {
-    ASSERT(!graph->frame_init);
-    graph->frame_init = ret->pass_id;
-  }
+  return ret;
+}
+
+RgPassBuilder*
+add_grv_barrier_pass(AllocHeap heap, RgBuilder* graph, u32 grv_idx)
+{
+  RgPassBuilder* ret   = array_add(&graph->render_passes);
+
+  ret->pass_id         = (u32)graph->render_passes.size - 1;
+  ret->queue           = kCmdQueueTypeGraphics;
+  ret->name            = nullptr;
+  ret->handler         = nullptr;
+  ret->data            = nullptr;
+  ret->graph           = graph;
+  ret->is_grv_barrier  = true;
+  ret->grv_idx         = grv_idx;
+
+  // At most 1 read or 1 write resource is going to be in a single GRV barrier pass
+  ret->read_resources  = init_array<RgPassBuilder::ResourceAccessData>(heap, 1);
+  ret->write_resources = init_array<RgPassBuilder::ResourceAccessData>(heap, 1);
 
   return ret;
 }
+
+
 
 RgHandle<GpuTexture>
 rg_create_texture(
@@ -1372,30 +1514,79 @@ rg_create_buffer_ex(
   return ret;
 }
 
+RgHandle<GpuRtTlas> rg_create_tlas(
+  RgBuilder*  builder,
+  const char* name,
+  u32         max_instance_count,
+  u32*        scratch_size
+) {
+  ResourceHandle resource_handle      = {0};
+  resource_handle.id                  = handle_index(builder);
+  resource_handle.version             = 0;
+  resource_handle.type                = kResourceTypeRtTlas;
+  // NOTE(bshihabi): For simplicity, I force the TLAS to be persistent so that we can do the fast refits
+  resource_handle.temporal_lifetime   = kInfiniteLifetime;
+  *array_add(&builder->resource_list) = resource_handle;
+
+  TransientResourceDesc* desc         = hash_table_insert(&builder->resource_descs, resource_handle.id);
+  desc->name                          = name;
+  desc->type                          = resource_handle.type;
+  desc->temporal_lifetime             = resource_handle.temporal_lifetime;
+  desc->tlas_desc.max_instances       = max_instance_count;
+  desc->tlas_desc.scratch_size        = 0; // TODO(bshihabi): Get this somehow
+
+  GpuRtTlasSizeInfo size_info = query_gpu_rt_tlas_size_info(max_instance_count);;
+  if (scratch_size != nullptr)
+  {
+    *scratch_size = size_info.scratch_size;
+  }
+
+  RgHandle<GpuRtTlas> ret = {resource_handle.id, resource_handle.version, resource_handle.temporal_lifetime};
+  return ret;
+
+}
+
+RgHandleCountedBuffer rg_create_counted_buffer(
+  RgBuilder*  builder,
+  const char* name,
+  u32         size
+) {
+  return rg_create_counted_buffer_ex(builder, name, size, 0);
+}
+
+RgHandleCountedBuffer rg_create_counted_buffer_ex(
+  RgBuilder*  builder,
+  const char* name,
+  u32         size,
+  u8          temporal_lifetime
+) {
+  RgHandleCountedBuffer ret;
+  ret.buffer  = rg_create_buffer_ex(builder, name,      size,        temporal_lifetime);
+  ret.counter = rg_create_buffer_ex(builder, "Counter", sizeof(u32), temporal_lifetime);
+
+  return ret;
+}
+
+
 RgOpaqueDescriptor
-rg_read_texture(RgPassBuilder* builder, RgHandle<GpuTexture> texture, const GpuTextureSrvDesc& desc, s8 temporal_frame, Option<u32> grv_idx, u16 flags)
+rg_read_texture(RgPassBuilder* builder, RgHandle<GpuTexture> texture, const GpuTextureSrvDesc& desc, s8 temporal_frame)
 {
   ASSERT(!array_find(&builder->write_resources, it->handle.id == texture.id && it->temporal_frame == temporal_frame));
   ASSERT(texture.id != kRgBackBufferId);
 
-  if (grv_idx)
+  if (builder->is_grv_barrier)
   {
     ASSERT_MSG_FATAL(temporal_frame == 0, "Temporal descriptors are not supported as GRV since the descriptor table binding is constant");
-    flags |= kRgDescriptorFlagIsGrv;
-  }
-  else
-  {
-    ASSERT_MSG_FATAL((flags & kRgDescriptorFlagIsGrv) == 0, "Descriptor marked as GRV but no index was provided!");
   }
 
   RgPassBuilder::ResourceAccessData* data = array_add(&builder->read_resources);
   data->handle          = texture;
+  data->counter         = {0};
   data->access          = (u32)kReadTextureSrv;
   data->temporal_frame  = temporal_frame;
   data->is_write        = false;
-  data->is_grv          = grv_idx;
   data->descriptor_type = kDescriptorTypeSrv;
-  data->descriptor_idx  = unwrap_or(grv_idx, builder->descriptor_idx);
+  data->descriptor_idx  = builder->is_grv_barrier ? builder->grv_idx : builder->descriptor_idx;
 
   data->texture_srv     = desc;
 
@@ -1405,9 +1596,8 @@ rg_read_texture(RgPassBuilder* builder, RgHandle<GpuTexture> texture, const GpuT
   ret.resource_id          = texture.id;
   ret.temporal_frame       = temporal_frame;
   ret.temporal_lifetime    = texture.temporal_lifetime;
-  ret.flags                = flags;
 
-  if (!grv_idx)
+  if (!builder->is_grv_barrier)
   {
     builder->descriptor_idx += texture.temporal_lifetime + 1;
   }
@@ -1416,7 +1606,7 @@ rg_read_texture(RgPassBuilder* builder, RgHandle<GpuTexture> texture, const GpuT
 }
 
 RgOpaqueDescriptor
-rg_write_texture(RgPassBuilder* builder, RgHandle<GpuTexture>* texture, const GpuTextureUavDesc& desc, Option<u32> grv_idx, u16 flags)
+rg_write_texture(RgPassBuilder* builder, RgHandle<GpuTexture>* texture, const GpuTextureUavDesc& desc)
 {
   ASSERT(!array_find(&builder->read_resources,  it->handle.id == texture->id && it->temporal_frame == 0));
   ASSERT(!array_find(&builder->write_resources, it->handle.id == texture->id));
@@ -1424,23 +1614,14 @@ rg_write_texture(RgPassBuilder* builder, RgHandle<GpuTexture>* texture, const Gp
 
   defer { texture->version++; };
 
-  if (grv_idx)
-  {
-    flags |= kRgDescriptorFlagIsGrv;
-  }
-  else
-  {
-    ASSERT_MSG_FATAL((flags & kRgDescriptorFlagIsGrv) == 0, "Descriptor marked as GRV but no index was provided!");
-  }
-
   RgPassBuilder::ResourceAccessData* data = array_add(&builder->write_resources);
   data->handle          = *texture;
+  data->counter         = {0};
   data->access          = (u32)kWriteTextureUav;
   data->temporal_frame  = 0;
   data->is_write        = true;
-  data->is_grv          = grv_idx;
   data->descriptor_type = kDescriptorTypeUav;
-  data->descriptor_idx  = unwrap_or(grv_idx, builder->descriptor_idx);
+  data->descriptor_idx  = builder->is_grv_barrier ? builder->grv_idx : builder->descriptor_idx;
 
   data->texture_uav     = desc;
 
@@ -1450,9 +1631,8 @@ rg_write_texture(RgPassBuilder* builder, RgHandle<GpuTexture>* texture, const Gp
   ret.resource_id          = texture->id;
   ret.temporal_frame       = 0;
   ret.temporal_lifetime    = texture->temporal_lifetime;
-  ret.flags                = flags;
 
-  if (!grv_idx)
+  if (!builder->is_grv_barrier)
   {
     builder->descriptor_idx += texture->temporal_lifetime + 1;
   }
@@ -1461,21 +1641,20 @@ rg_write_texture(RgPassBuilder* builder, RgHandle<GpuTexture>* texture, const Gp
 }
 
 RgOpaqueDescriptor
-rg_write_rtv(RgPassBuilder* builder, RgHandle<GpuTexture>* texture, u16 flags)
+rg_write_rtv(RgPassBuilder* builder, RgHandle<GpuTexture>* texture)
 {
   ASSERT(!array_find(&builder->read_resources,  it->handle.id == texture->id && it->temporal_frame == 0));
   ASSERT(!array_find(&builder->write_resources, it->handle.id == texture->id));
+  ASSERT_MSG_FATAL(!builder->is_grv_barrier, "RTVs are not supported as GRVs");
 
   defer { texture->version++; };
 
-  ASSERT_MSG_FATAL((flags & kRgDescriptorFlagIsGrv) == 0, "RTV descriptors are not supported as GRV!");
-
   RgPassBuilder::ResourceAccessData* data = array_add(&builder->write_resources);
   data->handle          = *texture;
+  data->counter         = {0};
   data->access          = (u32)kWriteTextureColorTarget;
   data->temporal_frame  = 0;
   data->is_write        = true;
-  data->is_grv          = false;
   data->descriptor_type = kDescriptorTypeRtv;
   data->descriptor_idx  = builder->descriptor_idx;
 
@@ -1489,7 +1668,6 @@ rg_write_rtv(RgPassBuilder* builder, RgHandle<GpuTexture>* texture, u16 flags)
     ret.resource_id          = texture->id;
     ret.temporal_frame       = 0;
     ret.temporal_lifetime    = kInfiniteLifetime;
-    ret.flags                = flags;
 
     return ret;
   }
@@ -1500,7 +1678,6 @@ rg_write_rtv(RgPassBuilder* builder, RgHandle<GpuTexture>* texture, u16 flags)
   ret.resource_id          = texture->id;
   ret.temporal_frame       = 0;
   ret.temporal_lifetime    = texture->temporal_lifetime;
-  ret.flags                = flags;
 
   builder->descriptor_idx += texture->temporal_lifetime + 1;
 
@@ -1508,21 +1685,20 @@ rg_write_rtv(RgPassBuilder* builder, RgHandle<GpuTexture>* texture, u16 flags)
 }
 
 RgOpaqueDescriptor
-rg_write_dsv(RgPassBuilder* builder, RgHandle<GpuTexture>* texture, u16 flags)
+rg_write_dsv(RgPassBuilder* builder, RgHandle<GpuTexture>* texture)
 {
   ASSERT(!array_find(&builder->read_resources,  it->handle.id == texture->id && it->temporal_frame == 0));
   ASSERT(!array_find(&builder->write_resources, it->handle.id == texture->id));
+  ASSERT_MSG_FATAL(!builder->is_grv_barrier, "DSVs are not supported as GRVs");
 
   defer { texture->version++; };
 
-  ASSERT_MSG_FATAL((flags & kRgDescriptorFlagIsGrv) == 0, "DSV descriptors are not supported as GRV!");
-
   RgPassBuilder::ResourceAccessData* data = array_add(&builder->write_resources);
   data->handle          = *texture;
+  data->counter         = {0};
   data->access          = (u32)kWriteTextureDepthStencil;
   data->temporal_frame  = 0;
   data->is_write        = true;
-  data->is_grv          = false;
   data->descriptor_type = kDescriptorTypeDsv;
   data->descriptor_idx  = builder->descriptor_idx;
 
@@ -1536,7 +1712,6 @@ rg_write_dsv(RgPassBuilder* builder, RgHandle<GpuTexture>* texture, u16 flags)
     ret.resource_id          = texture->id;
     ret.temporal_frame       = 0;
     ret.temporal_lifetime    = kInfiniteLifetime;
-    ret.flags                = flags;
 
     return ret;
   }
@@ -1547,7 +1722,6 @@ rg_write_dsv(RgPassBuilder* builder, RgHandle<GpuTexture>* texture, u16 flags)
   ret.resource_id          = texture->id;
   ret.temporal_frame       = 0;
   ret.temporal_lifetime    = texture->temporal_lifetime;
-  ret.flags                = flags;
 
   builder->descriptor_idx += texture->temporal_lifetime + 1;
 
@@ -1555,28 +1729,23 @@ rg_write_dsv(RgPassBuilder* builder, RgHandle<GpuTexture>* texture, u16 flags)
 }
 
 RgOpaqueDescriptor
-rg_read_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer> buffer, const GpuBufferCbvDesc& desc, s8 temporal_frame, Option<u32> grv_idx, u16 flags)
+rg_read_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer> buffer, const GpuBufferCbvDesc& desc, s8 temporal_frame)
 {
   ASSERT(!array_find(&builder->write_resources, it->handle.id == buffer.id && it->temporal_frame == temporal_frame));
 
-  if (grv_idx)
+  if (builder->is_grv_barrier)
   {
     ASSERT_MSG_FATAL(temporal_frame == 0, "Temporal descriptors are not supported as GRV since the descriptor table binding is constant");
-    flags |= kRgDescriptorFlagIsGrv;
-  }
-  else
-  {
-    ASSERT_MSG_FATAL((flags & kRgDescriptorFlagIsGrv) == 0, "Descriptor marked as GRV but no index was provided!");
   }
 
   RgPassBuilder::ResourceAccessData* data = array_add(&builder->read_resources);
   data->handle          = buffer;
+  data->counter         = {0};
   data->access          = (u32)kReadBufferCbv;
   data->temporal_frame  = temporal_frame;
   data->is_write        = false;
-  data->is_grv          = grv_idx;
   data->descriptor_type = kDescriptorTypeCbv;
-  data->descriptor_idx  = unwrap_or(grv_idx, builder->descriptor_idx);
+  data->descriptor_idx  = builder->is_grv_barrier ? builder->grv_idx : builder->descriptor_idx;
 
   data->buffer_cbv      = desc;
 
@@ -1586,9 +1755,8 @@ rg_read_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer> buffer, const GpuBuff
   ret.resource_id          = buffer.id;
   ret.temporal_frame       = temporal_frame;
   ret.temporal_lifetime    = buffer.temporal_lifetime;
-  ret.flags                = flags;
 
-  if (!grv_idx)
+  if (!builder->is_grv_barrier)
   {
     builder->descriptor_idx += buffer.temporal_lifetime + 1;
   }
@@ -1597,28 +1765,23 @@ rg_read_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer> buffer, const GpuBuff
 }
 
 RgOpaqueDescriptor
-rg_read_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer> buffer, const GpuBufferSrvDesc& desc, s8 temporal_frame, Option<u32> grv_idx, u16 flags)
+rg_read_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer> buffer, const GpuBufferSrvDesc& desc, s8 temporal_frame)
 {
   ASSERT(!array_find(&builder->write_resources, it->handle.id == buffer.id && it->temporal_frame == temporal_frame));
 
-  if (grv_idx)
+  if (builder->is_grv_barrier)
   {
     ASSERT_MSG_FATAL(temporal_frame == 0, "Temporal descriptors are not supported as GRV since the descriptor table binding is constant");
-    flags |= kRgDescriptorFlagIsGrv;
-  }
-  else
-  {
-    ASSERT_MSG_FATAL((flags & kRgDescriptorFlagIsGrv) == 0, "Descriptor marked as GRV but no index was provided!");
   }
 
   RgPassBuilder::ResourceAccessData* data = array_add(&builder->read_resources);
   data->handle          = buffer;
+  data->counter         = {0};
   data->access          = (u32)kReadBufferSrv;
   data->temporal_frame  = temporal_frame;
   data->is_write        = false;
-  data->is_grv          = grv_idx;
   data->descriptor_type = kDescriptorTypeSrv;
-  data->descriptor_idx  = unwrap_or(grv_idx, builder->descriptor_idx);
+  data->descriptor_idx  = builder->is_grv_barrier ? builder->grv_idx : builder->descriptor_idx;
 
   data->buffer_srv      = desc;
 
@@ -1628,9 +1791,8 @@ rg_read_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer> buffer, const GpuBuff
   ret.resource_id          = buffer.id;
   ret.temporal_frame       = temporal_frame;
   ret.temporal_lifetime    = buffer.temporal_lifetime;
-  ret.flags                = flags;
 
-  if (!grv_idx)
+  if (!builder->is_grv_barrier)
   {
     builder->descriptor_idx += buffer.temporal_lifetime + 1;
   }
@@ -1639,29 +1801,20 @@ rg_read_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer> buffer, const GpuBuff
 }
 
 RgOpaqueDescriptor
-rg_write_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer>* buffer, const GpuBufferUavDesc& desc, Option<u32> grv_idx, u16 flags)
+rg_write_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer>* buffer, const GpuBufferUavDesc& desc)
 {
   ASSERT(!array_find(&builder->write_resources, it->handle.id == buffer->id && it->temporal_frame == 0));
 
   defer { buffer->version++; };
 
-  if (grv_idx)
-  {
-    flags |= kRgDescriptorFlagIsGrv;
-  }
-  else
-  {
-    ASSERT_MSG_FATAL((flags & kRgDescriptorFlagIsGrv) == 0, "Descriptor marked as GRV but no index was provided!");
-  }
-
   RgPassBuilder::ResourceAccessData* data = array_add(&builder->write_resources);
   data->handle          = *buffer;
+  data->counter         = {0};
   data->access          = (u32)kWriteBufferUav;
   data->temporal_frame  = 0;
   data->is_write        = true;
-  data->is_grv          = grv_idx;
   data->descriptor_type = kDescriptorTypeUav;
-  data->descriptor_idx  = unwrap_or(grv_idx, builder->descriptor_idx);
+  data->descriptor_idx  = builder->is_grv_barrier ? builder->grv_idx : builder->descriptor_idx;
 
   data->buffer_uav      = desc;
 
@@ -1671,9 +1824,8 @@ rg_write_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer>* buffer, const GpuBu
   ret.resource_id          = buffer->id;
   ret.temporal_frame       = 0;
   ret.temporal_lifetime    = buffer->temporal_lifetime;
-  ret.flags                = flags;
 
-  if (!grv_idx)
+  if (!builder->is_grv_barrier)
   {
     builder->descriptor_idx += buffer->temporal_lifetime + 1;
   }
@@ -1681,110 +1833,252 @@ rg_write_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer>* buffer, const GpuBu
   return ret;
 }
 
+RgOpaqueDescriptor
+rg_write_buffer(RgPassBuilder* builder, RgHandleCountedBuffer* buffer, const GpuBufferUavDesc& desc, RgOpaqueDescriptor* out_counter_descriptor)
+{
+  ASSERT(!array_find(&builder->write_resources, it->handle.id == buffer->buffer.id && it->temporal_frame == 0));
+
+  defer 
+  { 
+    buffer->buffer.version++; 
+    buffer->counter.version++;
+  };
+
+  if (!builder->is_grv_barrier)
+  {
+    // Create a UAV for the counter resource that way it's easy to clear if you want to
+    // Not used on GRV declaration passes because it'd never get used if we created it
+    GpuBufferUavDesc counter_desc = {0};
+    counter_desc.first_element  = 0;
+    counter_desc.num_elements   = 1;
+    counter_desc.stride         = sizeof(u32);
+    counter_desc.format         = kGpuFormatUnknown;
+    counter_desc.counter_offset = 0;
+    counter_desc.is_raw         = false;
+
+    RgPassBuilder::ResourceAccessData* data = array_add(&builder->write_resources);
+    data->handle          = buffer->counter;
+    data->counter         = {0};
+    data->access          = (u32)kWriteBufferUav;
+    data->temporal_frame  = 0;
+    data->is_write        = true;
+    data->descriptor_type = kDescriptorTypeUav;
+    data->descriptor_idx  = builder->descriptor_idx;
+
+    data->buffer_uav      = counter_desc;
+
+    out_counter_descriptor->pass_id           = builder->pass_id;
+    out_counter_descriptor->descriptor_idx    = data->descriptor_idx;
+    out_counter_descriptor->resource_id       = buffer->counter.id;
+    out_counter_descriptor->temporal_frame    = 0;
+    out_counter_descriptor->temporal_lifetime = buffer->counter.temporal_lifetime;
+
+    builder->descriptor_idx += buffer->counter.temporal_lifetime + 1;
+  }
+
+  // Create UAV for the counted buffer
+  {
+    RgPassBuilder::ResourceAccessData* data = array_add(&builder->write_resources);
+    data->handle          = buffer->buffer;
+    data->counter         = buffer->counter;
+    data->access          = (u32)kWriteBufferUav;
+    data->temporal_frame  = 0;
+    data->is_write        = true;
+    data->descriptor_type = kDescriptorTypeUav;
+    data->descriptor_idx  = builder->is_grv_barrier ? builder->grv_idx : builder->descriptor_idx;
+
+    data->buffer_uav      = desc;
+
+    RgOpaqueDescriptor ret   = {0};
+    ret.pass_id              = builder->pass_id;
+    ret.descriptor_idx       = data->descriptor_idx;
+    ret.resource_id          = buffer->buffer.id;
+    ret.temporal_frame       = 0;
+    ret.temporal_lifetime    = buffer->buffer.temporal_lifetime;
+
+    if (!builder->is_grv_barrier)
+    {
+      builder->descriptor_idx += buffer->buffer.temporal_lifetime + 1;
+    }
+    return ret;
+  }
+}
 
 RgOpaqueDescriptor
-rg_read_index_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer> buffer, u16 flags)
+rg_copy_dst_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer>* buffer)
+{
+  ASSERT(!array_find(&builder->write_resources, it->handle.id == buffer->id && it->temporal_frame == 0));
+  ASSERT_MSG_FATAL(!builder->is_grv_barrier, "Copy destinations are not supported as GRVs");
+
+  defer { buffer->version++; };
+
+  RgPassBuilder::ResourceAccessData* data = array_add(&builder->write_resources);
+  data->handle          = *buffer;
+  data->counter         = {0};
+  data->access          = (u32)kWriteBufferCopyDst;
+  data->temporal_frame  = 0;
+  data->is_write        = true;
+  data->descriptor_type = kDescriptorTypeNull;
+  data->descriptor_idx  = U32_MAX;
+
+  RgOpaqueDescriptor ret   = {0};
+  ret.pass_id              = builder->pass_id;
+  ret.descriptor_idx       = data->descriptor_idx;
+  ret.resource_id          = buffer->id;
+  ret.temporal_frame       = 0;
+  ret.temporal_lifetime    = buffer->temporal_lifetime;
+
+  return ret;
+}
+
+RgOpaqueDescriptor
+rg_copy_dst_texture(RgPassBuilder* builder, RgHandle<GpuTexture>* texture)
+{
+  ASSERT(!array_find(&builder->write_resources, it->handle.id == texture->id && it->temporal_frame == 0));
+  ASSERT_MSG_FATAL(!builder->is_grv_barrier, "Copy destinations are not supported as GRVs");
+
+  defer { texture->version++; };
+
+  RgPassBuilder::ResourceAccessData* data = array_add(&builder->write_resources);
+  data->handle          = *texture;
+  data->counter         = {0};
+  data->access          = (u32)kWriteTextureCopyDst;
+  data->temporal_frame  = 0;
+  data->is_write        = true;
+  data->descriptor_type = kDescriptorTypeNull;
+  data->descriptor_idx  = U32_MAX;
+
+  RgOpaqueDescriptor ret   = {0};
+  ret.pass_id              = builder->pass_id;
+  ret.descriptor_idx       = data->descriptor_idx;
+  ret.resource_id          = texture->id;
+  ret.temporal_frame       = 0;
+  ret.temporal_lifetime    = texture->temporal_lifetime;
+
+  return ret;
+}
+
+RgOpaqueDescriptor
+rg_write_tlas(RgPassBuilder* builder, RgHandle<GpuRtTlas>* tlas)
+{
+  ASSERT(!array_find(&builder->write_resources, it->handle.id == tlas->id && it->temporal_frame == 0));
+  ASSERT_MSG_FATAL(!builder->is_grv_barrier, "TLAS build targets are not supported as GRVs");
+
+  defer { tlas->version++; };
+
+  RgPassBuilder::ResourceAccessData* data = array_add(&builder->write_resources);
+  data->handle          = *tlas;
+  data->counter         = {0};
+  data->access          = (u32)kWriteTlasBuild;
+  data->temporal_frame  = 0;
+  data->is_write        = true;
+  data->descriptor_type = kDescriptorTypeNull;
+  data->descriptor_idx  = U32_MAX;
+
+  RgOpaqueDescriptor ret   = {0};
+  ret.pass_id              = builder->pass_id;
+  ret.descriptor_idx       = data->descriptor_idx;
+  ret.resource_id          = tlas->id;
+  ret.temporal_frame       = 0;
+  ret.temporal_lifetime    = tlas->temporal_lifetime;
+
+  return ret;
+}
+
+RgOpaqueDescriptor
+rg_read_tlas(RgPassBuilder* builder, RgHandle<GpuRtTlas> tlas)
+{
+  ASSERT(!array_find(&builder->write_resources, it->handle.id == tlas.id));
+
+  RgPassBuilder::ResourceAccessData* data = array_add(&builder->read_resources);
+  data->handle          = tlas;
+  data->counter         = {0};
+  data->access          = (u32)kReadTlasSrv;
+  data->temporal_frame  = 0;
+  data->is_write        = false;
+  data->descriptor_type = kDescriptorTypeSrv;
+  data->descriptor_idx  = builder->is_grv_barrier ? builder->grv_idx : builder->descriptor_idx;
+
+  RgOpaqueDescriptor ret   = {0};
+  ret.pass_id              = builder->pass_id;
+  ret.descriptor_idx       = data->descriptor_idx;
+  ret.resource_id          = tlas.id;
+  ret.temporal_frame       = 0;
+  ret.temporal_lifetime    = tlas.temporal_lifetime;
+
+  if (!builder->is_grv_barrier)
+  {
+    builder->descriptor_idx += tlas.temporal_lifetime + 1;
+  }
+
+  return ret;
+}
+
+
+RgOpaqueDescriptor
+rg_read_index_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer> buffer)
 {
   ASSERT(!array_find(&builder->write_resources, it->handle.id == buffer.id));
-
-  ASSERT_MSG_FATAL((flags & kRgDescriptorFlagIsGrv) == 0, "Index buffer descriptors are not supported as GRV!");
+  ASSERT_MSG_FATAL(!builder->is_grv_barrier, "Index buffers are not supported as GRVs");
 
   RgPassBuilder::ResourceAccessData* data = array_add(&builder->read_resources);
   data->handle          = buffer;
+  data->counter         = {0};
   data->access          = (u32)kReadBufferIndex;
   data->temporal_frame  = 0;
   data->is_write        = false;
-  data->is_grv          = false;
   data->descriptor_type = kDescriptorTypeNull;
   data->descriptor_idx  = builder->descriptor_idx;
 
   RgOpaqueDescriptor ret   = {0};
   ret.pass_id              = builder->pass_id;
   ret.resource_id          = buffer.id;
-  ret.flags                = flags;
 
   return ret;
 }
 
 RgOpaqueDescriptor
-rg_read_vertex_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer> buffer, u16 flags)
+rg_read_vertex_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer> buffer)
 {
   ASSERT(!array_find(&builder->write_resources, it->handle.id == buffer.id));
-
-  ASSERT_MSG_FATAL((flags & kRgDescriptorFlagIsGrv) == 0, "Vertex buffer descriptors are not supported as GRV!");
+  ASSERT_MSG_FATAL(!builder->is_grv_barrier, "Vertex buffers are not supported as GRVs");
 
   RgPassBuilder::ResourceAccessData* data = array_add(&builder->read_resources);
   data->handle          = buffer;
+  data->counter         = {0};
   data->access          = (u32)kReadBufferVertex;
   data->temporal_frame  = 0;
   data->is_write        = false;
-  data->is_grv          = false;
   data->descriptor_type = kDescriptorTypeNull;
   data->descriptor_idx  = builder->descriptor_idx;
 
   RgOpaqueDescriptor ret   = {0};
   ret.pass_id              = builder->pass_id;
   ret.resource_id          = buffer.id;
-  ret.flags                = flags;
 
   return ret;
 }
 
 RgOpaqueDescriptor
-rg_read_indirect_args_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer> buffer, u16 flags)
+rg_read_indirect_args_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer> buffer)
 {
   ASSERT(!array_find(&builder->write_resources, it->handle.id == buffer.id));
-
-  ASSERT_MSG_FATAL((flags & kRgDescriptorFlagIsGrv) == 0, "Indirect args buffer descriptors are not supported as GRV!");
+  ASSERT_MSG_FATAL(!builder->is_grv_barrier, "Indirect args buffers are not supported as GRVs");
 
   RgPassBuilder::ResourceAccessData* data = array_add(&builder->read_resources);
   data->handle          = buffer;
+  data->counter         = {0};
   data->access          = (u32)kReadBufferIndirectArgs;
   data->temporal_frame  = 0;
   data->is_write        = false;
-  data->is_grv          = false;
   data->descriptor_type = kDescriptorTypeNull;
   data->descriptor_idx  = builder->descriptor_idx;
 
   RgOpaqueDescriptor ret   = {0};
   ret.pass_id              = builder->pass_id;
   ret.resource_id          = buffer.id;
-  ret.flags                = flags;
 
   return ret;
-}
-
-template <>
-const GpuBuffer*
-rg_deref_buffer<RgIndexBuffer>(RgIndexBuffer rg_descriptor)
-{
-  RgResourceKey key  = {0};
-  key.id             = rg_descriptor.m_ResourceId;
-  key.temporal_frame = rg_get_temporal_frame(g_FrameId, 0, 0);
-
-  return hash_table_find(&g_RenderGraph->buffer_map, key);
-}
-
-template <>
-const GpuBuffer*
-rg_deref_buffer<RgVertexBuffer>(RgVertexBuffer rg_descriptor)
-{
-  RgResourceKey key  = {0};
-  key.id             = rg_descriptor.m_ResourceId;
-  key.temporal_frame = rg_get_temporal_frame(g_FrameId, 0, 0);
-
-  return hash_table_find(&g_RenderGraph->buffer_map, key);
-}
-
-template <>
-const GpuBuffer*
-rg_deref_buffer<RgCpuUploadBuffer>(RgCpuUploadBuffer rg_descriptor)
-{
-  RgResourceKey key  = {0};
-  key.id             = rg_descriptor.m_ResourceId;
-  key.temporal_frame = rg_get_temporal_frame(g_FrameId, rg_descriptor.m_TemporalLifetime, 0);
-
-  return hash_table_find(&g_RenderGraph->buffer_map, key);
 }
 
 void
@@ -1829,6 +2123,37 @@ RenderContext::clear_render_target_view(
     0,
     nullptr
   );
+}
+
+void
+RenderContext::clear_uav_u32(const RgRWStructuredBuffer<u32>& uav, u32 clear_value, u32 count, u32 offset)
+{
+  const GpuBuffer* physical = rg_deref_buffer(uav);
+
+  u32 total_buffer_count = physical->desc.size / sizeof(u32);
+  // Nothing to do if the offset is too far into the total buffer size
+  if (offset >= total_buffer_count)
+  {
+    return;
+  }
+
+  // If no count was specified, we'll assume everything from offset til the end is valid
+  if (count == 0)
+  {
+    count = total_buffer_count - offset;
+  }
+
+  ClearStructuredBufferSrt srt;
+  srt.clear_value = clear_value;
+  srt.count       = count;
+  srt.offset      = offset;
+  srt.dst         = uav;
+
+  compute_bind_srt(srt);
+  set_compute_pso(&m_ClearBufferPso);
+  dispatch(ALIGN_POW2(srt.count, 64) / 64, 1, 1);
+
+  memory_barrier();
 }
 
 void
@@ -1955,17 +2280,9 @@ RenderContext::dispatch_rays(const ShaderTable* shader_table, u32 x, u32 y, u32 
 }
 
 void
-RenderContext::uav_barrier(const GpuBuffer* buffer)
+RenderContext::memory_barrier()
 {
-  D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::UAV(buffer->d3d12_buffer);
-  m_CmdBuffer.d3d12_list->ResourceBarrier(1, &barrier);
-}
-
-void
-RenderContext::uav_barrier(const GpuTexture* texture)
-{
-  D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::UAV(texture->d3d12_texture);
-  m_CmdBuffer.d3d12_list->ResourceBarrier(1, &barrier);
+  gpu_memory_barrier(&m_CmdBuffer);
 }
 
 void
@@ -2153,6 +2470,15 @@ RenderContext::set_descriptor_heaps(Span<const DescriptorLinearAllocator*> heaps
 }
 
 void
+RenderContext::build_tlas(RgRWRaytracingAccelerationStructure tlas, RgRWBuffer<u32> scratch, RgStructuredBuffer<D3D12RaytracingInstanceDesc> instances, u32 instance_count, u32 flags)
+{
+  const GpuRtTlas* physical_tlas      = rg_deref_rt_tlas(tlas);
+  const GpuBuffer* physical_scratch   = rg_deref_buffer(scratch);
+  const GpuBuffer* physical_instances = rg_deref_buffer(instances);
+  build_rt_tlas(&m_CmdBuffer, *physical_tlas, *physical_instances, instance_count, *physical_scratch, 0, flags);
+}
+
+void
 RenderContext::write_cpu_upload_buffer(RgCpuUploadBuffer dst, const void* src, u64 size, u64 offset)
 {
   const GpuBuffer* physical = rg_deref_buffer(dst);
@@ -2166,4 +2492,18 @@ RenderContext::write_cpu_upload_buffer(const GpuBuffer* dst, const void* src, u6
 
   u8* ptr = (u8*)unwrap(dst->mapped);
   memcpy(ptr + offset, src, size);
+}
+
+void
+RenderContext::copy_buffer(RgCopyDst dst, u64 dst_offset, RgCpuUploadBuffer src, u64 src_offset, u64 bytes)
+{
+  const GpuBuffer* src_physical = rg_deref_buffer(src);
+  copy_buffer(dst, dst_offset, src_physical, src_offset, bytes);
+}
+
+void
+RenderContext::copy_buffer(RgCopyDst dst, u64 dst_offset, const GpuBuffer* src, u64 src_offset, u64 bytes)
+{
+  const GpuBuffer* dst_physical = rg_deref_buffer(dst);
+  m_CmdBuffer.d3d12_list->CopyBufferRegion(dst_physical->d3d12_buffer, dst_offset, src->d3d12_buffer, src_offset, bytes);
 }

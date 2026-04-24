@@ -28,8 +28,8 @@ void asset_id_to_path(char* dst, AssetId asset_id)
     u32         pos = (asset_id & 0xFF) * 2 + 1;
     const char* ch  = kLut + pos;
 
-    *dst-- = *ch++;
-    *dst-- = *ch++;
+    *dst-- = *ch--;
+    *dst-- = *ch--;
 
     asset_id >>= 8;
   }
@@ -75,7 +75,7 @@ open_built_asset_file(AssetId asset)
 {
   char path[512];
   snprintf(path, 512, "Assets/Built/0x%08x.built", asset);
-  return open_file(path);
+  return open_file(path, kFileStreamRead);
 }
 
 AssetType

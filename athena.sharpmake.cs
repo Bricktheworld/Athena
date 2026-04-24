@@ -47,7 +47,8 @@ namespace Athena
           "4201", // Nonstandard extension used: nameless struct/union
           "5054", // Deprecated & between enumrations of different types
           "4456", // Shadow variables
-          "4530"  // TODO(bshihabi): Exception handler used
+          "4530", // TODO(bshihabi): Exception handler used
+          "4324"  // Useless warning that occurs when struct is padded due to using "alignas"... why does this even exist in the first place?
         )
       );
       if (target.Optimization == Optimization.Debug)
@@ -285,6 +286,9 @@ namespace Athena
       conf.LibraryFiles.Add(@"[project.SourceRootPath]\Lib\dstorage.lib");
       conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\dstorage.dll");
       conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\dstoragecore.dll");
+
+      conf.LibraryFiles.Add(@"[project.SourceRootPath]\Lib\GFSDK_Aftermath_Lib.x64.lib");
+      conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\GFSDK_Aftermath_Lib.x64.dll");
 
       conf.LibraryFiles.Add(@"[project.SourceRootPath]\Lib\WinPixEventRuntime.lib");
       conf.TargetCopyFiles.Add(@"[project.SourceRootPath]\Lib\WinPixEventRuntime.dll");

@@ -64,6 +64,30 @@ profiler::end_switch_to_fiber(u64 current_fiber)
   superluminal.EndFiberSwitch(current_fiber);
 }
 
+void
+begin_cpu_instrumentation_scope(const char* name, const char* data)
+{
+  if (!g_profiler.superluminal)
+  {
+    return;
+  }
+
+  PerformanceAPI_Functions& superluminal = unwrap(g_profiler.superluminal);
+  superluminal.BeginEvent(name, data, 0xFF0000FF);
+}
+
+void
+end_cpu_instrumentation_scope()
+{
+  if (!g_profiler.superluminal)
+  {
+    return;
+  }
+
+  PerformanceAPI_Functions& superluminal = unwrap(g_profiler.superluminal);
+  superluminal.EndEvent();
+}
+
 u64
 begin_cpu_profiler_timestamp(void)
 {

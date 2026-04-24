@@ -23,7 +23,6 @@ Renderer g_Renderer;
 UnifiedGeometryBuffer g_UnifiedGeometryBuffer;
 ShaderManager*  g_ShaderManager           = nullptr;
 DescriptorPool* g_DescriptorCbvSrvUavPool = nullptr;
-Scene*          g_Scene                   = nullptr;
 
 void
 init_shader_manager(const GpuDevice* device)
@@ -86,6 +85,8 @@ init_renderer_dependency_graph(
   GBuffer gbuffer = init_gbuffer(&builder);
   FrameResources frame_resources = init_frame_init_pass(scratch_arena, &builder);
 
+  init_scene_gpu_upload_pass(scratch_arena, &builder);
+
   init_gbuffer_static(scratch_arena, &builder, &gbuffer);
 
   DiffuseGiResources diffuse_gi = init_rt_diffuse_gi(scratch_arena, &builder);
@@ -132,25 +133,6 @@ destroy_renderer_psos()
   destroy_graphics_pipeline(&g_Renderer.back_buffer_blit_pso);
 }
 
-static void
-init_scene()
-{
-  g_Scene = HEAP_ALLOC(Scene, g_InitHeap, 1);
-  zero_memory(g_Scene, sizeof(Scene));
-
-  g_Scene->scene_objects = init_array<SceneObject>(g_InitHeap, 128);
-  g_Scene->point_lights  = init_array<PointLight>(g_InitHeap, 128);
-  static constexpr size_t kSceneObjectHeapSize = MiB(8);
-  g_Scene->scene_object_allocator = init_linear_allocator(
-    HEAP_ALLOC_ALIGNED(g_InitHeap, kSceneObjectHeapSize, 1),
-    kSceneObjectHeapSize
-  );
-
-  g_Scene->directional_light.temperature = 5000;
-  g_Scene->directional_light.direction = Vec3(-1.0f, -1.0f, 0.0f);
-  g_Scene->directional_light.illuminance = 75000.0f;
-}
-
 void
 init_renderer(
   const GpuDevice* device,
@@ -159,12 +141,13 @@ init_renderer(
 ) {
   zero_memory(&g_Renderer, sizeof(g_Renderer));
 
-  init_scene();
   g_DescriptorCbvSrvUavPool   = HEAP_ALLOC(DescriptorPool, g_InitHeap, 1);
-  *g_DescriptorCbvSrvUavPool  = init_descriptor_pool(g_InitHeap, device, 2048, kDescriptorHeapTypeCbvSrvUav, kGrvTemporalCount * kBackBufferCount + kGrvCount);
+  *g_DescriptorCbvSrvUavPool  = init_descriptor_pool(g_InitHeap, 2048, kDescriptorHeapTypeCbvSrvUav, kGrvTemporalCount * kBackBufferCount + kGrvCount);
 
   const uint32_t kGraphMemory = MiB(32);
   g_Renderer.graph_allocator  = init_linear_allocator(HEAP_ALLOC_ALIGNED(g_InitHeap, kGraphMemory, alignof(u64)), kGraphMemory);
+
+  init_scene();
 
   init_renderer_dependency_graph(swap_chain, kRgDestroyAll);
   init_renderer_psos(device, swap_chain);
@@ -199,39 +182,6 @@ destroy_renderer()
   zero_memory(&g_Renderer, sizeof(g_Renderer));
 }
 
-void
-build_acceleration_structures(GpuDevice* device)
-{
-  g_UnifiedGeometryBuffer.bvh = init_gpu_bvh(
-    device,
-    g_UnifiedGeometryBuffer.vertex_buffer,
-    g_UnifiedGeometryBuffer.vertex_buffer_offset,
-    sizeof(Vertex),
-    g_UnifiedGeometryBuffer.index_buffer,
-    g_UnifiedGeometryBuffer.index_buffer_offset,
-    "Scene Acceleration Structure"
-  );
-
-  // TODO(bshihabi): This shouldn't live here...
-  GpuDescriptor descriptor = alloc_table_descriptor(g_DescriptorCbvSrvUavPool, kGrvTemporalCount * kBackBufferCount + kRaytracingAccelerationStructureSlot);
-  init_bvh_srv(&descriptor, &g_UnifiedGeometryBuffer.bvh);
-}
-
-
-void
-begin_renderer_recording()
-{
-  g_Renderer.meshes = init_array<RenderModelSubset>(g_FrameHeap, 1024);
-}
-
-void
-submit_mesh(RenderModelSubset mesh)
-{
-  if (g_Renderer.meshes.size < g_Renderer.meshes.capacity)
-  {
-    *array_add(&g_Renderer.meshes) = mesh;
-  }
-}
 
 void
 init_unified_geometry_buffer(const GpuDevice* device)
@@ -239,16 +189,19 @@ init_unified_geometry_buffer(const GpuDevice* device)
   zero_memory(&g_UnifiedGeometryBuffer, sizeof(g_UnifiedGeometryBuffer));
 
   GpuBufferDesc vertex_uber_desc = {0};
-  vertex_uber_desc.size = MiB(512);
+  vertex_uber_desc.size = kVertexBufferSize;
 
-  g_UnifiedGeometryBuffer.vertex_buffer        = alloc_gpu_buffer_no_heap(device, vertex_uber_desc, kGpuHeapGpuOnly, "Vertex Buffer");
-  g_UnifiedGeometryBuffer.vertex_buffer_offset = 0;
+  g_UnifiedGeometryBuffer.lock              = init_spin_lock();
+  g_UnifiedGeometryBuffer.vertex_buffer     = alloc_gpu_buffer_no_heap(device, vertex_uber_desc, kGpuHeapGpuOnly, "Vertex Buffer");
+  g_UnifiedGeometryBuffer.vertex_buffer_pos = 0;
 
   GpuBufferDesc index_uber_desc = {0};
-  index_uber_desc.size = MiB(512);
+  index_uber_desc.size = kIndexBufferSize;
 
-  g_UnifiedGeometryBuffer.index_buffer        = alloc_gpu_buffer_no_heap(device, index_uber_desc, kGpuHeapGpuOnly, "Index Buffer");
-  g_UnifiedGeometryBuffer.index_buffer_offset = 0;
+  g_UnifiedGeometryBuffer.index_buffer     = alloc_gpu_buffer_no_heap(device, index_uber_desc, kGpuHeapGpuOnly, "Index Buffer");
+  g_UnifiedGeometryBuffer.index_buffer_pos = 0;
+
+  g_UnifiedGeometryBuffer.blas_allocator   = init_gpu_linear_allocator(MiB(32), kGpuHeapGpuOnly);
 }
 
 void
@@ -260,230 +213,46 @@ destroy_unified_geometry_buffer()
   zero_memory(&g_UnifiedGeometryBuffer, sizeof(g_UnifiedGeometryBuffer));
 }
 
-static UploadContext g_UploadContext;
-
-void
-init_global_upload_context(const GpuDevice* device)
+u64
+alloc_uber_vertex(u64 size)
 {
-  GpuBufferDesc staging_desc = {0};
-  staging_desc.size = MiB(64);
+  spin_acquire(&g_UnifiedGeometryBuffer.lock);
+  defer { spin_release(&g_UnifiedGeometryBuffer.lock); };
 
-  g_UploadContext.staging_buffer = alloc_gpu_buffer_no_heap(device, staging_desc, kGpuHeapSysRAMCpuToGpu, "Staging Buffer");
-  g_UploadContext.staging_offset = 0;
-  g_UploadContext.cmd_list_allocator = init_cmd_list_allocator(g_InitHeap, device, &device->copy_queue, 16);
-  g_UploadContext.cmd_list = alloc_cmd_list(&g_UploadContext.cmd_list_allocator);
-  g_UploadContext.device = device;
-  static constexpr u64 kCpuUploadArenaSize = MiB(64);
-  g_UploadContext.cpu_upload_arena = init_linear_allocator(
-    HEAP_ALLOC_ALIGNED(g_InitHeap, kCpuUploadArenaSize, 1), 
-    kCpuUploadArenaSize
-  );
-}
-
-void
-destroy_global_upload_context()
-{
-//  ACQUIRE(&g_upload_context, UploadContext* upload_ctx)
-//  {
-//    free_gpu_ring_buffer(&upload_ctx->ring_buffer);
-//  };
-}
-
-static void
-flush_upload_staging()
-{
-  if (g_UploadContext.staging_offset == 0)
-    return;
-
-  FenceValue value = submit_cmd_lists(&g_UploadContext.cmd_list_allocator, {g_UploadContext.cmd_list});
-  g_UploadContext.cmd_list = alloc_cmd_list(&g_UploadContext.cmd_list_allocator);
-
-  block_gpu_fence(&g_UploadContext.cmd_list_allocator.fence, value);
-
-  g_UploadContext.staging_offset = 0;
-}
-
-static void
-upload_gpu_data(GpuBuffer* dst_gpu, u64 dst_offset, const void* src, u64 size)
-{
-  if (g_UploadContext.staging_buffer.desc.size - g_UploadContext.staging_offset < size)
-  {
-    flush_upload_staging();
-  }
-  void* dst = (void*)(u64(unwrap(g_UploadContext.staging_buffer.mapped)) + g_UploadContext.staging_offset);
-  memcpy(dst, src, size);
-
-  g_UploadContext.cmd_list.d3d12_list->CopyBufferRegion(dst_gpu->d3d12_buffer,
-                                                         dst_offset,
-                                                         g_UploadContext.staging_buffer.d3d12_buffer,
-                                                         g_UploadContext.staging_offset,
-                                                         size);
-  g_UploadContext.staging_offset += size;
-}
-
-static u32
-alloc_into_vertex_uber(u32 vertex_count)
-{
-  u32 ret = g_UnifiedGeometryBuffer.vertex_buffer_offset;
-  ASSERT((ret + vertex_count) * sizeof(Vertex) <= g_UnifiedGeometryBuffer.vertex_buffer.desc.size);
-
-  g_UnifiedGeometryBuffer.vertex_buffer_offset += vertex_count;
-
+  u64 ret      = g_UnifiedGeometryBuffer.vertex_buffer_pos;
+  u64 capacity = g_UnifiedGeometryBuffer.vertex_buffer.desc.size;
+  ASSERT_MSG_FATAL(ret + size <= capacity, "Failed to allocate %llu bytes from uber vertex buffer which already has %llu/%llu bytes allocated (%f %%). Consider bumping kVertexBufferSize.", size, ret, capacity, ((f64)ret / (f64)capacity * 100.0));
+  g_UnifiedGeometryBuffer.vertex_buffer_pos += size;
   return ret;
 }
 
-static u32
-alloc_into_index_uber(u32 index_count)
+u64
+alloc_uber_index(u64 size)
 {
-  u32 ret = g_UnifiedGeometryBuffer.index_buffer_offset;
-  ASSERT((ret + index_count) * sizeof(u32) <= g_UnifiedGeometryBuffer.index_buffer.desc.size);
+  spin_acquire(&g_UnifiedGeometryBuffer.lock);
+  defer { spin_release(&g_UnifiedGeometryBuffer.lock); };
 
-  g_UnifiedGeometryBuffer.index_buffer_offset += index_count;
-
+  u64 ret      = g_UnifiedGeometryBuffer.index_buffer_pos;
+  u64 capacity = g_UnifiedGeometryBuffer.index_buffer.desc.size;
+  ASSERT_MSG_FATAL(ret + size <= capacity, "Failed to allocate %llu bytes from uber index buffer which already has %llu/%llu bytes allocated (%f %%). Consider bumping kIndexBufferSize.", size, ret, capacity, ((f64)ret / (f64)capacity * 100.0));
+  g_UnifiedGeometryBuffer.index_buffer_pos += size;
   return ret;
 }
 
-static RenderModel
-init_render_model(AllocHeap heap, const ModelData& model)
+GpuRtBlas
+alloc_uber_blas(u32 vertex_start, u32 vertex_count, u32 index_start, u32 index_count, const char* name)
 {
-  RenderModel ret = {0};
-  ret.model_subsets = init_array<RenderModelSubset>(heap, model.model_subsets.size);
-  for (u32 imodel_subset = 0; imodel_subset < model.model_subsets.size; imodel_subset++)
-  {
-    const ModelSubsetData* src = &model.model_subsets[imodel_subset];
-    RenderModelSubset* dst = array_add(&ret.model_subsets);
+  spin_acquire(&g_UnifiedGeometryBuffer.lock);
+  defer { spin_release(&g_UnifiedGeometryBuffer.lock); };
 
-    reset_linear_allocator(&g_UploadContext.cpu_upload_arena);
+  GpuRtBlasDesc desc;
+  desc.vertex_start  = vertex_start;
+  desc.vertex_count  = vertex_count;
+  // TODO(bshihabi): When we add vertex buffer compression we'll need to figure out how to construct the BLAS with the compressed data
+  desc.vertex_format = kGpuFormatRGB32Float;
+  desc.vertex_stride = sizeof(Vertex);
+  desc.index_start   = index_start;
+  desc.index_count   = index_count;
 
-    u32 vertex_buffer_offset = alloc_into_vertex_uber((u32)src->vertices.size);
-
-    dst->index_count         = (u32)src->indices.size;
-    dst->index_buffer_offset = alloc_into_index_uber(dst->index_count);
-    dst->vertex_shader       = kVS_Basic;
-    dst->material_shader     = kPS_BasicNormalGloss;
-    dst->material            = src->material;
-
-    // Kick asset loading
-    kick_asset_load(dst->material);
-
-    GraphicsPipelineDesc graphics_pipeline_desc =
-    {
-      .vertex_shader   = get_engine_shader(dst->vertex_shader),
-      .pixel_shader    = get_engine_shader(dst->material_shader),
-      .rtv_formats     = kGBufferRenderTargetFormats,
-      .dsv_format      = kGpuFormatD32Float,
-      .depth_func      = kDepthComparison,
-      .stencil_enable  = false,
-    };
-
-    dst->gbuffer_pso = init_graphics_pipeline(g_UploadContext.device, graphics_pipeline_desc, "Mesh PSO");
-
-    u32* indices = HEAP_ALLOC(u32, (AllocHeap)g_UploadContext.cpu_upload_arena, dst->index_count);
-
-    for (u32 iindex = 0; iindex < dst->index_count; iindex++)
-    {
-      indices[iindex] = src->indices[iindex] + vertex_buffer_offset;
-    }
-
-    upload_gpu_data(
-      &g_UnifiedGeometryBuffer.vertex_buffer,
-      vertex_buffer_offset * sizeof(Vertex),
-      src->vertices.memory,
-      src->vertices.size * sizeof(Vertex)
-    );
-
-    upload_gpu_data(
-      &g_UnifiedGeometryBuffer.index_buffer,
-      dst->index_buffer_offset * sizeof(u32),
-      indices,
-      dst->index_count * sizeof(u32)
-    );
-  }
-  flush_upload_staging();
-  return ret;
-}
-
-SceneObject*
-add_scene_object(
-  const ModelData& model,
-  EngineShaderIndex vertex_shader,
-  EngineShaderIndex material_shader
-) {
-  UNREFERENCED_PARAMETER(vertex_shader);
-  UNREFERENCED_PARAMETER(material_shader);
-  SceneObject* ret = array_add(&g_Scene->scene_objects);
-  ret->flags = kSceneObjectMesh;
-  ret->model = init_render_model(g_Scene->scene_object_allocator, model);
-
-  return ret;
-}
-
-PointLight* add_point_light(Scene* scene)
-{
-  PointLight* ret = array_add(&scene->point_lights);
-  ret->position = Vec4(0, 0, 0, 1);
-  ret->color = Vec4(1, 1, 1, 1);
-  ret->radius = 10;
-  ret->intensity = 10;
-
-  return ret;
-}
-
-static Vec2
-get_taa_jitter()
-{
-  static const Vec2 kHaltonSequence[] =
-  {
-    Vec2(0.500000f, 0.333333f),
-    Vec2(0.250000f, 0.666667f),
-    Vec2(0.750000f, 0.111111f),
-    Vec2(0.125000f, 0.444444f),
-    Vec2(0.625000f, 0.777778f),
-    Vec2(0.375000f, 0.222222f),
-    Vec2(0.875000f, 0.555556f),
-    Vec2(0.062500f, 0.888889f),
-    Vec2(0.562500f, 0.037037f),
-    Vec2(0.312500f, 0.370370f),
-    Vec2(0.812500f, 0.703704f),
-    Vec2(0.187500f, 0.148148f),
-    Vec2(0.687500f, 0.481481f),
-    Vec2(0.437500f, 0.814815f),
-    Vec2(0.937500f, 0.259259f),
-    Vec2(0.031250f, 0.592593f),
-  };
-
-  u32  idx = g_FrameId % ARRAY_LENGTH(kHaltonSequence);
-  Vec2 ret = kHaltonSequence[idx] - Vec2(0.5f, 0.5f);
-  ret.x   /= (f32)g_RenderGraph->width;
-  ret.y   /= (f32)g_RenderGraph->height;
-
-  ret     *= 2.0f;
-  return ret;
-}
-
-void
-submit_scene()
-{
-  for (const SceneObject& obj : g_Scene->scene_objects)
-  {
-//    u8 flags = obj.flags;
-//    if (flags & kSceneObjectPendingLoad)
-//    {
-//      if (!job_has_completed(obj.loading_signal))
-//        continue;
-//
-//      flags &= ~kSceneObjectPendingLoad;
-//    }
-
-    for (const RenderModelSubset& mesh_inst : obj.model.model_subsets)
-    {
-      submit_mesh(mesh_inst);
-    }
-  }
-
-  g_Renderer.taa_jitter        = get_taa_jitter();
-
-  g_Renderer.prev_camera       = g_Renderer.camera;
-  g_Renderer.camera            = g_Scene->camera;
-  g_Renderer.directional_light = g_Scene->directional_light;
+  return alloc_gpu_rt_blas(g_UnifiedGeometryBuffer.blas_allocator, g_UnifiedGeometryBuffer.vertex_buffer, g_UnifiedGeometryBuffer.index_buffer, desc, name);
 }

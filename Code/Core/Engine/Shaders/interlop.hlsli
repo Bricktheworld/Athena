@@ -33,9 +33,12 @@ typedef uint4     UVec4;
 typedef int2      SVec2;
 typedef int3      SVec3;
 typedef int4      SVec4;
-typedef uint      u32;
 typedef uint16_t  u16;
+typedef uint      u32;
+typedef uint64_t  u64;
+typedef int16_t   s16;
 typedef int       s32;
+typedef int64_t   s64;
 typedef float     f32;
 typedef float16_t f16;
 typedef half2     Vec2f16;
@@ -273,11 +276,18 @@ struct Transform
 
 struct SceneObjGpu
 {
-  Mat4 model;
-  Mat4 model_inverse;
-  Mat4 prev_model;
+  Mat4 obj_to_world;
+  Mat4 obj_to_world_inverse;
+  Mat4 prev_obj_to_world;
 
-  u32  material_id;
+  u32  mat_id;
+  u32  index_count;
+  u32  start_vertex;
+  u32  start_index;
+
+  u64  blas_addr;
+  u32  __pad0__;
+  u32  __pad1__;
 };
 
 struct MaterialGpu
@@ -290,12 +300,8 @@ struct MaterialGpu
 
 struct MaterialSrt
 {
-  ConstantBufferPtr<Transform> transform;
-  Texture2DPtr<float4> diffuse;
-  Texture2DPtr<float4> normal;
   float4 diffuse_base;
-
-  u32 gpu_id;
+  u32    gpu_id;
 };
 
 struct MaterialUploadCmd
@@ -422,6 +428,20 @@ struct DebugSdfDrawSrt
   StructuredBufferPtr<DebugSdf> debug_sdf_buffer;
 };
 
+// DO NOT move this stuff around, it is a GPU version of D3D12_RAYTRACING_INSTANCE_DESC
+struct D3D12RaytracingInstanceDesc
+{
+  Vec4 transform_x;
+  Vec4 transform_y;
+  Vec4 transform_z;
+
+  u32  instance_id:                        24;
+  u32  instance_mask:                       8;
+  u32  instance_contribution_to_hit_group: 24;
+  u32  flags:                               8;
+
+  u64  blas_addr;
+};
 
 
 #ifndef __cplusplus

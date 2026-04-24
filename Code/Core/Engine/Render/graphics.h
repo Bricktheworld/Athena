@@ -2,6 +2,7 @@
 #include "Core/Foundation/types.h"
 
 #include "Core/Foundation/Containers/array.h"
+#include "Core/Foundation/Containers/error_or.h"
 #include "Core/Foundation/Containers/ring_buffer.h"
 #include "Core/Foundation/Containers/hash_table.h"
 
@@ -257,14 +258,14 @@ struct CmdListAllocator
   ID3D12CommandQueue*                    d3d12_queue = nullptr;
 
   RingQueue<CmdAllocator>                allocators;
-  RingQueue<ID3D12GraphicsCommandList4*> lists;
-  GpuFence                                  fence;
+  RingQueue<ID3D12GraphicsCommandList7*> lists;
+  GpuFence                               fence;
 };
 
 struct CmdList
 {
-  ID3D12GraphicsCommandList4* d3d12_list      = nullptr;
-  ID3D12CommandAllocator*     d3d12_allocator = nullptr;
+  ID3D12GraphicsCommandList7*   d3d12_list      = nullptr;
+  ID3D12CommandAllocator*       d3d12_allocator = nullptr;
 };
 
 CmdListAllocator init_cmd_list_allocator(
@@ -362,6 +363,9 @@ reset_gpu_linear_allocator(GpuLinearAllocator* allocator)
   allocator->pos = 0;
 }
 
+enum GpuTextureUsageFlags
+{
+};
 
 
 struct GpuTextureDesc
@@ -370,10 +374,7 @@ struct GpuTextureDesc
   u32                   height        = 0;
   u16                   array_size    = 1;
 
-  // TODO(Brandon): Eventually make these less verbose and platform agnostic.
   GpuFormat             format        = kGpuFormatRGBA8Unorm;
-  D3D12_RESOURCE_STATES initial_state = D3D12_RESOURCE_STATE_COMMON;
-
   D3D12_RESOURCE_FLAGS  flags         = D3D12_RESOURCE_FLAG_NONE;
   union
   {
@@ -386,10 +387,22 @@ struct GpuTextureDesc
   };
 };
 
+
+enum GpuTextureLayout : u32
+{
+  kGpuTextureLayoutGeneral = 0,
+  kGpuTextureLayoutShaderResource,
+  kGpuTextureLayoutUnorderedAccess,
+  kGpuTextureLayoutRenderTarget,
+  kGpuTextureLayoutDepthStencil,
+  kGpuTextureLayoutDiscard,
+};
+
 struct GpuTexture
 {
   GpuTextureDesc        desc;
   ID3D12Resource*       d3d12_texture = nullptr;
+  GpuTextureLayout      layout        = kGpuTextureLayoutGeneral;
 };
 
 GpuTexture alloc_gpu_texture_no_heap(
@@ -406,19 +419,13 @@ GpuTexture alloc_gpu_texture(
   const char* name
 );
 
-void upload_gpu_texture(
-  const GpuDevice* device,
-  const void* rgba,
-  GpuTexture* dst
-);
-
 bool is_depth_format(GpuFormat format);
 
 struct GpuBufferDesc
 {
-  u32                   size          = 0;
-  D3D12_RESOURCE_FLAGS  flags         = D3D12_RESOURCE_FLAG_NONE;
-  D3D12_RESOURCE_STATES initial_state = D3D12_RESOURCE_STATE_COMMON;
+  u32                   size      = 0;
+  D3D12_RESOURCE_FLAGS  flags     = D3D12_RESOURCE_FLAG_NONE;
+  bool                  is_rt_bvh = false;
 };
 
 struct GpuBuffer
@@ -444,42 +451,137 @@ GpuBuffer alloc_gpu_buffer(
   const char* name
 );
 
+struct GpuRingBuffer
+{
+  GpuBuffer  buffer;
+  GpuFence   fence;
+
+  u32        write;
+  u32        read;
+  u32        used;
+
+  struct GpuAllocationFence
+  {
+    FenceValue value  = 0;
+    u32        size   = 0;
+    u32        offset = 0;
+  };
+
+  RingQueue<GpuAllocationFence> queued_fences;
+};
+
+GpuRingBuffer alloc_gpu_ring_buffer_no_heap(AllocHeap heap, GpuBufferDesc desc, GpuHeapLocation location, const char* name);
+
+struct GpuRingBufferAllocation
+{
+  FenceValue    wait_for = 0;
+  u32           offset   = 0;
+  Option<void*> mapped   = nullptr;
+};
+
+// Blocking wait for available size
+void gpu_ring_buffer_wait(GpuRingBuffer* buffer, u32 size);
+
+// Either returns the offset or the fence value to wait for
+Result<u64, FenceValue> gpu_ring_buffer_alloc(GpuRingBuffer* buffer, u32 size, u32 alignment = 1);
+// You need to commit the allocations otherwise they will stall. 
+// Commit after you are done using the memory/submitted the command buffer using it.
+void gpu_ring_buffer_commit(const GpuRingBuffer* buffer, CmdQueue* queue);
+void gpu_ring_buffer_commit(const GpuRingBuffer* buffer, CmdListAllocator* cmd_buffer_allocator);
+
+void free_gpu_ring_buffer(GpuRingBuffer* buffer);
+
+
 struct GpuBvh
 {
-  GpuBuffer top_bvh;
-  GpuBuffer bottom_bvh;
+  GpuBuffer tlas;
+  GpuBuffer blas;
   GpuBuffer instance_desc_buffer;
 };
 
-// TODO(Brandon): We eventually will want to have this not take uber buffers but instead be more fine-grained...
-GpuBvh init_gpu_bvh(
-  GpuDevice* device,
-  const GpuBuffer& vertex_uber_buffer,
-  u32 vertex_count,
-  u32 vertex_stride,
-  const GpuBuffer& index_uber_buffer,
-  u32 index_count,
-  const char* name
+struct GpuRtBlasDesc
+{
+  // I am very intentionally not storing references to the GpuBuffer for index/vertex buffers
+  // as that is very unsafe (and we don't really need it). This description is stored just so
+  // we can access it later when actually building the BLAS
+  u32              vertex_start         = 0;
+  u32              vertex_count         = 0;
+  GpuFormat        vertex_format        = kGpuFormatRGB32Float;
+  u32              vertex_stride        = sizeof(Vertex);
+
+  u32              index_start          = 0;
+  u32              index_count          = 0;
+  u32              index_stride         = sizeof(u16);
+
+  // Will make make tracing slower
+  bool             allow_updates:     1 = false;
+  // May possibly make tracing slower, but will reduce VRAM usage
+  bool             minimize_memory:   1 = false;
+};
+
+struct GpuRtBlas
+{
+  GpuBuffer     buffer;
+
+  GpuRtBlasDesc desc;
+  u32           scratch_size = 0;
+};
+
+GpuRtBlas alloc_gpu_rt_blas(
+  GpuAllocHeap heap,
+  const GpuBuffer& vertex_buffer,
+  const GpuBuffer& index_buffer,
+
+  GpuRtBlasDesc    desc,
+
+  const char*      name
 );
-void destroy_acceleration_structure(GpuBvh* bvh);
+
+struct GpuRtTlas
+{
+  GpuBuffer buffer;
+
+  u32       max_instances = 0;
+
+  u32       scratch_size  = 0;
+};
+
+GpuRtTlas alloc_gpu_rt_tlas_no_heap(
+  u32              num_descs,
+  const char*      name
+);
+
+struct GpuRtTlasSizeInfo
+{
+  u32 max_size     = 0;
+  u32 scratch_size = 0;
+};
+
+GpuRtTlasSizeInfo query_gpu_rt_tlas_size_info(u32 max_instances);
+
+GpuRtTlas alloc_gpu_rt_tlas(
+  GpuAllocHeap     heap,
+  u32              num_descs,
+  const char*      name
+);
 
 enum DescriptorType : u8
 {
-  kDescriptorTypeNull    = 0x0,
-  kDescriptorTypeCbv     = 0x1,
-  kDescriptorTypeSrv     = 0x2,
-  kDescriptorTypeUav     = 0x4,
-  kDescriptorTypeSampler = 0x8,
-  kDescriptorTypeRtv     = 0x10,
-  kDescriptorTypeDsv     = 0x20,
+  kDescriptorTypeNull       = 0x0,
+  kDescriptorTypeCbv        = 0x1 << 0,
+  kDescriptorTypeSrv        = 0x1 << 1,
+  kDescriptorTypeUav        = 0x1 << 2,
+  kDescriptorTypeSampler    = 0x1 << 3,
+  kDescriptorTypeRtv        = 0x1 << 4,
+  kDescriptorTypeDsv        = 0x1 << 5,
 };
 
 enum DescriptorHeapType : u8
 {
-  kDescriptorHeapTypeCbvSrvUav = kDescriptorTypeCbv | kDescriptorTypeSrv | kDescriptorTypeUav,
-  kDescriptorHeapTypeSampler   = kDescriptorTypeSampler,
-  kDescriptorHeapTypeRtv       = kDescriptorTypeRtv,
-  kDescriptorHeapTypeDsv       = kDescriptorTypeDsv,
+  kDescriptorHeapTypeCbvSrvUav       = kDescriptorTypeCbv | kDescriptorTypeSrv | kDescriptorTypeUav,
+  kDescriptorHeapTypeSampler         = kDescriptorTypeSampler,
+  kDescriptorHeapTypeRtv             = kDescriptorTypeRtv,
+  kDescriptorHeapTypeDsv             = kDescriptorTypeDsv,
 };
 
 struct DescriptorPool
@@ -498,7 +600,6 @@ struct DescriptorPool
 
 DescriptorPool init_descriptor_pool(
   AllocHeap heap,
-  const GpuDevice* device,
   u32 size,
   DescriptorHeapType type,
   u32 table_reserved = 0
@@ -573,17 +674,25 @@ void init_buffer_srv(
 
 struct GpuBufferUavDesc
 {
-  u64       first_element = 0;
-  u32       num_elements  = 0;
-  u32       stride        = 0;
-  GpuFormat format        = kGpuFormatUnknown;
-  bool      is_raw        = false;
-  u16       __pad__       = 0;
+  u64       first_element  = 0;
+  u32       num_elements   = 0;
+  u32       stride         = 0;
+  GpuFormat format         = kGpuFormatUnknown;
+  u8        counter_offset = 0;
+  bool      is_raw         = false;
+  u8        __pad__        = 0;
 };
 
 void init_buffer_uav(
   GpuDescriptor* descriptor,
   const GpuBuffer* buffer,
+  const GpuBufferUavDesc& desc
+);
+
+void init_buffer_counted_uav(
+  GpuDescriptor*          descriptor,
+  const GpuBuffer*        buffer,
+  const GpuBuffer*        counter,
   const GpuBufferUavDesc& desc
 );
 
@@ -607,13 +716,17 @@ void init_texture_uav(GpuDescriptor* descriptor, const GpuTexture* texture, cons
 void init_rtv(GpuDescriptor* descriptor, const GpuTexture* texture);
 void init_dsv(GpuDescriptor* descriptor, const GpuTexture* texture);
 
+void init_bvh_srv(GpuDescriptor* descriptor, const GpuRtTlas* tlas);
 void init_bvh_srv(GpuDescriptor* descriptor, const GpuBvh* bvh);
 
 struct GpuShader
 {
   ID3DBlob* d3d12_shader = nullptr;
   u32       generation   = 0;
+
   u32       __padding__  = 0;
+  // Used by aftermath for diagnosing GPU crashes
+  u64       hash         = 0;
 };
 
 GpuShader load_shader_from_file  (const GpuDevice* device, const wchar_t* path);
@@ -757,8 +870,12 @@ struct GpuProfiler
 
 struct GpuDevice
 {
-  ID3D12Device6*          d3d12       = nullptr;
-  IDXGIDebug*             d3d12_debug = nullptr;
+  ID3D12Device15*         d3d12           = nullptr;
+  IDXGIDebug*             dxgi_debug      = nullptr;
+  u32                     flags;
+
+  ID3D12InfoQueue1*       d3d12_info_queue = nullptr;
+  IDXGIInfoQueue*         dxgi_info_queue  = nullptr;
 
   ID3D12CommandSignature* d3d12_multi_draw_indirect_signature         = nullptr;
   ID3D12CommandSignature* d3d12_multi_draw_indirect_indexed_signature = nullptr;
@@ -775,15 +892,23 @@ struct GpuDevice
   CmdListAllocator        compute_cmd_allocator;
   CmdQueue                copy_queue;
   CmdListAllocator        copy_cmd_allocator;
+
 };
-void init_gpu_device(HWND window);
+
+enum GpuDeviceFlags : u32
+{
+  kGpuFlagsEnableValidationLayers = 0x1 << 0,
+  kGpuFlagsEnableGpuValidation    = 0x1 << 1,
+};
+
+void init_gpu_device(HWND window, u32 flags);
 void destroy_gpu_device();
 
 void wait_for_gpu_device_idle(GpuDevice* device);
 
-void begin_gpu_profiler_timestamp(const CmdList& cmd_buffer, const char* name);
-void end_gpu_profiler_timestamp(const CmdList& cmd_buffer, const char* name);
-f64  query_gpu_profiler_timestamp(const char* name);
+void begin_gpu_profiler_timestamp(CmdList* cmd_buffer, STRING_LITERAL const char* name);
+void end_gpu_profiler_timestamp(CmdList* cmd_buffer, STRING_LITERAL const char* name);
+f64  query_gpu_profiler_timestamp(STRING_LITERAL const char* name);
 
 struct SwapChain
 {
@@ -820,6 +945,56 @@ void set_descriptor_table(CmdList* cmd, const DescriptorPool* heap, u32 start_id
 void set_graphics_root_signature(CmdList* cmd);
 void set_compute_root_signature(CmdList* cmd);
 
+enum GpuRtasBuildFlags : u32
+{
+  // Perform an incremental update at the cost of tracing performance
+  kGpuRtasBuildIncremental = 0x1 << 0,
+};
+
+void build_rt_blas(
+  CmdList*         cmd,
+  const GpuRtBlas& blas,
+  const GpuBuffer& scratch,
+  u32              scratch_offset,
+  const GpuBuffer& index_buffer,
+  const GpuBuffer& vertex_buffer,
+  u32              flags = 0
+);
+
+void build_rt_tlas(
+  CmdList*         cmd,
+  const GpuRtTlas& tlas,
+  const GpuBuffer& instance_buffer,
+  u32              instance_count,
+  const GpuBuffer& scratch,
+  u32              scratch_offset,
+  u32              flags = 0
+);
+
+void gpu_copy_buffer(
+  CmdList* cmd,
+  const    GpuBuffer& dst,
+  u64      dst_offset,
+  const    GpuBuffer& src,
+  u64      src_offset,
+  u64      bytes
+);
+
+static constexpr u32 kGpuTextureAlignment = 512;
+// Copy buffer to texture
+void gpu_copy_texture(
+        CmdList*    cmd,
+        GpuTexture* dst,
+  const GpuBuffer&  src,
+        u64         src_offset,
+        u64         src_size
+);
+
+void gpu_memory_barrier(CmdList* cmd);
+// NOTE(bshihabi): It is the caller's responsibility to not submit the CmdList's out of order here. 
+// Doing so would put the GpuTexture in a bad state since the layout is tracked within the GpuTexture struct
+void gpu_texture_layout_transition(CmdList* cmd, GpuTexture* texture, GpuTextureLayout layout);
+
 void init_imgui_ctx(
   const GpuDevice* device,
   GpuFormat rtv_format,
@@ -832,5 +1007,5 @@ void imgui_end_frame();
 void imgui_render(CmdList* cmd);
 
 #define U32_COLOR(r, g, b) (0xff000000u | ((u32)r << 16) | ((u32)g << 8) | (u32)b)
-#define GPU_SCOPED_EVENT(color, cmdlist, fmt, ...) PIXBeginEvent(cmdlist.d3d12_list, color, fmt, ##__VA_ARGS__); begin_gpu_profiler_timestamp(cmdlist, fmt); defer { PIXEndEvent(cmdlist.d3d12_list); end_gpu_profiler_timestamp(cmdlist, fmt); }
+#define GPU_SCOPED_EVENT(color, cmdlist, fmt, ...) PIXBeginEvent((cmdlist)->d3d12_list, color, fmt, ##__VA_ARGS__); begin_gpu_profiler_timestamp((cmdlist), fmt); defer { PIXEndEvent((cmdlist)->d3d12_list); end_gpu_profiler_timestamp((cmdlist), fmt); }
 

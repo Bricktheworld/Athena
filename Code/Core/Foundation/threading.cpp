@@ -5,8 +5,6 @@
 
 struct ThreadEntryProcParams
 {
-  AllocHeap  heap          = {0};
-  FreeHeap   overflow_heap = {0};
   ThreadProc proc          = nullptr;
   void*      user_param    = nullptr;
 };
@@ -18,7 +16,7 @@ thread_entry_proc(LPVOID void_param)
   ThreadEntryProcParams params = *reinterpret_cast<ThreadEntryProcParams*>(void_param);
 
   // Initialize scratch arena for the thread
-  init_context(params.heap, params.overflow_heap);
+  init_thread_context();
 
   u32 res = params.proc(params.user_param);
 
@@ -28,15 +26,12 @@ thread_entry_proc(LPVOID void_param)
 Thread
 init_thread(
   AllocHeap heap,
-  FreeHeap overflow_heap,
   u64 stack_size,
   ThreadProc proc,
   void* param,
   u8 core_index
 ) {
   ThreadEntryProcParams* params = HEAP_ALLOC(ThreadEntryProcParams, heap, 1);
-  params->heap          = heap;
-  params->overflow_heap = overflow_heap;
   params->proc          = proc;
   params->user_param    = param;
 
@@ -155,6 +150,15 @@ void
 notify_all_thread_signal(ThreadSignal* signal)
 {
   WakeAllConditionVariable(&signal->cond_var);
+}
+
+SpinLock
+init_spin_lock()
+{
+  SpinLock ret;
+  ret.value = 0;
+
+  return ret;
 }
 
 void

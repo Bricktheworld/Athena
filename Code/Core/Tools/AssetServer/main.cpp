@@ -28,7 +28,7 @@ int main(int argc, const char** argv)
 
   g_InitHeap                     = init_allocator;
 
-  init_context(g_InitHeap, GLOBAL_HEAP);
+  init_thread_context();
 
   Result<TcpServer, SocketErr> res = init_tcp_server(g_InitHeap, 8000, 1024);
   ASSERT_MSG_FATAL(res, "Failed to initialize TCP server! %s", kSocketErrStr[res.error()]);

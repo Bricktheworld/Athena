@@ -1,5 +1,7 @@
 #include "Core/Foundation/context.h"
 #include "Core/Foundation/colors.h"
+#include "Core/Foundation/filesystem.h"
+#include "Core/Foundation/assets.h"
 
 #include "Core/Engine/memory.h"
 #include "Core/Engine/job_system.h"
@@ -12,14 +14,20 @@
 #include "Core/Engine/Vendor/imgui/imgui_impl_win32.h"
 #include "Core/Engine/Vendor/imgui/imgui_impl_dx12.h"
 
+#include "Core/Engine/Vendor/NVAftermath/GFSDK_Aftermath.h"
+#include "Core/Engine/Vendor/NVAftermath/GFSDK_Aftermath_GpuCrashDump.h"
+#include "Core/Engine/Vendor/NVAftermath/GFSDK_Aftermath_GpuCrashDumpDecoding.h"
+
 #include <d3dcompiler.h>
+#include <shellapi.h>
 
 #pragma comment(lib, "d3d12.lib")
+#pragma comment(lib, "Shell32.lib")
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "dxguid.lib")
 #pragma comment(lib, "d3dcompiler.lib")
 
-extern "C" { __declspec(dllexport) extern const UINT D3D12SDKVersion = 614;}
+extern "C" { __declspec(dllexport) extern const UINT D3D12SDKVersion = 619;}
 extern "C" { __declspec(dllexport) extern const char* D3D12SDKPath = "."; }
 
 #if defined(DEBUG)
@@ -105,7 +113,7 @@ check_hdr_support(IDXGIAdapter1* adapter, HWND window)
 }
 
 static void
-init_d3d12_device(HWND window, IDXGIFactory7* factory, IDXGIAdapter1** out_adapter, ID3D12Device6** out_device, wchar_t out_name[128])
+init_d3d12_device(HWND window, IDXGIFactory7* factory, IDXGIAdapter1** out_adapter, ID3D12Device15** out_device, wchar_t out_name[128])
 {
   *out_adapter = nullptr;
   *out_device  = nullptr;
@@ -115,11 +123,11 @@ init_d3d12_device(HWND window, IDXGIFactory7* factory, IDXGIAdapter1** out_adapt
   for (u32 i = 0; factory->EnumAdapters1(i, &current_adapter) != DXGI_ERROR_NOT_FOUND; i++)
   {
     DXGI_ADAPTER_DESC1 dxgi_adapter_desc = {0};
-    ID3D12Device6* current_device = nullptr;
+    ID3D12Device15* current_device = nullptr;
     HASSERT(current_adapter->GetDesc1(&dxgi_adapter_desc));
 
     if ((dxgi_adapter_desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) != 0 || 
-      FAILED(D3D12CreateDevice(current_adapter, D3D_FEATURE_LEVEL_12_0, __uuidof(ID3D12Device6), (void**)&current_device)) ||
+      FAILED(D3D12CreateDevice(current_adapter, D3D_FEATURE_LEVEL_12_0, __uuidof(ID3D12Device15), (void**)&current_device)) ||
       dxgi_adapter_desc.DedicatedVideoMemory <= max_dedicated_vram)
     {
       COM_RELEASE(current_device);
@@ -297,7 +305,7 @@ init_cmd_list_allocator(
   ret.d3d12_queue = queue->d3d12_queue;
   ret.fence = init_gpu_fence();
   ret.allocators = init_ring_queue<CmdAllocator>(heap, pool_size);
-  ret.lists = init_ring_queue<ID3D12GraphicsCommandList4*>(heap, pool_size);
+  ret.lists = init_ring_queue<ID3D12GraphicsCommandList7*>(heap, pool_size);
 
   CmdAllocator allocator = {0};
   for (u16 i = 0; i < pool_size; i++)
@@ -314,7 +322,7 @@ init_cmd_list_allocator(
 
   for (u16 i = 0; i < pool_size; i++)
   {
-    ID3D12GraphicsCommandList4* list = nullptr;
+    ID3D12GraphicsCommandList7* list = nullptr;
     HASSERT(
       device->d3d12->CreateCommandList(
         0,
@@ -339,7 +347,7 @@ destroy_cmd_list_allocator(CmdListAllocator* allocator)
 
   while (!ring_queue_is_empty(allocator->lists))
   {
-    ID3D12GraphicsCommandList4* list = nullptr;
+    ID3D12GraphicsCommandList7* list = nullptr;
     ring_queue_pop(&allocator->lists, &list);
     COM_RELEASE(list);
   }
@@ -471,6 +479,7 @@ gpu_linear_alloc(void* allocator, u32 size, u32 alignment)
 
   return ret;
 }
+
 static void
 init_gpu_profiler(void)
 {
@@ -482,7 +491,7 @@ init_gpu_profiler(void)
   desc.NodeMask = 0;
 
   g_GpuDevice->d3d12->CreateQueryHeap(&desc, IID_PPV_ARGS(&profiler->d3d12_timestamp_heap));
-  GpuBufferDesc readback_desc = {0};
+  GpuBufferDesc readback_desc = {};
   readback_desc.size          = sizeof(u64) * desc.Count * kBackBufferCount;
 
   profiler->timestamp_readback = alloc_gpu_buffer_no_heap(g_GpuDevice, readback_desc, kGpuHeapSysRAMGpuToCpu, "Timestamp readback");
@@ -495,7 +504,7 @@ init_gpu_profiler(void)
 }
 
 void
-begin_gpu_profiler_timestamp(const CmdList& cmd_buffer, const char* name)
+begin_gpu_profiler_timestamp(CmdList* cmd_buffer, const char* name)
 {
   GpuProfiler* profiler = &g_GpuDevice->profiler;
 
@@ -521,13 +530,13 @@ begin_gpu_profiler_timestamp(const CmdList& cmd_buffer, const char* name)
   ASSERT_MSG_FATAL(!timestamp->in_flight, "GPU profiler timestamp name '%s' wasn't closed properly!", name);
 
   u32 start_idx = idx * 2;
-  cmd_buffer.d3d12_list->EndQuery(profiler->d3d12_timestamp_heap, D3D12_QUERY_TYPE_TIMESTAMP, start_idx);
+  cmd_buffer->d3d12_list->EndQuery(profiler->d3d12_timestamp_heap, D3D12_QUERY_TYPE_TIMESTAMP, start_idx);
 
   timestamp->in_flight = true;
 }
 
 void
-end_gpu_profiler_timestamp(const CmdList& cmd_buffer, const char* name)
+end_gpu_profiler_timestamp(CmdList* cmd_buffer, const char* name)
 {
   GpuProfiler* profiler = &g_GpuDevice->profiler;
 
@@ -541,10 +550,12 @@ end_gpu_profiler_timestamp(const CmdList& cmd_buffer, const char* name)
 
   GpuTimestamp* timestamp = profiler->timestamps + idx;
 
-  cmd_buffer.d3d12_list->EndQuery(profiler->d3d12_timestamp_heap, D3D12_QUERY_TYPE_TIMESTAMP, end_idx);
+  cmd_buffer->d3d12_list->EndQuery(profiler->d3d12_timestamp_heap, D3D12_QUERY_TYPE_TIMESTAMP, end_idx);
 
   u64 dst_offset = sizeof(u64) * ((g_FrameId % kBackBufferCount) * kMaxGpuTimestamps * 2 + start_idx);
-  cmd_buffer.d3d12_list->ResolveQueryData(
+
+  gpu_memory_barrier(cmd_buffer);
+  cmd_buffer->d3d12_list->ResolveQueryData(
     profiler->d3d12_timestamp_heap,
     D3D12_QUERY_TYPE_TIMESTAMP,
     start_idx,
@@ -657,19 +668,235 @@ init_d3d12_indirect(GpuDevice* device)
   }
 }
 
+struct AftermathManager
+{
+  HashTable<u64, D3D12_SHADER_BYTECODE> shader_database;
+  LinearAllocator                                                    allocator;
+
+  char   crash_dump_path[kMaxPathLength];
+  void*  crash_dump;
+  u32    crash_dump_size;
+
+};
+
+static AftermathManager* g_AftermathManager = nullptr;
+
+static bool
+register_aftermath_shader(const u8* src, size_t size)
+{
+  AftermathManager* aftermath = g_AftermathManager;
+  // Can't register more than some maximum number of shaders
+  if (aftermath->shader_database.used == aftermath->shader_database.capacity)
+  {
+    dbgln("AFTERMATH: Shader Database maximum entries allowed! %llu", aftermath->shader_database.capacity);
+    return false;
+  }
+
+  // Can't allocate the buffer, not catastrophic but just no crash info
+  if (size >= available_memory(&aftermath->allocator))
+  {
+    dbgln("AFTERMATH: Attempted to allocate %llu bytes from aftermath allocator but only %llu available.", size, available_memory(&aftermath->allocator));
+    return false;
+  }
+
+  u8* bytecode_buffer = HEAP_ALLOC_ALIGNED((AllocHeap)aftermath->allocator, size, alignof(u32));
+  memcpy(bytecode_buffer, src, size);
+
+  D3D12_SHADER_BYTECODE bytecode;
+  bytecode.pShaderBytecode = bytecode_buffer;
+  bytecode.BytecodeLength  = size;
+
+  GFSDK_Aftermath_ShaderBinaryHash aftermath_hash;
+  GFSDK_Aftermath_GetShaderHash(GFSDK_Aftermath_Version_API, &bytecode, &aftermath_hash);
+
+  *hash_table_insert(&aftermath->shader_database, aftermath_hash.hash) = bytecode;
+
+  return true;
+}
+
+// This should be called before any D3D12 devices are initialized
+static void
+enable_aftermath_gpu_crash_dumps()
+{
+  g_AftermathManager = HEAP_ALLOC(AftermathManager, g_InitHeap, 1);
+  zero_memory(g_AftermathManager->crash_dump_path, sizeof(g_AftermathManager->crash_dump_path));
+  g_AftermathManager->crash_dump      = nullptr;
+  g_AftermathManager->crash_dump_size = 0;
+
+  static u32 kAftermathHeapSize = MiB(4);
+
+  g_AftermathManager->allocator       = init_linear_allocator(HEAP_ALLOC_ALIGNED(g_InitHeap, kAftermathHeapSize, 16), kAftermathHeapSize);
+  // The shader database should be aware of 
+  g_AftermathManager->shader_database = init_hash_table<u64, D3D12_SHADER_BYTECODE>(g_AftermathManager->allocator, 1024);
+
+  auto gpu_crash_dump_callback = [](const void* gpu_crash_dump, const u32 gpu_crash_dump_size, void* user)
+  {
+    AftermathManager* manager = (AftermathManager*)user;
+
+    for (auto [hash, bytecode] : manager->shader_database)
+    {
+      char path[kMaxPathLength];
+      snprintf(path, sizeof(path), "GpuDumps/Shaders/shader-%llu.cso", hash);
+
+      Result<FileStream, FileError> res = create_file(path, kCreateTruncateExisting);
+      if (!res)
+      {
+        dbgln("AFTERMATH ERROR: Failed to create shader bytecode file %s: %s", path, file_error_to_str(res.error()));
+        continue;
+      }
+
+      FileStream file = res.value();
+      defer { close_file(&file); };
+
+      write_file(file, bytecode.pShaderBytecode, bytecode.BytecodeLength);
+    }
+
+    // TODO(bshihabi): make this platform independent
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+
+    snprintf(
+      manager->crash_dump_path,
+      sizeof(manager->crash_dump_path),
+      "GpuDumps\\%04d-%02d-%02d_%02d-%02d-%02d.nv-gpudmp",
+      st.wYear,
+      st.wMonth,
+      st.wDay,
+      st.wHour,
+      st.wMinute,
+      st.wSecond
+    );
+
+    manager->crash_dump_size = gpu_crash_dump_size;
+    manager->crash_dump      = reserve_commit_pages(gpu_crash_dump_size);
+    if (manager->crash_dump)
+    {
+      memcpy(manager->crash_dump, gpu_crash_dump, manager->crash_dump_size);
+    }
+    else
+    {
+      dbgln("Failed to allocate pages for GPU crash dump of size %u in memory!", manager->crash_dump_size);
+    }
+
+    Result<FileStream, FileError> res = create_file(manager->crash_dump_path, kFileCreateFlagsNone);
+    if (!res)
+    {
+      ASSERT_MSG_FATAL(false, "GPU Crash Dump failed to create file! %s", file_error_to_str(res.error()));
+      return;
+    }
+
+    FileStream file = res.value();
+    defer { close_file(&file); };
+
+    write_file(file, gpu_crash_dump, gpu_crash_dump_size);
+  };
+
+  auto shader_debug_info_callback = [](const void* shader_debug_info, const u32 shader_debug_info_size, void*)
+  {
+    GFSDK_Aftermath_ShaderDebugInfoIdentifier identifier;
+    GFSDK_Aftermath_Result result = GFSDK_Aftermath_GetShaderDebugInfoIdentifier(GFSDK_Aftermath_Version_API, shader_debug_info, shader_debug_info_size, &identifier);
+    if (!GFSDK_Aftermath_SUCCEED(result))
+    {
+      dbgln("AFTERMATH ERROR: Failed to get shader debug info identifier!");
+    }
+    else
+    {
+      char path[kMaxPathLength];
+      snprintf(path, sizeof(path), "GpuDumps/Shaders/shader-%llu-%llu.nvdbg", identifier.id[0], identifier.id[1]);
+
+      Result<FileStream, FileError> res = create_file(path, kCreateTruncateExisting);
+      if (!res)
+      {
+        dbgln("AFTERMATH ERROR: Failed to create shader debug file %s: %s", path, file_error_to_str(res.error()));
+        return;
+      }
+
+      FileStream file = res.value();
+      defer { close_file(&file); };
+
+      write_file(file, shader_debug_info, shader_debug_info_size);
+    }
+  };
+
+
+  GFSDK_Aftermath_Result res = GFSDK_Aftermath_EnableGpuCrashDumps(
+    GFSDK_Aftermath_Version_API,
+    GFSDK_Aftermath_GpuCrashDumpWatchedApiFlags_DX,
+    GFSDK_Aftermath_GpuCrashDumpFeatureFlags_Default,   // Default behavior.
+    gpu_crash_dump_callback,                            // Register callback for GPU crash dumps.
+    shader_debug_info_callback,                         // Register callback for shader debug information.
+    nullptr,                                            // Register callback for GPU crash dump description.
+    nullptr,                                            // Register callback for marker resolution (R495 or later NVIDIA graphics driver).
+    g_AftermathManager
+  );
+
+  if (res == GFSDK_Aftermath_Result_FAIL_InvalidAdapter)
+  {
+    dbgln("AFTERMATH ERROR: Only NVIDIA GPUs are supported. Failed to enable.");
+    g_AftermathManager = nullptr;
+    return;
+  }
+
+  ASSERT_MSG_FATAL(GFSDK_Aftermath_SUCCEED(res), "AFTERMATH ERROR: Failed to enable GPU crash dumps!");
+}
+
+static void
+init_aftermath(GpuDevice* device)
+{
+  u32 flags = GFSDK_Aftermath_FeatureFlags_EnableMarkers           |
+              GFSDK_Aftermath_FeatureFlags_CallStackCapturing      |
+              GFSDK_Aftermath_FeatureFlags_EnableResourceTracking  |
+              GFSDK_Aftermath_FeatureFlags_GenerateShaderDebugInfo |
+              GFSDK_Aftermath_FeatureFlags_EnableShaderErrorReporting;
+  GFSDK_Aftermath_Result res = GFSDK_Aftermath_DX12_Initialize(
+    GFSDK_Aftermath_Version_API,
+    flags,
+    device->d3d12
+  );
+  ASSERT_MSG_FATAL(GFSDK_Aftermath_SUCCEED(res), "Aftermath failed to initialize DX12");
+}
+
 void
-init_gpu_device(HWND window)
+init_gpu_device(HWND window, u32 flags)
 {
   if (g_GpuDevice == nullptr)
   {
     g_GpuDevice = HEAP_ALLOC(GpuDevice, g_InitHeap, 1);
   }
 
-#ifdef DEBUG_LAYER
-  ID3D12Debug* debug_interface = nullptr;
-  HASSERT(D3D12GetDebugInterface(IID_PPV_ARGS(&debug_interface)));
-  debug_interface->EnableDebugLayer();
-  defer { COM_RELEASE(debug_interface); };
+  g_GpuDevice->flags = flags;
+
+#if !defined(DEBUG_LAYER)
+  ASSERT_MSG_FATAL((flags & kGpuFlagsEnableValidationLayers) == 0, "Debug layers not supported! Make sure that you are compiling in debug mode with DEBUG_LAYERS macro enabled in graphics.cpp");
+#endif
+
+  enable_aftermath_gpu_crash_dumps();
+
+#if defined(DEBUG_LAYER)
+  if (flags & kGpuFlagsEnableValidationLayers)
+  {
+    ID3D12Debug*  debug_interface  = nullptr;
+    HASSERT(D3D12GetDebugInterface(IID_PPV_ARGS(&debug_interface)));
+    debug_interface->EnableDebugLayer();
+    defer { COM_RELEASE(debug_interface); };
+
+    // Enable DRED
+    ID3D12DeviceRemovedExtendedDataSettings1* dred_settings = nullptr;
+    HASSERT(D3D12GetDebugInterface(IID_PPV_ARGS(&dred_settings)));
+
+    dred_settings->SetAutoBreadcrumbsEnablement  (D3D12_DRED_ENABLEMENT_FORCED_ON);
+    dred_settings->SetBreadcrumbContextEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+    dred_settings->SetPageFaultEnablement        (D3D12_DRED_ENABLEMENT_FORCED_ON);
+
+    if (flags & kGpuFlagsEnableGpuValidation)
+    {
+      ID3D12Debug1* debug_interface1 = nullptr;
+      HASSERT(debug_interface->QueryInterface(IID_PPV_ARGS(&debug_interface1)));
+      debug_interface1->SetEnableGPUBasedValidation(true);
+    }
+
+    PIXLoadLatestWinPixGpuCapturerLibrary();
+  }
 #endif
 
   IDXGIFactory7* factory = init_factory();
@@ -707,7 +934,39 @@ init_gpu_device(HWND window)
   init_gpu_profiler();
 
 #ifdef DEBUG_LAYER
-  HASSERT(DXGIGetDebugInterface1(0, IID_PPV_ARGS(&g_GpuDevice->d3d12_debug)));
+  if (flags & kGpuFlagsEnableValidationLayers)
+  {
+    HASSERT(DXGIGetDebugInterface1(0, IID_PPV_ARGS(&g_GpuDevice->dxgi_debug)));
+    HASSERT(g_GpuDevice->d3d12->QueryInterface(IID_PPV_ARGS(&g_GpuDevice->d3d12_info_queue)));
+    HASSERT(g_GpuDevice->d3d12_info_queue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, true));
+    HASSERT(g_GpuDevice->d3d12_info_queue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR,      true));
+    HASSERT(g_GpuDevice->d3d12_info_queue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING,    true));
+    HASSERT(g_GpuDevice->d3d12_info_queue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_INFO,       true));
+
+    HASSERT(DXGIGetDebugInterface1(0, IID_PPV_ARGS(&g_GpuDevice->dxgi_info_queue)));
+
+    // We don't want these to break because it makes it confusing. We just want the crash to be handled by aftermath and dred and caught during that one spot in present
+    HASSERT(g_GpuDevice->d3d12_info_queue->SetBreakOnID(D3D12_MESSAGE_ID_DEVICE_REMOVAL_PROCESS_AT_FAULT,          false));
+    HASSERT(g_GpuDevice->d3d12_info_queue->SetBreakOnID(D3D12_MESSAGE_ID_DEVICE_REMOVAL_PROCESS_POSSIBLY_AT_FAULT, false));
+    HASSERT(g_GpuDevice->d3d12_info_queue->SetBreakOnID(D3D12_MESSAGE_ID_DEVICE_REMOVAL_PROCESS_NOT_AT_FAULT,      false));
+
+    // There's some sort of bug with the validation layers in ResolveQueryData. I'm not sure of a better way to get rid of it so I'm disabling it entirely
+    D3D12_MESSAGE_ID denied_ids[] = { D3D12_MESSAGE_ID_CREATERESOURCE_STATE_IGNORED };
+
+    D3D12_INFO_QUEUE_FILTER filter = {};
+    filter.DenyList.NumIDs  = ARRAY_LENGTH(denied_ids);
+    filter.DenyList.pIDList = denied_ids;
+
+    g_GpuDevice->d3d12_info_queue->AddStorageFilterEntries(&filter);
+
+  }
+  else
+  {
+    // If there are debug layers enabled, then we can't enable full aftermath support...
+    init_aftermath(g_GpuDevice);
+  }
+#else
+  init_aftermath(g_GpuDevice);
 #endif
 }
 
@@ -736,7 +995,7 @@ destroy_gpu_device()
   destroy_cmd_queue(&g_GpuDevice->copy_queue);
 
 #ifdef DEBUG_LAYER
-  g_GpuDevice->d3d12_debug->ReportLiveObjects(DXGI_DEBUG_ALL, DXGI_DEBUG_RLO_ALL);
+  // g_GpuDevice->d3d12_debug->ReportLiveObjects(DXGI_DEBUG_ALL, DXGI_DEBUG_RLO_ALL);
 #endif
 
   COM_RELEASE(g_GpuDevice->d3d12);
@@ -763,14 +1022,25 @@ get_typeless_depth_format(GpuFormat format)
   }
 }
 
-GpuTexture
-alloc_gpu_texture_no_heap(const GpuDevice* device, GpuTextureDesc desc, const char* name)
+static D3D12_BARRIER_LAYOUT
+gpu_texture_layout_to_d3d12(GpuTextureLayout layout)
 {
-  GpuTexture ret = {0};
-  ret.desc = desc;
+  switch (layout)
+  {
+    case kGpuTextureLayoutGeneral:         return D3D12_BARRIER_LAYOUT_COMMON;
+    case kGpuTextureLayoutShaderResource:  return D3D12_BARRIER_LAYOUT_SHADER_RESOURCE;
+    case kGpuTextureLayoutUnorderedAccess: return D3D12_BARRIER_LAYOUT_UNORDERED_ACCESS;
+    case kGpuTextureLayoutRenderTarget:    return D3D12_BARRIER_LAYOUT_RENDER_TARGET;
+    case kGpuTextureLayoutDepthStencil:    return D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE;
+    case kGpuTextureLayoutDiscard:         return D3D12_BARRIER_LAYOUT_UNDEFINED;
+    default: UNREACHABLE;
+  }
+}
 
-  D3D12_HEAP_PROPERTIES heap_props = CD3DX12_HEAP_PROPERTIES(get_d3d12_heap_location(kGpuHeapGpuOnly));
-  D3D12_RESOURCE_DESC resource_desc;
+static D3D12_RESOURCE_DESC1
+d3d12_resource_desc(const GpuTextureDesc& desc)
+{
+  D3D12_RESOURCE_DESC1 resource_desc;
   resource_desc.Dimension          = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
   resource_desc.Format             = gpu_format_to_d3d12(desc.format);
   resource_desc.Alignment          = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
@@ -782,6 +1052,23 @@ alloc_gpu_texture_no_heap(const GpuDevice* device, GpuTextureDesc desc, const ch
   resource_desc.SampleDesc.Quality = 0;
   resource_desc.Layout             = D3D12_TEXTURE_LAYOUT_UNKNOWN;
   resource_desc.Flags              = desc.flags;
+
+  resource_desc.SamplerFeedbackMipRegion.Width  = 0;
+  resource_desc.SamplerFeedbackMipRegion.Height = 0;
+  resource_desc.SamplerFeedbackMipRegion.Depth  = 0;
+
+  return resource_desc;
+}
+
+GpuTexture
+alloc_gpu_texture_no_heap(const GpuDevice* device, GpuTextureDesc desc, const char* name)
+{
+  GpuTexture ret = {0};
+  ret.desc = desc;
+  ret.layout = kGpuTextureLayoutGeneral;
+
+  D3D12_RESOURCE_DESC1  resource_desc = d3d12_resource_desc(desc);
+  D3D12_HEAP_PROPERTIES heap_props    = CD3DX12_HEAP_PROPERTIES(get_d3d12_heap_location(kGpuHeapGpuOnly));
 
   D3D12_CLEAR_VALUE  clear_value;
   D3D12_CLEAR_VALUE* p_clear_value = nullptr;
@@ -803,12 +1090,15 @@ alloc_gpu_texture_no_heap(const GpuDevice* device, GpuTextureDesc desc, const ch
   }
 
   HASSERT(
-    device->d3d12->CreateCommittedResource(
+    device->d3d12->CreateCommittedResource3(
       &heap_props,
       D3D12_HEAP_FLAG_NONE,
       &resource_desc,
-      desc.initial_state,
+      gpu_texture_layout_to_d3d12(ret.layout),
       p_clear_value,
+      nullptr,
+      0,
+      nullptr,
       IID_PPV_ARGS(&ret.d3d12_texture)
     )
   );
@@ -827,25 +1117,6 @@ free_gpu_texture(GpuTexture* texture)
   zero_memory(texture, sizeof(GpuTexture));
 }
 
-static D3D12_RESOURCE_DESC
-d3d12_resource_desc(GpuTextureDesc desc)
-{
-  D3D12_RESOURCE_DESC resource_desc;
-  resource_desc.Dimension          = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-  resource_desc.Format             = gpu_format_to_d3d12(desc.format);
-  resource_desc.Alignment          = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
-  resource_desc.Width              = desc.width;
-  resource_desc.Height             = desc.height;
-  resource_desc.DepthOrArraySize   = desc.array_size;
-  resource_desc.MipLevels          = 1;
-  resource_desc.SampleDesc.Count   = 1;
-  resource_desc.SampleDesc.Quality = 0;
-  resource_desc.Layout             = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-  resource_desc.Flags              = desc.flags;
-
-  return resource_desc;
-}
-
 
 GpuTexture
 alloc_gpu_texture(
@@ -855,11 +1126,12 @@ alloc_gpu_texture(
   const char* name
 ) {
   GpuTexture ret = {0};
-  ret.desc     = desc;
+  ret.desc       = desc;
+  ret.layout     = kGpuTextureLayoutGeneral;
 
-  D3D12_RESOURCE_DESC resource_desc   = d3d12_resource_desc(desc);
+  D3D12_RESOURCE_DESC1 resource_desc   = d3d12_resource_desc(desc);
 
-  D3D12_RESOURCE_ALLOCATION_INFO info = device->d3d12->GetResourceAllocationInfo(0, 1, &resource_desc);
+  D3D12_RESOURCE_ALLOCATION_INFO info = device->d3d12->GetResourceAllocationInfo2(0, 1, &resource_desc, nullptr);
 
   GpuAllocation allocation = GPU_HEAP_ALLOC(heap, (u32)info.SizeInBytes, (u32)info.Alignment);
 
@@ -883,12 +1155,14 @@ alloc_gpu_texture(
   }
 
   HASSERT(
-    device->d3d12->CreatePlacedResource(
+    device->d3d12->CreatePlacedResource2(
       allocation.d3d12_heap,
       allocation.offset,
       &resource_desc,
-      desc.initial_state,
+      gpu_texture_layout_to_d3d12(ret.layout),
       p_clear_value,
+      0,
+      nullptr,
       IID_PPV_ARGS(&ret.d3d12_texture)
     )
   );
@@ -911,14 +1185,27 @@ alloc_gpu_buffer_no_heap(
   ret.desc = desc;
 
   D3D12_HEAP_PROPERTIES heap_props = CD3DX12_HEAP_PROPERTIES(get_d3d12_heap_location(location));
-  auto resource_desc = CD3DX12_RESOURCE_DESC::Buffer(desc.size, desc.flags);
+  D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE;
+  if (location != kGpuHeapSysRAMCpuToGpu && location != kGpuHeapSysRAMGpuToCpu)
+  {
+    flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+  }
+
+  if (desc.is_rt_bvh)
+  {
+    flags |= D3D12_RESOURCE_FLAG_RAYTRACING_ACCELERATION_STRUCTURE;
+  }
+  auto resource_desc = CD3DX12_RESOURCE_DESC1::Buffer(desc.size, flags);
 
   HASSERT(
-    device->d3d12->CreateCommittedResource(
+    device->d3d12->CreateCommittedResource3(
       &heap_props,
       D3D12_HEAP_FLAG_NONE,
       &resource_desc,
-      desc.initial_state,
+      D3D12_BARRIER_LAYOUT_UNDEFINED,
+      nullptr,
+      nullptr,
+      0,
       nullptr,
       IID_PPV_ARGS(&ret.d3d12_buffer)
     )
@@ -961,14 +1248,26 @@ alloc_gpu_buffer(
   GpuBuffer ret = {0};
   ret.desc = desc;
 
-  auto resource_desc = CD3DX12_RESOURCE_DESC::Buffer(desc.size, desc.flags);
+  D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE;
+  if (allocation.location != kGpuHeapSysRAMCpuToGpu && allocation.location != kGpuHeapSysRAMGpuToCpu)
+  {
+    flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+  }
+
+  if (desc.is_rt_bvh)
+  {
+    flags |= D3D12_RESOURCE_FLAG_RAYTRACING_ACCELERATION_STRUCTURE;
+  }
+  auto resource_desc = CD3DX12_RESOURCE_DESC1::Buffer(desc.size, flags);
 
   HASSERT(
-    device->d3d12->CreatePlacedResource(
+    device->d3d12->CreatePlacedResource2(
       allocation.d3d12_heap,
       allocation.offset,
       &resource_desc,
-      desc.initial_state,
+      D3D12_BARRIER_LAYOUT_UNDEFINED,
+      nullptr,
+      0,
       nullptr,
       IID_PPV_ARGS(&ret.d3d12_buffer)
     )
@@ -988,6 +1287,173 @@ alloc_gpu_buffer(
   }
 
   return ret;
+}
+
+GpuRingBuffer
+alloc_gpu_ring_buffer_no_heap(AllocHeap heap, GpuBufferDesc desc, GpuHeapLocation location, const char* name)
+{
+  static constexpr u32 kMinimumAllocationSize = 256;
+
+  GpuRingBuffer ret = {};
+  ret.buffer        = alloc_gpu_buffer_no_heap(g_GpuDevice, desc, location, name);
+  ret.fence         = init_gpu_fence();
+  ret.queued_fences = init_ring_queue<GpuRingBuffer::GpuAllocationFence>(heap, desc.size / kMinimumAllocationSize);
+  ret.write         = 0;
+  ret.read          = 0;
+  ret.used          = 0;
+
+  return ret;
+}
+
+static void
+gpu_ring_buffer_consume_finished(GpuRingBuffer* buffer)
+{
+  FenceValue current_fence_value = poll_gpu_fence_value(&buffer->fence);
+  while (!ring_queue_is_empty(buffer->queued_fences))
+  {
+    GpuRingBuffer::GpuAllocationFence allocation_fence;
+    ring_queue_peak_front(buffer->queued_fences, &allocation_fence);
+    FenceValue wait_for_fence_value = allocation_fence.value;
+    // If the value we're supposed to wait for hasn't been reached yet, nothing left to look for in the queue (since GpuFences increment monotonically)
+    if (current_fence_value < wait_for_fence_value)
+    {
+      break;
+    }
+
+    ring_queue_pop(&buffer->queued_fences);
+    buffer->read  = allocation_fence.offset;
+    ASSERT_MSG_FATAL(allocation_fence.size <= buffer->used, "GpuRingBuffer::GpuAllocationFence size is bigger than the tracked usage in GpuRingBuffer. This is a bug in the GpuRingBuffer.");
+    buffer->used -= allocation_fence.size;
+
+    if (buffer->used == 0)
+    {
+      buffer->read = buffer->write = 0;
+    }
+  }
+}
+
+void
+gpu_ring_buffer_wait(GpuRingBuffer* buffer, u32 size)
+{
+  u32 capacity = buffer->buffer.desc.size;
+  while (true)
+  {
+    gpu_ring_buffer_consume_finished(buffer);
+    if (buffer->used + size > capacity)
+    {
+      ASSERT_MSG_FATAL(!ring_queue_is_empty(buffer->queued_fences), "For some reason fence queue for ring buffer is empty, but the read/write tails say there is no room available...");
+
+      // Block until the next even is completed and then consume more
+      block_gpu_fence(&buffer->fence, buffer->fence.last_completed_value + 1);
+      continue;
+    }
+  }
+}
+
+// Either returns the offset or the fence value to wait for
+Result<u64, FenceValue>
+gpu_ring_buffer_alloc(GpuRingBuffer* buffer, u32 size, u32 alignment)
+{
+  gpu_ring_buffer_consume_finished(buffer);
+
+  u32 capacity = buffer->buffer.desc.size;
+  ASSERT_MSG_FATAL(size < capacity, "Attempted to allocate %u bytes from GPU ring buffer with capacity %u", size, capacity);
+  if (buffer->write >= buffer->read)
+  {
+    u32 aligned_write = ALIGN_UP(buffer->write, alignment);
+    u32 padding       = aligned_write - buffer->write;
+    u32 padded_size   = size + padding;
+    //                     read             write
+    //                     |                |        |
+    //  [                  xxxxxxxxxxxxxxxxx         ]
+
+    if (buffer->write + padded_size <= capacity)
+    {
+      // There's enough room at the end!
+      //                     read             write
+      //                     |                |        |
+      //  [                  xxxxxxxxxxxxxxxxx         ]
+      u32 dst = buffer->write + padding;
+
+      buffer->write += padded_size;
+      buffer->used  += padded_size;
+
+      GpuRingBuffer::GpuAllocationFence allocation_fence;
+      allocation_fence.value  = inc_fence(&buffer->fence);
+      allocation_fence.size   = padded_size;
+      allocation_fence.offset = buffer->write;
+      ring_queue_push(&buffer->queued_fences, allocation_fence);
+
+      return Ok((u64)dst);
+    }
+    else if (size <= buffer->read)
+    {
+      // There's not enough room at the end, start from the beginning
+      //   write             read
+      //   |                 |                         |
+      //  [                  xxxxxxxxxxxxxxxxx---------]
+      u32 dst        = 0;
+      u32 null_space = (capacity - buffer->write);
+      buffer->used  += null_space + size;
+      buffer->write  = size;
+
+      GpuRingBuffer::GpuAllocationFence allocation_fence;
+      allocation_fence.value  = inc_fence(&buffer->fence);
+      allocation_fence.size   = size;
+      allocation_fence.offset = buffer->write;
+      ring_queue_push(&buffer->queued_fences, allocation_fence);
+
+      return Ok((u64)dst);
+    }
+
+  }
+  else if (buffer->write + size <= buffer->read)
+  {
+    //
+    //       Tail          Head             
+    //       |             |             
+    //  [xxxx              xxxxxxxxxxxxxxxxxxxxxxxxxx]
+    //
+    u32 dst = buffer->write;
+
+    buffer->write += size;
+    buffer->used  += size;
+
+    GpuRingBuffer::GpuAllocationFence allocation_fence;
+    // Peak the next fence value, it's expected that the user is going to signal the queue with the next fence value using our fence
+    allocation_fence.value  = inc_fence(&buffer->fence);
+    allocation_fence.size   = size;
+    allocation_fence.offset = buffer->write;
+    ring_queue_push(&buffer->queued_fences, allocation_fence);
+
+    return Ok((u64)dst);
+  }
+
+  ASSERT_MSG_FATAL(!ring_queue_is_empty(buffer->queued_fences), "For some reason fence queue for ring buffer is empty, but the read/write tails say there is no room available...");
+
+  GpuRingBuffer::GpuAllocationFence allocation_fence;
+  ring_queue_peak_front(buffer->queued_fences, &allocation_fence);
+
+  return Err(allocation_fence.value);
+}
+
+void
+gpu_ring_buffer_commit(const GpuRingBuffer* buffer, CmdListAllocator* cmd_buffer_allocator)
+{
+  HASSERT(cmd_buffer_allocator->d3d12_queue->Signal(buffer->fence.d3d12_fence, buffer->fence.value));
+}
+
+void
+gpu_ring_buffer_commit(const GpuRingBuffer* buffer, CmdQueue* queue)
+{
+  HASSERT(queue->d3d12_queue->Signal(buffer->fence.d3d12_fence, buffer->fence.value));
+}
+
+void
+free_gpu_ring_buffer(GpuRingBuffer* buffer)
+{
+  free_gpu_buffer(&buffer->buffer);
+  destroy_gpu_fence(&buffer->fence);
 }
 
 static D3D12_DESCRIPTOR_HEAP_TYPE
@@ -1032,7 +1498,7 @@ init_d3d12_descriptor_heap(const GpuDevice* device, u32 size, DescriptorHeapType
 }
 
 DescriptorPool
-init_descriptor_pool(AllocHeap heap, const GpuDevice* device, u32 size, DescriptorHeapType type, u32 table_reserved)
+init_descriptor_pool(AllocHeap heap, u32 size, DescriptorHeapType type, u32 table_reserved)
 {
   ASSERT_MSG_FATAL(table_reserved < size, "The number of reserved entries for the descriptor table is more than the capacity for the descriptor pool.");
 
@@ -1040,9 +1506,9 @@ init_descriptor_pool(AllocHeap heap, const GpuDevice* device, u32 size, Descript
   ret.num_descriptors = size;
   ret.type = type;
   ret.free_descriptors = init_ring_queue<u32>(heap, size);
-  ret.d3d12_heap = init_d3d12_descriptor_heap(device, size, type);
+  ret.d3d12_heap = init_d3d12_descriptor_heap(g_GpuDevice, size, type);
 
-  ret.descriptor_size = device->d3d12->GetDescriptorHandleIncrementSize(get_d3d12_descriptor_type(type));
+  ret.descriptor_size = g_GpuDevice->d3d12->GetDescriptorHandleIncrementSize(get_d3d12_descriptor_type(type));
   ret.cpu_start = ret.d3d12_heap->GetCPUDescriptorHandleForHeapStart();
   if (descriptor_type_is_shader_visible(type))
   {
@@ -1251,6 +1717,7 @@ init_buffer_uav(
   const GpuBufferUavDesc& desc
 ) {
   ASSERT(descriptor->type == kDescriptorHeapTypeCbvSrvUav);
+  ASSERT_MSG_FATAL(desc.counter_offset == 0, "Counter is non zero! Did you mean to use init_buffer_counted_uav", D3D12_UAV_COUNTER_PLACEMENT_ALIGNMENT);
 
   D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {0};
   uav.Buffer.FirstElement         = desc.first_element;
@@ -1261,6 +1728,30 @@ init_buffer_uav(
   uav.Format                      = desc.is_raw ? DXGI_FORMAT_R32_TYPELESS : gpu_format_to_d3d12(desc.format);
   uav.ViewDimension               = D3D12_UAV_DIMENSION_BUFFER;
   g_GpuDevice->d3d12->CreateUnorderedAccessView(buffer->d3d12_buffer, nullptr, &uav, descriptor->cpu_handle);
+}
+
+void
+init_buffer_counted_uav(
+  GpuDescriptor*          descriptor,
+  const GpuBuffer*        buffer,
+  const GpuBuffer*        counter,
+  const GpuBufferUavDesc& desc
+) {
+  ASSERT(descriptor->type == kDescriptorHeapTypeCbvSrvUav);
+  ASSERT_MSG_FATAL((desc.counter_offset % D3D12_UAV_COUNTER_PLACEMENT_ALIGNMENT) == 0, "Counter offset must be aligned to %u bytes", D3D12_UAV_COUNTER_PLACEMENT_ALIGNMENT);
+  ASSERT_MSG_FATAL(desc.format == kGpuFormatUnknown, "Counter UAV buffers must have an unknown format!");
+  ASSERT_MSG_FATAL(desc.stride > 0,                  "Counter UAVs must have a stride in the buffer!");
+  ASSERT_MSG_FATAL(!desc.is_raw,                     "Counter UAVs cannot be created on raw resources!");
+
+  D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {0};
+  uav.Buffer.FirstElement         = desc.first_element;
+  uav.Buffer.NumElements          = desc.num_elements;
+  uav.Buffer.StructureByteStride  = desc.stride;
+  uav.Buffer.CounterOffsetInBytes = desc.counter_offset;
+  uav.Buffer.Flags                = D3D12_BUFFER_UAV_FLAG_NONE;
+  uav.Format                      = DXGI_FORMAT_UNKNOWN;
+  uav.ViewDimension               = D3D12_UAV_DIMENSION_BUFFER;
+  g_GpuDevice->d3d12->CreateUnorderedAccessView(buffer->d3d12_buffer, counter->d3d12_buffer, &uav, descriptor->cpu_handle);
 }
 
 void
@@ -1318,8 +1809,21 @@ init_bvh_srv(GpuDescriptor* descriptor, const GpuBvh* bvh)
 
   D3D12_SHADER_RESOURCE_VIEW_DESC desc = {0};
   desc.ViewDimension = D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE;
-  desc.RaytracingAccelerationStructure.Location = bvh->top_bvh.gpu_addr;
+  desc.RaytracingAccelerationStructure.Location = bvh->tlas.gpu_addr;
   desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+
+  g_GpuDevice->d3d12->CreateShaderResourceView(nullptr, &desc, descriptor->cpu_handle);
+}
+
+void
+init_bvh_srv(GpuDescriptor* descriptor, const GpuRtTlas* tlas)
+{
+  ASSERT(descriptor->type == kDescriptorHeapTypeCbvSrvUav);
+
+  D3D12_SHADER_RESOURCE_VIEW_DESC desc = {0};
+  desc.ViewDimension                            = D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE;
+  desc.RaytracingAccelerationStructure.Location = tlas->buffer.gpu_addr;
+  desc.Shader4ComponentMapping                  = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 
   g_GpuDevice->d3d12->CreateShaderResourceView(nullptr, &desc, descriptor->cpu_handle);
 }
@@ -1372,6 +1876,9 @@ load_shader_from_memory(const GpuDevice* device, const u8* src, size_t size)
   memcpy(ret.d3d12_shader->GetBufferPointer(), src, size);
 
   init_root_signature(device, ret.d3d12_shader);
+
+  register_aftermath_shader(src, size);
+
   return ret;
 }
 
@@ -1389,6 +1896,7 @@ destroy_shader(GpuShader* shader)
 {
   COM_RELEASE(shader->d3d12_shader);
 }
+
 
 static D3D12_PRIMITIVE_TOPOLOGY_TYPE
 get_d3d12_primitive_topology(PrimitiveTopologyType type)
@@ -1550,160 +2058,143 @@ destroy_compute_pipeline(ComputePSO* pipeline)
   zero_memory(pipeline, sizeof(ComputePSO));
 }
 
-GpuBvh
-init_gpu_bvh(
-  GpuDevice* device,
-  const GpuBuffer& vertex_uber_buffer,
-  u32 vertex_count,
-  u32 vertex_stride,
-  const GpuBuffer& index_uber_buffer,
-  u32 index_count,
-  const char* name
+static D3D12_RAYTRACING_GEOMETRY_DESC
+get_d3d12_blas_desc(
+  const GpuRtBlasDesc& desc,
+
+  const GpuBuffer& vertex_buffer,
+  const GpuBuffer& index_buffer
 ) {
-  // TODO(bshihabi): Give the acceleration structure a name!
-  UNREFERENCED_PARAMETER(name);
-  GpuBvh ret = {0};
+  GpuFormat index_format = desc.index_stride == sizeof(u16) ? kGpuFormatR16Uint : kGpuFormatR32Uint;
 
-  D3D12_RAYTRACING_GEOMETRY_DESC geometry_desc = {};
-  geometry_desc.Type                                 = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
-  geometry_desc.Flags                                = D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
-  geometry_desc.Triangles.IndexBuffer                = index_uber_buffer.gpu_addr;
-  geometry_desc.Triangles.IndexCount                 = index_count;
-  geometry_desc.Triangles.IndexFormat                = DXGI_FORMAT_R32_UINT;
-  geometry_desc.Triangles.Transform3x4               = 0;
-  geometry_desc.Triangles.VertexFormat               = DXGI_FORMAT_R32G32B32_FLOAT;
-  geometry_desc.Triangles.VertexCount                = vertex_count;
-  geometry_desc.Triangles.VertexBuffer.StartAddress  = vertex_uber_buffer.gpu_addr;
-  geometry_desc.Triangles.VertexBuffer.StrideInBytes = vertex_stride;
-  
-  D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS bottom_level_inputs = {};
-  bottom_level_inputs.DescsLayout    = D3D12_ELEMENTS_LAYOUT_ARRAY;
-  bottom_level_inputs.Flags          = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
-  bottom_level_inputs.NumDescs       = 1;
-  bottom_level_inputs.Type           = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
-  bottom_level_inputs.pGeometryDescs = &geometry_desc;
-
-  D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO bottom_level_prebuild_info;
-  device->d3d12->GetRaytracingAccelerationStructurePrebuildInfo(&bottom_level_inputs, &bottom_level_prebuild_info);
-  bottom_level_prebuild_info.ScratchDataSizeInBytes   = ALIGN_POW2(bottom_level_prebuild_info.ScratchDataSizeInBytes,   D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT);
-  bottom_level_prebuild_info.ResultDataMaxSizeInBytes = ALIGN_POW2(bottom_level_prebuild_info.ResultDataMaxSizeInBytes, D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT);
-  ASSERT(bottom_level_prebuild_info.ResultDataMaxSizeInBytes > 0);
-
-  ret.bottom_bvh = alloc_gpu_buffer_no_heap(
-    device,
-    {
-      .size = (u32)bottom_level_prebuild_info.ResultDataMaxSizeInBytes,
-      .flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
-      .initial_state = D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE
-    },
-    kGpuHeapGpuOnly,
-    "Bottom BVH Buffer"
-  );
-
-  D3D12_RAYTRACING_INSTANCE_DESC instance_desc = {};
-  instance_desc.Transform[0][0] = 1;
-  instance_desc.Transform[1][1] = 1;
-  instance_desc.Transform[2][2] = 1;
-  instance_desc.InstanceID      = 0;
-  instance_desc.InstanceMask    = 0xFF;
-  instance_desc.InstanceContributionToHitGroupIndex = 0;
-  instance_desc.Flags = D3D12_RAYTRACING_INSTANCE_FLAG_TRIANGLE_CULL_DISABLE;
-  instance_desc.AccelerationStructure = ret.bottom_bvh.gpu_addr;
-  ret.instance_desc_buffer = alloc_gpu_buffer_no_heap(
-    device,
-    {.size = ALIGN_POW2(sizeof(instance_desc), D3D12_RAYTRACING_INSTANCE_DESCS_BYTE_ALIGNMENT)},
-    kGpuHeapSysRAMCpuToGpu,
-    "Instance Desc"
-  );
-  memcpy(unwrap(ret.instance_desc_buffer.mapped), &instance_desc, sizeof(instance_desc));
-
-  D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS top_level_inputs = {};
-  top_level_inputs.DescsLayout    = D3D12_ELEMENTS_LAYOUT_ARRAY;
-  top_level_inputs.Flags          = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
-  top_level_inputs.NumDescs       = 1;
-  top_level_inputs.Type           = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;
-  top_level_inputs.pGeometryDescs = nullptr;
-  top_level_inputs.InstanceDescs  = ret.instance_desc_buffer.gpu_addr;
-
-  D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO top_level_prebuild_info;
-  device->d3d12->GetRaytracingAccelerationStructurePrebuildInfo(&top_level_inputs, &top_level_prebuild_info);
-  top_level_prebuild_info.ScratchDataSizeInBytes = ALIGN_POW2(top_level_prebuild_info.ScratchDataSizeInBytes, D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT);
-  top_level_prebuild_info.ResultDataMaxSizeInBytes = ALIGN_POW2(top_level_prebuild_info.ResultDataMaxSizeInBytes, D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT);
-  ASSERT(top_level_prebuild_info.ResultDataMaxSizeInBytes > 0);
-
-  ret.top_bvh = alloc_gpu_buffer_no_heap(
-    device,
-    {
-      .size = (u32)top_level_prebuild_info.ResultDataMaxSizeInBytes,
-      .flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
-      .initial_state = D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE
-    },
-    kGpuHeapGpuOnly,
-    "Top BVH Buffer"
-  );
-
-  GpuBuffer top_level_scratch = alloc_gpu_buffer_no_heap(
-    device,
-    {
-      .size = (u32)top_level_prebuild_info.ScratchDataSizeInBytes,
-      .flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS
-    },
-    kGpuHeapGpuOnly,
-    "BVH Scratch Buffer"
-  );
-
-  GpuBuffer bottom_level_scratch = alloc_gpu_buffer_no_heap(
-    device,
-    {
-      .size = (u32)bottom_level_prebuild_info.ScratchDataSizeInBytes,
-      .flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS
-    },
-    kGpuHeapGpuOnly,
-    "BVH Scratch Buffer"
-  );
-
-  defer
-  {
-    free_gpu_buffer(&top_level_scratch); 
-    free_gpu_buffer(&bottom_level_scratch);
-  };
-
-  D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC bottom_level_build_desc = {};
-  bottom_level_build_desc.Inputs                           = bottom_level_inputs;
-  bottom_level_build_desc.ScratchAccelerationStructureData = bottom_level_scratch.gpu_addr;
-  bottom_level_build_desc.DestAccelerationStructureData    = ret.bottom_bvh.gpu_addr;
-
-  D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC top_level_build_desc = {};
-  top_level_build_desc.Inputs                           = top_level_inputs;
-  top_level_build_desc.ScratchAccelerationStructureData = top_level_scratch.gpu_addr;
-  top_level_build_desc.DestAccelerationStructureData    = ret.top_bvh.gpu_addr;
-
-
-  CmdList cmd_list = alloc_cmd_list(&device->graphics_cmd_allocator);
-  D3D12_RESOURCE_BARRIER uav_barrier = {};
-  uav_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-  uav_barrier.UAV.pResource = nullptr;
-  cmd_list.d3d12_list->BuildRaytracingAccelerationStructure(&bottom_level_build_desc, 0, nullptr);
-  cmd_list.d3d12_list->ResourceBarrier(1, &uav_barrier);
-  cmd_list.d3d12_list->BuildRaytracingAccelerationStructure(&top_level_build_desc, 0, nullptr);
-  cmd_list.d3d12_list->ResourceBarrier(1, &uav_barrier);
-  GpuFence fence = init_gpu_fence();
-  defer { destroy_gpu_fence(&fence); };
-
-  FenceValue fence_value = submit_cmd_lists(&device->graphics_cmd_allocator, {cmd_list}, &fence);
-
-  block_gpu_fence(&fence, fence_value);
+  D3D12_RAYTRACING_GEOMETRY_DESC ret = {};
+  ret.Type                                 = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
+  ret.Flags                                = D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
+  ret.Triangles.IndexBuffer                = index_buffer.gpu_addr + desc.index_start * desc.index_stride;
+  ret.Triangles.IndexCount                 = desc.index_count;
+  ret.Triangles.IndexFormat                = gpu_format_to_d3d12(index_format);
+  ret.Triangles.Transform3x4               = 0;
+  ret.Triangles.VertexFormat               = gpu_format_to_d3d12(desc.vertex_format);
+  ret.Triangles.VertexCount                = desc.vertex_count;
+  ret.Triangles.VertexBuffer.StartAddress  = vertex_buffer.gpu_addr + desc.vertex_start * desc.vertex_stride;
+  ret.Triangles.VertexBuffer.StrideInBytes = desc.vertex_stride;
 
   return ret;
 }
 
-void
-destroy_acceleration_structure(GpuBvh* bvh)
+GpuRtBlas
+alloc_gpu_rt_blas(
+  GpuAllocHeap heap,
+  const GpuBuffer& vertex_buffer,
+  const GpuBuffer& index_buffer,
+
+  GpuRtBlasDesc    desc,
+
+  const char*      name
+) {
+  D3D12_RAYTRACING_GEOMETRY_DESC geometry_desc       = get_d3d12_blas_desc(desc, vertex_buffer, index_buffer);
+
+  D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS inputs = {};
+  inputs.DescsLayout                                 = D3D12_ELEMENTS_LAYOUT_ARRAY;
+  if (desc.allow_updates)
+  {
+    // I by default enable prefer fast build if you allow updates because they go hand in hand
+    inputs.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE | D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_BUILD;
+  }
+  else
+  {
+    inputs.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
+  }
+
+  if (desc.minimize_memory)
+  {
+    inputs.Flags |= D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_MINIMIZE_MEMORY;
+  }
+
+  inputs.NumDescs                                    = 1;
+  inputs.Type                                        = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
+  inputs.pGeometryDescs                              = &geometry_desc;
+
+  D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO prebuild_info;
+  g_GpuDevice->d3d12->GetRaytracingAccelerationStructurePrebuildInfo(&inputs, &prebuild_info);
+  prebuild_info.ScratchDataSizeInBytes               = ALIGN_POW2(prebuild_info.ScratchDataSizeInBytes,   D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT);
+  prebuild_info.ResultDataMaxSizeInBytes             = ALIGN_POW2(prebuild_info.ResultDataMaxSizeInBytes, D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT);
+
+  GpuBufferDesc buffer_desc = {};
+  buffer_desc.size          = (u32)prebuild_info.ResultDataMaxSizeInBytes;
+  buffer_desc.is_rt_bvh     = true;
+
+  GpuRtBlas ret;
+  ret.desc         = desc;
+  ret.scratch_size = (u32)prebuild_info.ScratchDataSizeInBytes;
+  ret.buffer       = alloc_gpu_buffer(g_GpuDevice, heap, buffer_desc, name);
+  return ret;
+}
+
+GpuRtTlasSizeInfo
+query_gpu_rt_tlas_size_info(u32 num_instances)
 {
-  free_gpu_buffer(&bvh->instance_desc_buffer);
-  free_gpu_buffer(&bvh->bottom_bvh);
-  free_gpu_buffer(&bvh->top_bvh);
-  zero_memory(bvh, sizeof(GpuBvh));
+  GpuRtTlasSizeInfo ret;
+
+  D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS inputs = {};
+  inputs.DescsLayout    = D3D12_ELEMENTS_LAYOUT_ARRAY;
+  // I expect that the TLAS wil be updated frequently, so I always have update/fast build enabled.
+  inputs.Flags          = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE | D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_BUILD;
+  inputs.NumDescs       = num_instances;
+  inputs.Type           = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;
+  inputs.pGeometryDescs = nullptr;
+  // Basically just need some non-null GPU virtual address
+  inputs.InstanceDescs  = 0xC1C1C1C1;
+
+  D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO prebuild_info;
+  g_GpuDevice->d3d12->GetRaytracingAccelerationStructurePrebuildInfo(&inputs, &prebuild_info);
+  prebuild_info.ScratchDataSizeInBytes   = ALIGN_POW2(prebuild_info.ScratchDataSizeInBytes,   D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT);
+  prebuild_info.ResultDataMaxSizeInBytes = ALIGN_POW2(prebuild_info.ResultDataMaxSizeInBytes, D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT);
+  ASSERT_MSG_FATAL(prebuild_info.ResultDataMaxSizeInBytes > 0, "Size of TLAS is 0 for some reason...");
+
+  ret.max_size     = (u32)prebuild_info.ResultDataMaxSizeInBytes;
+  ret.scratch_size = (u32)prebuild_info.ScratchDataSizeInBytes;
+
+  return ret;
+}
+
+GpuRtTlas
+alloc_gpu_rt_tlas(
+  GpuAllocHeap     heap,
+  u32              num_instances,
+  const char*      name
+) {
+  GpuRtTlasSizeInfo size_info = query_gpu_rt_tlas_size_info(num_instances);
+
+  GpuBufferDesc buffer_desc = {};
+  buffer_desc.size          = size_info.max_size;
+  buffer_desc.flags         = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+  buffer_desc.is_rt_bvh     = true;
+  
+  GpuRtTlas ret;
+  ret.max_instances = num_instances;
+  ret.scratch_size  = size_info.scratch_size;
+  ret.buffer        = alloc_gpu_buffer(g_GpuDevice, heap, buffer_desc, name);
+  return ret;
+}
+
+GpuRtTlas
+alloc_gpu_rt_tlas_no_heap(
+  u32              num_instances,
+  const char*      name
+) {
+  GpuRtTlasSizeInfo size_info = query_gpu_rt_tlas_size_info(num_instances);
+
+  GpuBufferDesc buffer_desc = {};
+  buffer_desc.size          = size_info.max_size;
+  buffer_desc.flags         = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+  buffer_desc.is_rt_bvh     = true;
+  
+  GpuRtTlas ret;
+  ret.max_instances = num_instances;
+  ret.scratch_size  = size_info.scratch_size;
+  ret.buffer        = alloc_gpu_buffer_no_heap(g_GpuDevice, buffer_desc, kGpuHeapGpuOnly, name);
+  return ret;
 }
 
 RayTracingPSO
@@ -1789,14 +2280,14 @@ alloc_back_buffers_from_swap_chain(
   u32 num_back_buffers
 ) {
   GpuTextureDesc desc = {0};
-  desc.width = swap_chain->width;
+  desc.width  = swap_chain->width;
   desc.height = swap_chain->height;
   desc.format = swap_chain->format;
-  desc.initial_state = D3D12_RESOURCE_STATE_PRESENT;
   for (u32 i = 0; i < num_back_buffers; i++)
   {
     HASSERT(swap_chain->d3d12_swap_chain->GetBuffer(i, IID_PPV_ARGS(&back_buffers[i]->d3d12_texture)));
-    back_buffers[i]->desc = desc;
+    back_buffers[i]->desc   = desc;
+    back_buffers[i]->layout = kGpuTextureLayoutGeneral;
   }
 }
 
@@ -1928,6 +2419,59 @@ swap_chain_wait_latency(SwapChain* swap_chain)
   prev_stats = stats;
 }
 
+static const char* kD3D12DredBreadcrumbOpToString[] =
+{
+  "D3D12_AUTO_BREADCRUMB_OP_SETMARKER",
+  "D3D12_AUTO_BREADCRUMB_OP_BEGINEVENT",
+  "D3D12_AUTO_BREADCRUMB_OP_ENDEVENT",
+  "D3D12_AUTO_BREADCRUMB_OP_DRAWINSTANCED",
+  "D3D12_AUTO_BREADCRUMB_OP_DRAWINDEXEDINSTANCED",
+  "D3D12_AUTO_BREADCRUMB_OP_EXECUTEINDIRECT",
+  "D3D12_AUTO_BREADCRUMB_OP_DISPATCH",
+  "D3D12_AUTO_BREADCRUMB_OP_COPYBUFFERREGION",
+  "D3D12_AUTO_BREADCRUMB_OP_COPYTEXTUREREGION",
+  "D3D12_AUTO_BREADCRUMB_OP_COPYRESOURCE",
+  "D3D12_AUTO_BREADCRUMB_OP_COPYTILES",
+  "D3D12_AUTO_BREADCRUMB_OP_RESOLVESUBRESOURCE",
+  "D3D12_AUTO_BREADCRUMB_OP_CLEARRENDERTARGETVIEW",
+  "D3D12_AUTO_BREADCRUMB_OP_CLEARUNORDEREDACCESSVIEW",
+  "D3D12_AUTO_BREADCRUMB_OP_CLEARDEPTHSTENCILVIEW",
+  "D3D12_AUTO_BREADCRUMB_OP_RESOURCEBARRIER",
+  "D3D12_AUTO_BREADCRUMB_OP_EXECUTEBUNDLE",
+  "D3D12_AUTO_BREADCRUMB_OP_PRESENT",
+  "D3D12_AUTO_BREADCRUMB_OP_RESOLVEQUERYDATA",
+  "D3D12_AUTO_BREADCRUMB_OP_BEGINSUBMISSION",
+  "D3D12_AUTO_BREADCRUMB_OP_ENDSUBMISSION",
+  "D3D12_AUTO_BREADCRUMB_OP_DECODEFRAME",
+  "D3D12_AUTO_BREADCRUMB_OP_PROCESSFRAMES",
+  "D3D12_AUTO_BREADCRUMB_OP_ATOMICCOPYBUFFERUINT",
+  "D3D12_AUTO_BREADCRUMB_OP_ATOMICCOPYBUFFERUINT64",
+  "D3D12_AUTO_BREADCRUMB_OP_RESOLVESUBRESOURCEREGION",
+  "D3D12_AUTO_BREADCRUMB_OP_WRITEBUFFERIMMEDIATE",
+  "D3D12_AUTO_BREADCRUMB_OP_DECODEFRAME1",
+  "D3D12_AUTO_BREADCRUMB_OP_SETPROTECTEDRESOURCESESSION",
+  "D3D12_AUTO_BREADCRUMB_OP_DECODEFRAME2",
+  "D3D12_AUTO_BREADCRUMB_OP_PROCESSFRAMES1",
+  "D3D12_AUTO_BREADCRUMB_OP_BUILDRAYTRACINGACCELERATIONSTRUCTURE",
+  "D3D12_AUTO_BREADCRUMB_OP_EMITRAYTRACINGACCELERATIONSTRUCTUREPOSTBUILDINFO",
+  "D3D12_AUTO_BREADCRUMB_OP_COPYRAYTRACINGACCELERATIONSTRUCTURE",
+  "D3D12_AUTO_BREADCRUMB_OP_DISPATCHRAYS",
+  "D3D12_AUTO_BREADCRUMB_OP_INITIALIZEMETACOMMAND",
+  "D3D12_AUTO_BREADCRUMB_OP_EXECUTEMETACOMMAND",
+  "D3D12_AUTO_BREADCRUMB_OP_ESTIMATEMOTION",
+  "D3D12_AUTO_BREADCRUMB_OP_RESOLVEMOTIONVECTORHEAP",
+  "D3D12_AUTO_BREADCRUMB_OP_SETPIPELINESTATE1",
+  "D3D12_AUTO_BREADCRUMB_OP_INITIALIZEEXTENSIONCOMMAND",
+  "D3D12_AUTO_BREADCRUMB_OP_EXECUTEEXTENSIONCOMMAND",
+  "D3D12_AUTO_BREADCRUMB_OP_DISPATCHMESH",
+  "D3D12_AUTO_BREADCRUMB_OP_ENCODEFRAME",
+  "D3D12_AUTO_BREADCRUMB_OP_RESOLVEENCODEROUTPUTMETADATA",
+  "D3D12_AUTO_BREADCRUMB_OP_BARRIER",
+  "D3D12_AUTO_BREADCRUMB_OP_BEGIN_COMMAND_LIST",
+  "D3D12_AUTO_BREADCRUMB_OP_DISPATCHGRAPH",
+  "D3D12_AUTO_BREADCRUMB_OP_SETPROGRAM"
+};
+
 void
 swap_chain_submit(SwapChain* swap_chain, const GpuDevice* device, const GpuTexture* rtv)
 {
@@ -1939,7 +2483,147 @@ swap_chain_submit(SwapChain* swap_chain, const GpuDevice* device, const GpuTextu
 
   u32 sync_interval = swap_chain->vsync ? 1 : 0;
   u32 present_flags = swap_chain->tearing_supported && !swap_chain->vsync ? DXGI_PRESENT_ALLOW_TEARING : 0;
-  HASSERT(swap_chain->d3d12_swap_chain->Present(sync_interval, present_flags));
+  HRESULT res = swap_chain->d3d12_swap_chain->Present(sync_interval, present_flags);
+  if (res == DXGI_ERROR_DEVICE_REMOVED || res == DXGI_ERROR_DEVICE_RESET )
+  {
+    GFSDK_Aftermath_CrashDump_Status status;
+    GFSDK_Aftermath_GetCrashDumpStatus(&status);
+    dbgln("GPU Device removed!! Waiting for Aftermath to generate crash dump...");
+    // Wait for timeout
+    while (status != GFSDK_Aftermath_CrashDump_Status_Finished)
+    {
+      _mm_pause();
+      _mm_pause();
+      _mm_pause();
+      _mm_pause();
+    }
+
+
+    dbgln("================ GPU Crash Dump: %s ================", g_AftermathManager->crash_dump_path);
+    if (device->flags & kGpuFlagsEnableValidationLayers)
+    {
+      dbgln("  NOTE: Aftermath crash information information is limited due to incompatibility of NVIDIA Aftermath and D3D12 validation layers.\n  Please run without -d3ddebug commandline args to get more information. Using DRED information instead.");
+      ID3D12DeviceRemovedExtendedData2* dred = nullptr;
+      HASSERT(device->d3d12->QueryInterface(IID_PPV_ARGS(&dred)));
+
+      D3D12_DRED_DEVICE_STATE state = dred->GetDeviceState();
+      switch (state)
+      {
+        case D3D12_DRED_DEVICE_STATE_HUNG:      dbgln("  GPU Device State: Hung");       break;
+        case D3D12_DRED_DEVICE_STATE_FAULT:     dbgln("  GPU Device State: Fault");      break;
+        case D3D12_DRED_DEVICE_STATE_PAGEFAULT: dbgln("  GPU Device State: Page Fault"); break;
+        case D3D12_DRED_DEVICE_STATE_UNKNOWN:   dbgln("  GPU Device State: Unknown");    break;
+      }
+
+      D3D12_DRED_AUTO_BREADCRUMBS_OUTPUT1 breadcrumbs;
+      D3D12_DRED_PAGE_FAULT_OUTPUT1       page_fault;
+      HASSERT(dred->GetAutoBreadcrumbsOutput1(&breadcrumbs));
+      HASSERT(dred->GetPageFaultAllocationOutput1(&page_fault));
+
+      dbgln("  GPU Page Fault at 0x%016llx", page_fault.PageFaultVA);
+      dbgln("    Allocated Resources:");
+
+      
+      for (const D3D12_DRED_ALLOCATION_NODE1* node = page_fault.pHeadExistingAllocationNode; node != nullptr; node = node->pNext)
+      {
+        dbgln("      %s", node->ObjectNameA);
+      }
+
+      dbgln("    Recently Freed Resources:");
+      for (const D3D12_DRED_ALLOCATION_NODE1* node = page_fault.pHeadRecentFreedAllocationNode; node != nullptr; node = node->pNext)
+      {
+        dbgln("      %s", node->ObjectNameA);
+      }
+
+      for (const D3D12_AUTO_BREADCRUMB_NODE1* node = breadcrumbs.pHeadAutoBreadcrumbNode; node != nullptr; node = node->pNext)
+      {
+        dbgln("  CmdList breadcrumbs: ");
+        for (u32 ibreadcrumb = 0; ibreadcrumb < node->BreadcrumbCount; ibreadcrumb++)
+        {
+          if (*node->pLastBreadcrumbValue == 0)
+          {
+            continue;
+          }
+
+          D3D12_AUTO_BREADCRUMB_OP op = node->pCommandHistory[ibreadcrumb];
+          if (ibreadcrumb == *node->pLastBreadcrumbValue)
+          {
+            dbgln("   -> %s", kD3D12DredBreadcrumbOpToString[op]);
+          }
+          else
+          {
+            dbgln("      %s", kD3D12DredBreadcrumbOpToString[op]);
+          }
+        }
+      }
+    }
+    else
+    {
+      GFSDK_Aftermath_PageFaultInformation page_fault_info{0};
+      GFSDK_Aftermath_GetPageFaultInformation(&page_fault_info);
+      if (page_fault_info.bHasPageFaultOccured)
+      {
+        dbgln("  GPU Page Fault at 0x%016llx", page_fault_info.faultingGpuVA);
+        dbgln("  Resource Size: %llu", page_fault_info.resourceDesc.size);
+        dbgln("  Resource Was Destroyed: %u", page_fault_info.resourceDesc.bWasDestroyed);
+      }
+
+#if 0
+      if (g_AftermathManager->crash_dump != nullptr && g_AftermathManager->crash_dump_size > 0)
+      {
+        GFSDK_Aftermath_GpuCrashDump_Decoder* decoder = nullptr;
+        GFSDK_Aftermath_Result res = GFSDK_Aftermath_GpuCrashDump_CreateDecoder(GFSDK_Aftermath_Version_API, g_AftermathManager->crash_dump, g_AftermathManager->crash_dump_size, &decoder);
+        if (GFSDK_Aftermath_SUCCEED(res))
+        {
+          u32 active_shader_count = 0;
+          res = GFSDK_Aftermath_GpuCrashDump_GetActiveShadersInfoCount(decoder, &active_shader_count);
+          if (GFSDK_Aftermath_SUCCEED(res))
+          {
+            static constexpr u32 kMaxActiveShaders = 1024;
+            GFSDK_Aftermath_GpuCrashDump_ShaderInfo active_shaders[];
+            GFSDK_Aftermath_GpuCrashDump_GetActiveShadersInfo(dcoder, );
+          }
+          else
+          {
+            dbgln("Failed to get active shaders info count! %u");
+          }
+        }
+        else
+        {
+          dbgln("AFTERMATH: Failed to create decoder for crash dump! %u", res);
+        }
+      }
+#endif
+    }
+
+    if (g_AftermathManager && g_AftermathManager->crash_dump_path[0] != '\0')
+    {
+      char msg[kMaxPathLength + 128];
+      snprintf(msg, sizeof(msg), "GPU crash dump saved to:\n%s\n\nWould you like to open it?", g_AftermathManager->crash_dump_path);
+      if (MessageBoxA(nullptr, msg, "GPU Crash", MB_YESNO | MB_ICONERROR) == IDYES)
+      {
+        SHELLEXECUTEINFOA info = {};
+        info.cbSize            = sizeof(info);
+        info.fMask             = SEE_MASK_NOASYNC;
+        info.lpVerb            = "open";
+        info.lpFile            = g_AftermathManager->crash_dump_path;
+        info.nShow             = SW_SHOW;
+        ShellExecuteExA(&info);
+
+        char wait_msg[kMaxPathLength + 128];
+        snprintf(wait_msg, sizeof(wait_msg), "Opening:\n%s\n\nClick OK once Nsight Graphics has opened.", g_AftermathManager->crash_dump_path);
+        MessageBoxA(nullptr, wait_msg, "GPU Crash", MB_OK | MB_ICONINFORMATION);
+      }
+    }
+
+    ASSERT_MSG_FATAL(false, "GPU Crash Occurred!");
+    ExitProcess(1);
+  }
+  else
+  {
+    HASSERT(res);
+  }
+
 
   swap_chain->back_buffer_index = swap_chain->d3d12_swap_chain->GetCurrentBackBufferIndex();
 }
@@ -2028,6 +2712,185 @@ set_compute_root_signature(CmdList* cmd)
 {
   ASSERT(g_RootSignature != nullptr);
   cmd->d3d12_list->SetComputeRootSignature(g_RootSignature);
+}
+
+void
+build_rt_blas(
+  CmdList*         cmd,
+  const GpuRtBlas& blas,
+  const GpuBuffer& scratch,
+  u32              scratch_offset,
+  const GpuBuffer& index_buffer,
+  const GpuBuffer& vertex_buffer,
+  u32              flags
+) {
+  D3D12_RAYTRACING_GEOMETRY_DESC geometry_desc       = get_d3d12_blas_desc(blas.desc, vertex_buffer, index_buffer);
+
+  D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS inputs = {};
+  inputs.DescsLayout                                 = D3D12_ELEMENTS_LAYOUT_ARRAY;
+  inputs.Flags                                       = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
+
+  if (flags & kGpuRtasBuildIncremental)
+  {
+    ASSERT_MSG_FATAL(blas.desc.allow_updates, "Attempting to perform incremental RT BLAS update build on BLAS that was not created with allow_updates");
+    if (blas.desc.allow_updates)
+    {
+      inputs.Flags |= D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE;
+    }
+  }
+
+  inputs.NumDescs                                    = 1;
+  inputs.Type                                        = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
+  inputs.pGeometryDescs                              = &geometry_desc;
+
+  D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC desc = {};
+  desc.Inputs                           = inputs;
+  desc.SourceAccelerationStructureData  = 0;
+  desc.DestAccelerationStructureData    = blas.buffer.gpu_addr;
+  desc.ScratchAccelerationStructureData = scratch.gpu_addr + scratch_offset;
+
+  gpu_memory_barrier(cmd);
+  cmd->d3d12_list->BuildRaytracingAccelerationStructure(&desc, 0, nullptr);
+  gpu_memory_barrier(cmd);
+}
+
+void
+build_rt_tlas(
+  CmdList*         cmd,
+  const GpuRtTlas& tlas,
+  const GpuBuffer& instance_buffer,
+  u32              instance_count,
+  const GpuBuffer& scratch,
+  u32              scratch_offset,
+  u32              flags
+) {
+  D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS inputs = {};
+  inputs.DescsLayout    = D3D12_ELEMENTS_LAYOUT_ARRAY;
+  inputs.Flags          = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE | D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_BUILD;
+
+  if (flags & kGpuRtasBuildIncremental)
+  {
+    inputs.Flags |= D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE;
+  }
+
+  ASSERT_MSG_FATAL(instance_count <= tlas.max_instances, "TLAS has a maximum instance count of %u, but ");
+
+  inputs.NumDescs       = instance_count;
+  inputs.Type           = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;
+  inputs.pGeometryDescs = nullptr;
+  inputs.InstanceDescs  = instance_buffer.gpu_addr;
+
+  D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC desc = {};
+  desc.Inputs                           = inputs;
+  desc.SourceAccelerationStructureData  = (flags & kGpuRtasBuildIncremental) ? tlas.buffer.gpu_addr : 0;
+  desc.DestAccelerationStructureData    = tlas.buffer.gpu_addr;
+  desc.ScratchAccelerationStructureData = scratch.gpu_addr + scratch_offset;
+
+  gpu_memory_barrier(cmd);
+  cmd->d3d12_list->BuildRaytracingAccelerationStructure(&desc, 0, nullptr);
+  gpu_memory_barrier(cmd);
+}
+
+void
+gpu_copy_buffer(
+  CmdList* cmd,
+  const    GpuBuffer& dst,
+  u64      dst_offset,
+  const    GpuBuffer& src,
+  u64      src_offset,
+  u64      bytes
+) {
+  cmd->d3d12_list->CopyBufferRegion(dst.d3d12_buffer, dst_offset, src.d3d12_buffer, src_offset, bytes);
+}
+
+void
+gpu_copy_texture(
+        CmdList*    cmd,
+        GpuTexture* dst,
+  const GpuBuffer&  src,
+        u64         src_offset,
+        u64         src_size
+) {
+  D3D12_RESOURCE_DESC desc = {0};
+  desc.Dimension           = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+  desc.Alignment           = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+  desc.DepthOrArraySize    = 1;
+  desc.Width               = dst->desc.width;
+  desc.Height              = dst->desc.height;
+  desc.MipLevels           = 1;
+  desc.Format              = gpu_format_to_d3d12(dst->desc.format);
+  desc.SampleDesc.Count    = 1;
+  desc.SampleDesc.Quality  = 0;
+  desc.Layout              = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+  desc.Flags               = D3D12_RESOURCE_FLAG_NONE;
+
+  D3D12_PLACED_SUBRESOURCE_FOOTPRINT src_footprint;
+  u32 row_count;
+  u64 row_byte_count;
+  u64 total_size;
+  g_GpuDevice->d3d12->GetCopyableFootprints(&desc, 0, 1, 0, &src_footprint, &row_count, &row_byte_count, &total_size);
+  src_footprint.Offset = src_offset;
+
+  ASSERT_MSG_FATAL(total_size == src_size, "Size mismatch for copyable footprint of buffer! Are you copying to the correct format?");
+  
+
+  D3D12_TEXTURE_COPY_LOCATION src_location = {0};
+  src_location.pResource        = src.d3d12_buffer;
+  src_location.Type             = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+  src_location.PlacedFootprint  = src_footprint;
+
+  D3D12_TEXTURE_COPY_LOCATION dst_location = {0};
+  dst_location.pResource        = dst->d3d12_texture;
+  dst_location.Type             = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+  dst_location.SubresourceIndex = 0;
+
+  cmd->d3d12_list->CopyTextureRegion(&dst_location, 0, 0, 0, &src_location, nullptr);
+}
+
+void
+gpu_memory_barrier(CmdList* cmd)
+{
+  // TODO(bshihabi): We can add more fine-grained caches in the future, this is fine for now.
+  D3D12_GLOBAL_BARRIER barrier;
+  barrier.SyncBefore    = D3D12_BARRIER_SYNC_ALL;
+  barrier.SyncAfter     = D3D12_BARRIER_SYNC_ALL;
+  barrier.AccessBefore  = D3D12_BARRIER_ACCESS_COMMON;
+  barrier.AccessAfter   = D3D12_BARRIER_ACCESS_COMMON;
+
+  D3D12_BARRIER_GROUP group;
+  group.Type            = D3D12_BARRIER_TYPE_GLOBAL;
+  group.NumBarriers     = 1;
+  group.pGlobalBarriers = &barrier;
+
+  cmd->d3d12_list->Barrier(1, &group);
+}
+
+void
+gpu_texture_layout_transition(CmdList* cmd, GpuTexture* texture, GpuTextureLayout layout)
+{
+  D3D12_TEXTURE_BARRIER barrier;
+  barrier.SyncBefore                        = D3D12_BARRIER_SYNC_ALL;
+  barrier.SyncAfter                         = D3D12_BARRIER_SYNC_ALL;
+  barrier.AccessBefore                      = D3D12_BARRIER_ACCESS_COMMON;
+  barrier.AccessAfter                       = D3D12_BARRIER_ACCESS_COMMON;
+  barrier.LayoutBefore                      = gpu_texture_layout_to_d3d12(texture->layout);
+  barrier.LayoutAfter                       = gpu_texture_layout_to_d3d12(layout);
+  barrier.pResource                         = texture->d3d12_texture;
+  barrier.Subresources.IndexOrFirstMipLevel = 0;
+  barrier.Subresources.NumMipLevels         = 1;
+  barrier.Subresources.FirstArraySlice      = 0;
+  barrier.Subresources.NumArraySlices       = texture->desc.array_size;
+  barrier.Subresources.FirstPlane           = 0;
+  barrier.Subresources.NumPlanes            = 0;
+
+  D3D12_BARRIER_GROUP group;
+  group.Type             = D3D12_BARRIER_TYPE_TEXTURE;
+  group.NumBarriers      = 1;
+  group.pTextureBarriers = &barrier;
+
+  cmd->d3d12_list->Barrier(1, &group);
+
+  texture->layout = layout;
 }
 
 void

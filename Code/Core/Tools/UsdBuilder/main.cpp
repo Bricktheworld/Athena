@@ -161,13 +161,13 @@ bool load_single_model(std::string const& filePath, std::string const& relativeP
         }
 
         VtArray<int> mesh_indices;
-        std::vector<u32> tempIndices;
+        std::vector<u16> tempIndices;
         if (mesh.GetFaceVertexIndicesAttr().Get(&mesh_indices))
         {
           usd_mesh.num_indices = (u32)mesh_indices.size();
           for (const int& index : mesh_indices)
           {
-            tempIndices.push_back(index);
+            tempIndices.push_back((u16)index);
           }
           usd_mesh.indices = tempIndices.data();
         }
@@ -200,7 +200,7 @@ int main(int argc, const char** argv)
 
   g_InitHeap = init_allocator;
 
-  init_context(g_InitHeap, GLOBAL_HEAP);
+  init_thread_context();
 
   if (argc != 3)
   {
