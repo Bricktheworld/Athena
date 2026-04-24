@@ -357,7 +357,6 @@ init_scene_gpu_upload_pass(AllocHeap heap, RgBuilder* builder)
   // TODO(bshihabi): This should really be a ring buffer...
   ret.upload_buffer          = rg_create_upload_buffer(builder, "Upload Buffer",       kGpuHeapSysRAMCpuToGpu, kUploadBufferSize);
 
-  ret.material_buffer        = rg_create_buffer(builder,        "Material Buffer",     sizeof(MaterialGpu) * kMaxSceneObjs);
   ret.scene_obj_buffer       = rg_create_buffer(builder,        "Scene Object Buffer", sizeof(SceneObjGpu) * kMaxSceneObjs);
 
   RgHandleCountedBuffer tlas_instances    = rg_create_counted_buffer(builder, "TLAS instance Buffer", sizeof(D3D12RaytracingInstanceDesc) * kMaxSceneObjs);
@@ -372,12 +371,10 @@ init_scene_gpu_upload_pass(AllocHeap heap, RgBuilder* builder)
     RgPassBuilder*        pass   = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "Gpu Scene Upload", params, &render_handler_scene_gpu_upload);
     params->upload_buffer        = RgCpuUploadBuffer(ret.upload_buffer);
     params->scene_obj_buffer     = RgCopyDst(pass, &ret.scene_obj_buffer);
-    params->material_buffer      = RgCopyDst(pass, &ret.material_buffer);
   }
 
   // Bind the GRVs now that we're done modifying them
   RgStructuredBuffer<SceneObjGpu>::bind_grv(heap, builder, kSceneObjBufferSlot, ret.scene_obj_buffer);
-  RgStructuredBuffer<MaterialGpu>::bind_grv(heap, builder, kMaterialBufferSlot, ret.material_buffer);
 
   // Fill TLAS instance data
   {

@@ -13,7 +13,6 @@ struct Camera
 struct SceneGpuResources
 {
   // Uploaded data to GPU Buffers
-  RgHandle<GpuBuffer> material_buffer;
   RgHandle<GpuBuffer> scene_obj_buffer;
 
   // TODO(bshihabi): Make this a ring-buffer type structure

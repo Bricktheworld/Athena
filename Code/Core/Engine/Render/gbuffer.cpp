@@ -103,10 +103,12 @@ render_handler_gbuffer_static(RenderContext* ctx, const RenderSettings&, const v
     }
 #endif
 
+    MaterialHandle mat = obj->model->materials[obj->subset_id];
+
     MaterialSrt srt;
     srt.transform    = params->transform_buffer;
-    srt.diffuse      = {0}; // diffuse;
-    srt.normal       = {0}; // normal;
+    srt.diffuse      = { mat->textures[0]->srv_descriptor.index }; // diffuse;
+    srt.normal       = { mat->textures[1]->srv_descriptor.index }; // normal;
     srt.diffuse_base = Vec4(1.0f); // {0}; // material_res.value()->diffuse_base;
     srt.gpu_id       = obj->gpu_id;
     ctx->graphics_bind_srt(srt);

@@ -391,6 +391,7 @@ struct GpuTextureDesc
 enum GpuTextureLayout : u32
 {
   kGpuTextureLayoutGeneral = 0,
+  kGpuTextureLayoutShaderResource,
   kGpuTextureLayoutUnorderedAccess,
   kGpuTextureLayoutRenderTarget,
   kGpuTextureLayoutDepthStencil,

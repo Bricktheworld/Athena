@@ -1028,6 +1028,7 @@ gpu_texture_layout_to_d3d12(GpuTextureLayout layout)
   switch (layout)
   {
     case kGpuTextureLayoutGeneral:         return D3D12_BARRIER_LAYOUT_COMMON;
+    case kGpuTextureLayoutShaderResource:  return D3D12_BARRIER_LAYOUT_SHADER_RESOURCE;
     case kGpuTextureLayoutUnorderedAccess: return D3D12_BARRIER_LAYOUT_UNORDERED_ACCESS;
     case kGpuTextureLayoutRenderTarget:    return D3D12_BARRIER_LAYOUT_RENDER_TARGET;
     case kGpuTextureLayoutDepthStencil:    return D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE;

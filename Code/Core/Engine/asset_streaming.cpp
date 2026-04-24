@@ -151,6 +151,7 @@ struct MaterialRegistry
   // Used to allocate material slots on the Gpu
   BitAllocator                             gpu_material_slot_allocator;
   GpuBuffer                                gpu_material_buffer;
+  GpuDescriptor                            gpu_material_grv;
 };
 
 struct TextureRegistry
@@ -618,6 +619,12 @@ process_model_dep_request(AssetStreamer* streamer, AssetDependencyCmdHeader head
         return;
       }
 
+      // Patch all of the material gpu IDs
+      for (u32 isubset = 0; isubset < model->subsets.size; isubset++)
+      {
+        model->subsets[isubset].mat_gpu_id = model->materials[isubset]->gpu_id;
+      }
+
       // The asset is now ready
       model->asset.state = kAssetReady;
     } break;
@@ -639,6 +646,15 @@ init_material_registry(void)
   GpuBufferDesc desc = {0};
   desc.size = sizeof(MaterialGpu) * kMaxAssets;
   ret.gpu_material_buffer         = alloc_gpu_buffer_no_heap(g_GpuDevice, desc, kGpuHeapGpuOnly, "Material Buffer");
+  ret.gpu_material_grv            = alloc_table_descriptor(g_DescriptorCbvSrvUavPool, kGrvTemporalCount * kBackBufferCount + kMaterialBufferSlot);
+
+  GpuBufferSrvDesc srv_desc;
+  srv_desc.first_element = 0;
+  srv_desc.num_elements  = kMaxAssets;
+  srv_desc.stride        = sizeof(MaterialGpu);
+  srv_desc.format        = kGpuFormatUnknown;
+  srv_desc.is_raw        = false;
+  init_buffer_srv(&ret.gpu_material_grv, &ret.gpu_material_buffer, srv_desc);
   return ret;
 }
 

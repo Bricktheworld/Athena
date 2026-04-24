@@ -170,10 +170,6 @@ application_entry(HINSTANCE instance, int show_code)
   // init_asset_loader();
   // defer { destroy_asset_loader(); };
 
-  init_asset_registry();
-  init_asset_streamer();
-  defer { destroy_asset_streamer(); };
-
   g_MainWindow = HEAP_ALLOC(Window, g_InitHeap, 1);
 
   g_MainWindow->swap_chain = init_swap_chain(window, g_GpuDevice);
@@ -191,6 +187,10 @@ application_entry(HINSTANCE instance, int show_code)
 
   init_renderer(g_GpuDevice, &g_MainWindow->swap_chain, window);
   defer { destroy_renderer(); };
+
+  init_asset_registry();
+  init_asset_streamer();
+  defer { destroy_asset_streamer(); };
 
   init_unified_geometry_buffer(g_GpuDevice);
   defer { destroy_unified_geometry_buffer(); };
@@ -287,9 +287,6 @@ application_entry(HINSTANCE instance, int show_code)
         SceneObjHandle handle = init_render_scene_obj(sponza_model, isubset);
         (void)handle;
       }
-
-      // TODO(bshihabi): Remove this... It is temporary for BVH building
-      wait_for_gpu_device_idle(g_GpuDevice);
     }
 
     asset_server_update();
