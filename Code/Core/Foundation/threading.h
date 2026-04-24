@@ -135,6 +135,21 @@ atomic_store(Atomic<T>* lhs, T rhs)
   lhs->store(rhs);
 }
 
+template <typename T>
+inline T
+atomic_exchange(Atomic<T>* lhs, T rhs)
+{
+  return lhs->exchange(rhs);
+}
+
+template <typename T>
+inline void
+atomic_add(Atomic<T>* lhs, T rhs)
+{
+  lhs->fetch_add(rhs, std::memory_order_relaxed);
+}
+
+
 
 template <typename T>
 inline bool

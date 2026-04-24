@@ -46,14 +46,22 @@ enum StreamingCmd : u32
 
 struct FileStreamingCmdHeader
 {
-  StreamingCmd     cmd              = kNullStreamingCmd;
-  AsyncFilePromise file_promise;    
+  StreamingCmd     cmd               = kNullStreamingCmd;
+  AsyncFilePromise file_promise;
+
+  // Used for statistics
+  u64              io_byte_count     = 0;
+  u64              request_timestamp = 0;
 };
 
-struct GpuStreamingCmdHeader        
-{                                   
+struct GpuStreamingCmdHeader
+{
   StreamingCmd     cmd              = kNullStreamingCmd;
   FenceValue       gpu_fence_value  = 0;
+
+  // Used for statistics
+  u64              io_byte_count    = 0;
+  u64              request_timestamp = 0;
 };
 
 struct MainThreadCmdHeader
@@ -170,6 +178,7 @@ struct AssetRegistry
 
 AssetStreamer* g_AssetStreamer = nullptr;
 AssetRegistry* g_AssetRegistry = nullptr;
+AssetStreamingStatistics g_AssetStreamingStats;
 
 // Only block on the file I/O thread 
 static constexpr u32 kFileIOBlockRateMs = 2;
@@ -264,11 +273,15 @@ kick_model_load(ModelRegistry* registry, AssetStreamer* streamer, AssetId asset_
     ModelFileHeaderStreamingPacket* pkt    = (ModelFileHeaderStreamingPacket*)ALLOC_OFF(scratch_memory, sizeof(ModelFileHeaderStreamingPacket));
 
     // Initialize all of the packet data
-    header->cmd          = kModelCpuStreamHeader;
-    header->file_promise = kAsyncFileError;
-    pkt->model           = model;
-    pkt->size            = sizeof(ModelAsset);
-    pkt->file_stream     = file_open_ok.value();
+    header->cmd               = kModelCpuStreamHeader;
+    header->file_promise      = kAsyncFileError;
+    pkt->model                = model;
+    pkt->size                 = sizeof(ModelAsset);
+    pkt->file_stream          = file_open_ok.value();
+
+    // Fill in the statistics
+    header->io_byte_count     = pkt->size;
+    header->request_timestamp = begin_cpu_profiler_timestamp();
 
     // If the file read fails, then we already allocated the memory so we can't abort now, we just mark the file promise as failed and the consumer will ignore the packet.
     Result<void, FileError> file_read_ok = read_file(pkt->file_stream, &header->file_promise, &pkt->asset_header, pkt->size, 0);
@@ -347,16 +360,20 @@ process_model_file_request(AssetStreamer* streamer, FileStreamingCmdHeader heade
       // Initialize the packets to push to the queue
       void* scratch_memory = file_io_memory;
 
-      auto* dst_header         = (FileStreamingCmdHeader*         )ALLOC_OFF(scratch_memory, sizeof(FileStreamingCmdHeader));
-      dst_header->cmd          = kModelCpuStreamContent;
-      dst_header->file_promise = {0};
+      auto* dst_header          = (FileStreamingCmdHeader*         )ALLOC_OFF(scratch_memory, sizeof(FileStreamingCmdHeader));
+      dst_header->cmd           = kModelCpuStreamContent;
+      dst_header->file_promise  = {0};
 
-      auto* dst_pkt            = (ModelFileContentStreamingPacket*)ALLOC_OFF(scratch_memory, sizeof(ModelFileContentStreamingPacket));
-      dst_pkt->model           = model;
-      dst_pkt->file_stream     = src_pkt.file_stream;
-      dst_pkt->asset_header    = src_pkt.asset_header;
-      dst_pkt->buf             = ALLOC_OFF(scratch_memory, read_size);
-      dst_pkt->size            = read_size;
+      auto* dst_pkt             = (ModelFileContentStreamingPacket*)ALLOC_OFF(scratch_memory, sizeof(ModelFileContentStreamingPacket));
+      dst_pkt->model            = model;
+      dst_pkt->file_stream      = src_pkt.file_stream;
+      dst_pkt->asset_header     = src_pkt.asset_header;
+      dst_pkt->buf              = ALLOC_OFF(scratch_memory, read_size);
+      dst_pkt->size             = read_size;
+
+      // Fill in the statistics
+      dst_header->io_byte_count     = dst_pkt->size;
+      dst_header->request_timestamp = begin_cpu_profiler_timestamp();
 
       Result<void, FileError> stream_ok = read_file(dst_pkt->file_stream, &dst_header->file_promise, dst_pkt->buf, dst_pkt->size, src_pkt.size);
       if (!stream_ok)
@@ -420,6 +437,9 @@ process_model_file_request(AssetStreamer* streamer, FileStreamingCmdHeader heade
         return;
       }
 
+      // For statistics
+      u64 gpu_io_byte_count = 0;
+
       // Initialize all the model subsets in the metadata
       ModelAsset::ModelSubset* asset_subset    = (ModelAsset::ModelSubset*)(buf + src_pkt.asset_header.model_subsets);
       for (u32 isubset = 0; isubset < src_pkt.asset_header.num_model_subsets; isubset++, asset_subset++)
@@ -468,6 +488,8 @@ process_model_file_request(AssetStreamer* streamer, FileStreamingCmdHeader heade
             subset_vertex_size_in_bytes
           );
 
+          gpu_io_byte_count += subset_vertex_size_in_bytes;
+
           gpu_copy_buffer(
             &streamer->gpu_cmd_buffer,
             g_UnifiedGeometryBuffer.index_buffer,
@@ -476,6 +498,8 @@ process_model_file_request(AssetStreamer* streamer, FileStreamingCmdHeader heade
             subset_index_staging - gpu_scratch_mapped_base,
             subset_index_size_in_bytes
           );
+
+          gpu_io_byte_count += subset_index_size_in_bytes;
         }
       }
 
@@ -504,15 +528,20 @@ process_model_file_request(AssetStreamer* streamer, FileStreamingCmdHeader heade
       defer { push_buffer_end_edit(&streamer->gpu_io_buffer, gpu_stream_memory); };
 
       // Push the GPU content streaming packet to the queue
-      void* scratch_memory        = gpu_stream_memory;
+      void* scratch_memory           = gpu_stream_memory;
 
-      auto* dst_header            = (GpuStreamingCmdHeader*         )ALLOC_OFF(scratch_memory, sizeof(GpuStreamingCmdHeader));
-      dst_header->cmd             = kModelGpuStreamContent;
-      dst_header->gpu_fence_value = flush_gpu_cmds(streamer);
+      auto* dst_header               = (GpuStreamingCmdHeader*         )ALLOC_OFF(scratch_memory, sizeof(GpuStreamingCmdHeader));
+      dst_header->cmd                = kModelGpuStreamContent;
 
-      auto* dst_pkt               = (ModelGpuContentStreamingPacket*)ALLOC_OFF(scratch_memory, sizeof(ModelGpuContentStreamingPacket));
-      dst_pkt->model              = model;
-      dst_pkt->asset_header       = src_pkt.asset_header;
+      // Fill in the statistics
+      dst_header->request_timestamp  = begin_cpu_profiler_timestamp();
+      dst_header->io_byte_count      = gpu_io_byte_count;
+
+      dst_header->gpu_fence_value    = flush_gpu_cmds(streamer);
+
+      auto* dst_pkt                  = (ModelGpuContentStreamingPacket*)ALLOC_OFF(scratch_memory, sizeof(ModelGpuContentStreamingPacket));
+      dst_pkt->model                 = model;
+      dst_pkt->asset_header          = src_pkt.asset_header;
     } break;
     default: UNREACHABLE; break;
   }
@@ -733,10 +762,14 @@ kick_material_load(MaterialRegistry* registry, AssetStreamer* streamer, AssetId 
     MaterialFileHeaderStreamingPacket* pkt    = (MaterialFileHeaderStreamingPacket*)ALLOC_OFF(scratch_memory, sizeof(MaterialFileHeaderStreamingPacket));
 
 
-    header->cmd          = kMaterialCpuStreamHeader;
-    pkt->material        = material;
-    pkt->size            = sizeof(MaterialAsset);
-    pkt->file_stream     = file_open_ok.value();
+    header->cmd               = kMaterialCpuStreamHeader;
+    pkt->material             = material;
+    pkt->size                 = sizeof(MaterialAsset);
+    pkt->file_stream          = file_open_ok.value();
+
+    // Fill in the statistics
+    header->io_byte_count     = pkt->size;
+    header->request_timestamp = begin_cpu_profiler_timestamp();
 
     Result<void, FileError> file_read_ok = read_file(pkt->file_stream, &header->file_promise, &pkt->asset_header, pkt->size, 0);
     if (!file_read_ok)
@@ -799,22 +832,26 @@ process_material_file_request(AssetStreamer* streamer, FileStreamingCmdHeader he
 
       void* scratch_memory = file_io_memory;
 
-      auto* dst_header         = (FileStreamingCmdHeader*            )ALLOC_OFF(scratch_memory, sizeof(FileStreamingCmdHeader));
-      dst_header->cmd          = kMaterialCpuStreamContent;
-      dst_header->file_promise = {0};
+      auto* dst_header               = (FileStreamingCmdHeader*            )ALLOC_OFF(scratch_memory, sizeof(FileStreamingCmdHeader));
+      dst_header->cmd                = kMaterialCpuStreamContent;
+      dst_header->file_promise       = {0};
 
-      auto* dst_pkt            = (MaterialFileContentStreamingPacket*)ALLOC_OFF(scratch_memory, sizeof(MaterialFileContentStreamingPacket));
-      dst_pkt->material        = material;
-      dst_pkt->file_stream     = src_pkt.file_stream;
-      dst_pkt->asset_header    = src_pkt.asset_header;
-      dst_pkt->buf             = ALLOC_OFF(scratch_memory, read_size);
-      dst_pkt->size            = read_size;
+      auto* dst_pkt                  = (MaterialFileContentStreamingPacket*)ALLOC_OFF(scratch_memory, sizeof(MaterialFileContentStreamingPacket));
+      dst_pkt->material              = material;
+      dst_pkt->file_stream           = src_pkt.file_stream;
+      dst_pkt->asset_header          = src_pkt.asset_header;
+      dst_pkt->buf                   = ALLOC_OFF(scratch_memory, read_size);
+      dst_pkt->size                  = read_size;
+
+      // Fill in the statistics
+      dst_header->io_byte_count      = dst_pkt->size;
+      dst_header->request_timestamp  = begin_cpu_profiler_timestamp();
 
       Result<void, FileError> stream_ok = read_file(dst_pkt->file_stream, &dst_header->file_promise, dst_pkt->buf, dst_pkt->size, src_pkt.size);
       if (!stream_ok)
       {
         dbgln("Failed to stream asset 0x%x. File read failed.", asset_id);
-        material->asset.state    = kAssetFailedToLoad;
+        material->asset.state   = kAssetFailedToLoad;
         return;
       }
     } break;
@@ -994,9 +1031,13 @@ process_material_dep_request(AssetStreamer* streamer, AssetDependencyCmdHeader h
 
       void* scratch_memory        = gpu_stream_memory;
 
-      auto* dst_header            = (GpuStreamingCmdHeader*            )ALLOC_OFF(scratch_memory, sizeof(GpuStreamingCmdHeader));
-      dst_header->cmd             = kMaterialGpuStreamContent;
-      dst_header->gpu_fence_value = flush_gpu_cmds(streamer);
+      auto* dst_header               = (GpuStreamingCmdHeader*            )ALLOC_OFF(scratch_memory, sizeof(GpuStreamingCmdHeader));
+      dst_header->cmd                = kMaterialGpuStreamContent;
+      dst_header->request_timestamp  = begin_cpu_profiler_timestamp();
+      dst_header->gpu_fence_value    = flush_gpu_cmds(streamer);
+
+      // Fill in the statistics
+      dst_header->io_byte_count      = sizeof(MaterialGpu);
 
       auto* dst_pkt               = (MaterialGpuContentStreamingPacket*)ALLOC_OFF(scratch_memory, sizeof(MaterialGpuContentStreamingPacket));
       dst_pkt->material           = material;
@@ -1120,10 +1161,14 @@ kick_texture_load(TextureRegistry* registry, AssetStreamer* streamer, AssetId as
     FileStreamingCmdHeader*           header = (FileStreamingCmdHeader*          )ALLOC_OFF(scratch_memory, sizeof(FileStreamingCmdHeader));
     TextureFileHeaderStreamingPacket* pkt    = (TextureFileHeaderStreamingPacket*)ALLOC_OFF(scratch_memory, sizeof(TextureFileHeaderStreamingPacket));
 
-    header->cmd          = kTextureCpuStreamHeader;
-    pkt->texture         = texture;
-    pkt->size            = sizeof(TextureAsset);
-    pkt->file_stream     = file_open_ok.value();
+    header->cmd               = kTextureCpuStreamHeader;
+    pkt->texture              = texture;
+    pkt->size                 = sizeof(TextureAsset);
+    pkt->file_stream          = file_open_ok.value();
+
+    // Fill in the statistics
+    header->io_byte_count     = pkt->size;
+    header->request_timestamp = begin_cpu_profiler_timestamp();
 
     Result<void, FileError> file_read_ok = read_file(pkt->file_stream, &header->file_promise, &pkt->asset_header, pkt->size, 0);
     if (!file_read_ok)
@@ -1212,16 +1257,20 @@ process_texture_file_request(AssetStreamer* streamer, FileStreamingCmdHeader hea
       void* scratch_memory = file_io_memory;
 
       // Fill in the packet data
-      auto* dst_header         = (FileStreamingCmdHeader*           )ALLOC_OFF(scratch_memory, sizeof(FileStreamingCmdHeader));
-      dst_header->cmd          = kTextureCpuStreamContent;
-      dst_header->file_promise = {0};
+      auto* dst_header               = (FileStreamingCmdHeader*           )ALLOC_OFF(scratch_memory, sizeof(FileStreamingCmdHeader));
+      dst_header->cmd                = kTextureCpuStreamContent;
+      dst_header->file_promise       = {0};
 
-      auto* dst_pkt            = (TextureFileContentStreamingPacket*)ALLOC_OFF(scratch_memory, sizeof(TextureFileContentStreamingPacket));
-      dst_pkt->texture         = texture;
-      dst_pkt->file_stream     = src_pkt.file_stream;
-      dst_pkt->asset_header    = src_pkt.asset_header;
-      dst_pkt->buf             = ALLOC_OFF(scratch_memory, read_size);
-      dst_pkt->size            = read_size;
+      auto* dst_pkt                  = (TextureFileContentStreamingPacket*)ALLOC_OFF(scratch_memory, sizeof(TextureFileContentStreamingPacket));
+      dst_pkt->texture               = texture;
+      dst_pkt->file_stream           = src_pkt.file_stream;
+      dst_pkt->asset_header          = src_pkt.asset_header;
+      dst_pkt->buf                   = ALLOC_OFF(scratch_memory, read_size);
+      dst_pkt->size                  = read_size;
+
+      // Fill in the statistics
+      dst_header->io_byte_count      = dst_pkt->size;
+      dst_header->request_timestamp  = begin_cpu_profiler_timestamp();
 
       // Issue the async file I/O read request
       Result<void, FileError> stream_ok = read_file(dst_pkt->file_stream, &dst_header->file_promise, dst_pkt->buf, dst_pkt->size, src_pkt.size);
@@ -1319,9 +1368,13 @@ process_texture_file_request(AssetStreamer* streamer, FileStreamingCmdHeader hea
 
       void* scratch_memory        = gpu_stream_memory;
 
-      auto* dst_header            = (GpuStreamingCmdHeader*           )ALLOC_OFF(scratch_memory, sizeof(GpuStreamingCmdHeader));
-      dst_header->cmd             = kTextureGpuStreamContent;
-      dst_header->gpu_fence_value = flush_gpu_cmds(streamer);
+      auto* dst_header               = (GpuStreamingCmdHeader*           )ALLOC_OFF(scratch_memory, sizeof(GpuStreamingCmdHeader));
+      dst_header->cmd                = kTextureGpuStreamContent;
+      dst_header->request_timestamp  = begin_cpu_profiler_timestamp();
+      dst_header->gpu_fence_value    = flush_gpu_cmds(streamer);
+
+      // Fill in the statistics
+      dst_header->io_byte_count      = src_pkt.asset_header.uncompressed_size;
 
       auto* dst_pkt               = (TextureGpuContentStreamingPacket*)ALLOC_OFF(scratch_memory, sizeof(TextureGpuContentStreamingPacket));
       dst_pkt->texture            = texture;
@@ -1448,6 +1501,11 @@ process_header_file_io(AssetStreamer* streamer)
       return;
     }
 
+    // Add the statistics
+    u64 io_time_ms = (u64)end_cpu_profiler_timestamp(streamer->next_header_file_io_cmd.request_timestamp);
+    atomic_add(&g_AssetStreamingStats.file_io_bpf,        streamer->next_header_file_io_cmd.io_byte_count);
+    atomic_add(&g_AssetStreamingStats.file_io_elapsed_ms, io_time_ms);
+
     switch (streamer->next_header_file_io_cmd.cmd)
     {
       case kModelCpuStreamHeader:    process_model_file_request   (streamer, streamer->next_header_file_io_cmd, ready);  break;
@@ -1481,6 +1539,11 @@ process_content_file_io(AssetStreamer* streamer)
     {
       return;
     }
+
+    // Add the statistics
+    u64 io_time_ms = (u64)end_cpu_profiler_timestamp(streamer->next_content_file_io_cmd.request_timestamp);
+    atomic_add(&g_AssetStreamingStats.file_io_bpf,        streamer->next_content_file_io_cmd.io_byte_count);
+    atomic_add(&g_AssetStreamingStats.file_io_elapsed_ms, io_time_ms);
 
     switch (streamer->next_content_file_io_cmd.cmd)
     {
@@ -1516,6 +1579,11 @@ process_gpu_io(AssetStreamer* streamer)
     {
       return;
     }
+
+    // Add the statistics
+    u64 io_time_ms = (u64)end_cpu_profiler_timestamp(streamer->next_gpu_cmd.request_timestamp);
+    atomic_add(&g_AssetStreamingStats.gpu_io_bpf,        streamer->next_gpu_cmd.io_byte_count);
+    atomic_add(&g_AssetStreamingStats.gpu_io_elapsed_ms, io_time_ms);
 
     if      (streamer->next_gpu_cmd.cmd <= kModelCmdEnd)
     {
@@ -1830,6 +1898,14 @@ init_asset_streamer_impl(void)
   ret->thread = init_thread(g_InitHeap, kAssetStreamerStackSize, &asset_streaming_thread, (void*)ret, kAssetStreamingCoreIdx);
 
   set_thread_name(&ret->thread, L"Asset Streaming Thread");
+
+  g_AssetStreamingStats.file_io_bpf           = 0;
+  g_AssetStreamingStats.file_io_elapsed_ms = 0;
+  g_AssetStreamingStats.gpu_io_bpf            = 0;
+  g_AssetStreamingStats.gpu_io_elapsed_ms  = 0;
+  g_AssetStreamingStats.file_io_bps           = 0.0;
+  g_AssetStreamingStats.gpu_io_bps            = 0.0;
+
   return ret;
 }
 
@@ -1859,6 +1935,36 @@ asset_streamer_update(void)
 {
   asset_streamer_flush(g_AssetStreamer);
   process_main_thread(g_AssetStreamer);
+
+  u64 file_io_bytes       = atomic_exchange(&g_AssetStreamingStats.file_io_bpf,        0);
+  u64 file_io_elapsed_ms  = atomic_exchange(&g_AssetStreamingStats.file_io_elapsed_ms, 0);
+  f64 file_io_elapsed_sec = (f64)file_io_elapsed_ms / (f64)1000.0f;
+  u64 gpu_io_bytes        = atomic_exchange(&g_AssetStreamingStats.gpu_io_bpf,         0);
+  u64 gpu_io_elapsed_ms   = atomic_exchange(&g_AssetStreamingStats.gpu_io_elapsed_ms,  0);
+  f64 gpu_io_elapsed_sec  = (f64)gpu_io_elapsed_ms  / (f64)1000.0f;
+
+  // Moving average
+  static constexpr f64 kHysteresis = 0.5;
+
+  if (file_io_bytes == 0)
+  {
+    g_AssetStreamingStats.file_io_bps = kHysteresis * 0.0 + (1.0 - kHysteresis) * g_AssetStreamingStats.file_io_bps;
+  }
+  else if (file_io_elapsed_sec > 0)
+  {
+    f64 sample_bytes_per_sec          = (f64)file_io_bytes / (f64)file_io_elapsed_sec;
+    g_AssetStreamingStats.file_io_bps = kHysteresis * sample_bytes_per_sec + (1.0 - kHysteresis) * g_AssetStreamingStats.file_io_bps;
+  }
+
+  if (gpu_io_bytes == 0)
+  {
+    g_AssetStreamingStats.gpu_io_bps = kHysteresis * 0.0 + (1.0 - kHysteresis) * g_AssetStreamingStats.gpu_io_bps;
+  }
+  else if (gpu_io_elapsed_sec > 0)
+  {
+    f64 sample                       = (f64)gpu_io_bytes / (f64)gpu_io_elapsed_sec;
+    g_AssetStreamingStats.gpu_io_bps = kHysteresis * sample + (1.0 - kHysteresis) * g_AssetStreamingStats.gpu_io_bps;
+  }
 }
 
 void
@@ -1890,6 +1996,7 @@ kick_model_load(AssetId asset_id)
       model->asset.id    = asset_id;
       model->asset.type  = AssetType::kModel;
       model->asset.state = asset_id == kNullAssetId ? kAssetFailedToLoad : kAssetUnloaded;
+
     }
     else
     {

@@ -8,34 +8,6 @@
 
 static constexpr u32 kMaxAssetLoadRequests = 0x1000;
 
-enum AssetGpuLoadType
-{
-  kAssetGpuLoadTypeBuffer,
-  kAssetGpuLoadTypeTexture,
-};
-
-struct AssetGpuLoadRequest
-{
-  AssetId          asset_id          = 0;
-  AssetGpuLoadType type              = kAssetGpuLoadTypeBuffer;
-  u64              src_offset        = 0;
-  u32              compressed_size   = 0;
-  u32              uncompressed_size = 0;
-
-  union
-  {
-    struct
-    {
-      const GpuBuffer*  dst;
-      u64               dst_offset;
-    } buffer;
-    union
-    {
-      const GpuTexture* dst;
-    } texture;
-  };
-};
-
 enum AssetState : u32
 {
   kAssetUnloaded = 0,
@@ -49,9 +21,10 @@ enum AssetState : u32
 
 struct Asset
 {
-  AssetId    id    = kNullAssetId;
-  AssetType  type  = AssetType::kModel;
-  u32        state = kAssetUnloaded;
+  AssetId    id       = kNullAssetId;
+  AssetType  type     = AssetType::kModel;
+  u32        state    = kAssetUnloaded;
+  u32        __pad0__ = 0;
 };
 
 // The template type needs to have a member "asset" of type "Asset"
@@ -153,3 +126,17 @@ typedef AssetHandle<Model> ModelHandle;
 THREAD_SAFE ModelHandle    kick_model_load(AssetId asset_id);
 THREAD_SAFE MaterialHandle kick_material_load(AssetId asset_id);
 THREAD_SAFE TextureHandle  kick_texture_load(AssetId asset_id);
+
+struct AssetStreamingStatistics
+{
+  alignas(kCacheLineSize) Atomic<u64> file_io_bpf         = 0;
+  alignas(kCacheLineSize) Atomic<u64> file_io_elapsed_ms  = 0;
+  alignas(kCacheLineSize) Atomic<u64> gpu_io_bpf          = 0;
+  alignas(kCacheLineSize) Atomic<u64> gpu_io_elapsed_ms   = 0;
+
+  // EMA-smoothed bandwidth in bytes/sec, updated on the main thread
+  f64                                 file_io_bps         = 0.0;
+  f64                                 gpu_io_bps          = 0.0;
+};
+
+extern AssetStreamingStatistics g_AssetStreamingStats;

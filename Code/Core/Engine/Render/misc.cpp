@@ -342,6 +342,15 @@ render_handler_imgui(RenderContext* ctx, const RenderSettings&, const void* data
   ImGui::Text("CPU   (ms): %f ms", g_CpuEffectiveTime);
   ImGui::Text("GPU   (ms): %f ms", gpu_effective_time);
 
+  char file_io_fmt_bps[32];
+  char gpu_io_fmt_bps[32];
+
+  bytes_to_readable_str(file_io_fmt_bps, sizeof(file_io_fmt_bps), g_AssetStreamingStats.file_io_bps);
+  bytes_to_readable_str(gpu_io_fmt_bps,  sizeof(gpu_io_fmt_bps),  g_AssetStreamingStats.gpu_io_bps);
+
+  ImGui::Text("File I/O: %s/Sec", file_io_fmt_bps);
+  ImGui::Text("GPU  I/O: %s/Sec", gpu_io_fmt_bps);
+
 
   if (s_ShowDetailedPerformance)
   {

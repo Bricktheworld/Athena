@@ -138,6 +138,7 @@ init_render_scene_obj(ModelHandle model, u32 subset, u32 flags)
   SceneObj*      obj = get_scene_obj_common(ret);
   obj->model         = model;
   obj->subset_id     = subset;
+  obj->mat_id        = model->materials[subset]->gpu_id;
   obj->needs_instance_data_gpu_upload = true;
 
   return ret;
