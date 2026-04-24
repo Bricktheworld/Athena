@@ -197,26 +197,6 @@ application_entry(HINSTANCE instance, int show_code)
 
   init_scene();
 
-  ModelHandle sponza_model = kick_model_load(ASSET_ID("Assets/Source/sponza/Sponza.gltf"));
-#if 0
-  {
-    // CPU_PROFILE_SCOPE("Load Sponza");
-    // kick_asset_load(sponza_model);
-    while (true)
-    {
-      asset_streamer_update();
-
-      if (!sponza_model.is_loaded())
-      {
-        continue;
-      }
-
-
-      dbgln("Loaded sponza!");
-      break;
-    }
-  }
-#endif
 
 
   DirectX::Keyboard d3d12_keyboard;
@@ -250,6 +230,9 @@ application_entry(HINSTANCE instance, int show_code)
   directional_light->sky_diffuse     = Vec3(0.529, 0.807, 0.921);
   directional_light->sky_illuminance = 20000;
 
+  u64 sponza_load_start_timestamp = begin_cpu_profiler_timestamp();
+  ModelHandle sponza_model = kick_model_load(ASSET_ID("Assets/Source/sponza/Sponza.gltf"));
+
   bool is_model_loaded = false;
   bool done = false;
   while (!done)
@@ -280,7 +263,8 @@ application_entry(HINSTANCE instance, int show_code)
     if (!is_model_loaded && sponza_model.is_loaded())
     {
       is_model_loaded = true;
-      dbgln("Loaded sponza!");
+      f64 sponza_load_time_ms = end_cpu_profiler_timestamp(sponza_load_start_timestamp);
+      dbgln("Loaded sponza in %f ms!", sponza_load_time_ms);
 
       for (u32 isubset = 0; isubset < sponza_model->subsets.size; isubset++)
       {
