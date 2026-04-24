@@ -1771,32 +1771,7 @@ struct RenderContext
   void dispatch(u32 x, u32 y, u32 z);
   void dispatch_rays(const ShaderTable* shader_table, u32 x, u32 y, u32 z);
 
-  template <typename T>
-  void uav_barrier(RgRWStructuredBuffer<T> buffer)
-  {
-    uav_barrier(rg_deref_buffer(buffer));
-  }
-  template <typename T>
-  void uav_barrier(RgRWBuffer<T> buffer)
-  {
-    uav_barrier(rg_deref_buffer(buffer));
-  }
-  void uav_barrier(RgRWByteAddressBuffer buffer)
-  {
-    uav_barrier(rg_deref_buffer(buffer));
-  }
-  template <typename T>
-  void uav_barrier(RgRWTexture2D<T> texture)
-  {
-    uav_barrier(rg_deref_texture(texture));
-  }
-  template <typename T>
-  void uav_barrier(RgRWTexture2DArray<T> texture)
-  {
-    uav_barrier(rg_deref_texture(texture));
-  }
-  void uav_barrier(const GpuBuffer*  buffer);
-  void uav_barrier(const GpuTexture* texture);
+  void memory_barrier();
 
   void ia_set_index_buffer(const GpuBuffer* buffer, u32 stride, u32 size = 0);
   void ia_set_index_buffer(RgIndexBuffer    buffer, u32 stride, u32 size = 0);

@@ -374,7 +374,6 @@ struct GpuTextureDesc
   u32                   height        = 0;
   u16                   array_size    = 1;
 
-  // TODO(Brandon): Eventually make these less verbose and platform agnostic.
   GpuFormat             format        = kGpuFormatRGBA8Unorm;
   D3D12_RESOURCE_FLAGS  flags         = D3D12_RESOURCE_FLAG_NONE;
   union
@@ -417,12 +416,6 @@ GpuTexture alloc_gpu_texture(
   GpuAllocHeap heap,
   GpuTextureDesc desc,
   const char* name
-);
-
-void upload_gpu_texture(
-  const GpuDevice* device,
-  const void* rgba,
-  GpuTexture* dst
 );
 
 bool is_depth_format(GpuFormat format);
@@ -489,7 +482,7 @@ struct GpuRingBufferAllocation
 void gpu_ring_buffer_wait(GpuRingBuffer* buffer, u32 size);
 
 // Either returns the offset or the fence value to wait for
-Result<u64, FenceValue> gpu_ring_buffer_alloc(GpuRingBuffer* buffer, u32 size);
+Result<u64, FenceValue> gpu_ring_buffer_alloc(GpuRingBuffer* buffer, u32 size, u32 alignment = 1);
 // You need to commit the allocations otherwise they will stall. 
 // Commit after you are done using the memory/submitted the command buffer using it.
 void gpu_ring_buffer_commit(const GpuRingBuffer* buffer, CmdQueue* queue);
@@ -606,7 +599,6 @@ struct DescriptorPool
 
 DescriptorPool init_descriptor_pool(
   AllocHeap heap,
-  const GpuDevice* device,
   u32 size,
   DescriptorHeapType type,
   u32 table_reserved = 0
@@ -913,8 +905,8 @@ void destroy_gpu_device();
 
 void wait_for_gpu_device_idle(GpuDevice* device);
 
-void begin_gpu_profiler_timestamp(const CmdList& cmd_buffer, STRING_LITERAL const char* name);
-void end_gpu_profiler_timestamp(const CmdList& cmd_buffer, STRING_LITERAL const char* name);
+void begin_gpu_profiler_timestamp(CmdList* cmd_buffer, STRING_LITERAL const char* name);
+void end_gpu_profiler_timestamp(CmdList* cmd_buffer, STRING_LITERAL const char* name);
 f64  query_gpu_profiler_timestamp(STRING_LITERAL const char* name);
 
 struct SwapChain
@@ -987,6 +979,16 @@ void gpu_copy_buffer(
   u64      bytes
 );
 
+static constexpr u32 kGpuTextureAlignment = 512;
+// Copy buffer to texture
+void gpu_copy_texture(
+        CmdList*    cmd,
+        GpuTexture* dst,
+  const GpuBuffer&  src,
+        u64         src_offset,
+        u64         src_size
+);
+
 void gpu_memory_barrier(CmdList* cmd);
 // NOTE(bshihabi): It is the caller's responsibility to not submit the CmdList's out of order here. 
 // Doing so would put the GpuTexture in a bad state since the layout is tracked within the GpuTexture struct
@@ -1004,5 +1006,5 @@ void imgui_end_frame();
 void imgui_render(CmdList* cmd);
 
 #define U32_COLOR(r, g, b) (0xff000000u | ((u32)r << 16) | ((u32)g << 8) | (u32)b)
-#define GPU_SCOPED_EVENT(color, cmdlist, fmt, ...) PIXBeginEvent(cmdlist.d3d12_list, color, fmt, ##__VA_ARGS__); begin_gpu_profiler_timestamp(cmdlist, fmt); defer { PIXEndEvent(cmdlist.d3d12_list); end_gpu_profiler_timestamp(cmdlist, fmt); }
+#define GPU_SCOPED_EVENT(color, cmdlist, fmt, ...) PIXBeginEvent((cmdlist)->d3d12_list, color, fmt, ##__VA_ARGS__); begin_gpu_profiler_timestamp((cmdlist), fmt); defer { PIXEndEvent((cmdlist)->d3d12_list); end_gpu_profiler_timestamp((cmdlist), fmt); }
 

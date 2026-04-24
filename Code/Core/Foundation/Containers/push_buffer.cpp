@@ -210,15 +210,18 @@ push_buffer_begin_edit(PushBuffer* pb, u64 size)
     // The previous operations modifying the head mean we need to get the write head again
     segment = pb->write_head;
 
-    // Put a lock on writing until we're done writing from it
-    segment->write_semaphore++;
 
     void* dst = alloc_from_segment(segment, size);
 
     uintptr_t segment_offset = (uintptr_t)dst - pb->commit_segments_memory;
+    // Put a lock on writing until we're done writing from it
     if (segment_offset >= pb->commit_size)
     {
       pb->overflow_write_semaphore++;
+    }
+    else
+    {
+      segment->write_semaphore++;
     }
 
     return dst;
@@ -314,11 +317,12 @@ try_push_buffer_pop(PushBuffer* pb, void* dst_base, u64 size)
     }
   };
 
-  read_segments();
 
   // Not enough bytes have been flushed!
-  if (size > 0)
+  while (size > 0)
   {
+    read_segments();
+
     // If we're blocked on a semaphore, flushing more segments isn't going to do anything, so we should just return
     if (blocked_on_semaphore)
     {
@@ -336,9 +340,6 @@ try_push_buffer_pop(PushBuffer* pb, void* dst_base, u64 size)
     {
       return false;
     }
-
-    // If enough bytes were flushed, then continue reading segments.
-    read_segments();
   }
 
   while (segments_to_free > 0)
@@ -354,6 +355,11 @@ try_push_buffer_pop(PushBuffer* pb, void* dst_base, u64 size)
 void
 push_buffer_pop(PushBuffer* pb, void* dst, u64 size)
 {
+  if (size == 0)
+  {
+    return;
+  }
+
   bool ok = try_push_buffer_pop(pb, dst, size);
   ASSERT_MSG_FATAL(ok, "Failed to pop from PushBuffer! This likely means that the allocator entirely ran out of both reserve and commit memory. It is recommended to figure out why this occured and also bump the reserve memory so that a crash doesn't occur.");
 }

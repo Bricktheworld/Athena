@@ -197,31 +197,26 @@ application_entry(HINSTANCE instance, int show_code)
 
   init_scene();
 
+  ModelHandle sponza_model = kick_model_load(ASSET_ID("Assets/Source/sponza/Sponza.gltf"));
+#if 0
   {
-    CPU_PROFILE_SCOPE("Load Sponza");
-    ModelHandle sponza_model = kick_model_load(ASSET_ID("Assets/Source/sponza/Sponza.gltf"));
+    // CPU_PROFILE_SCOPE("Load Sponza");
     // kick_asset_load(sponza_model);
     while (true)
     {
+      asset_streamer_update();
+
       if (!sponza_model.is_loaded())
       {
         continue;
       }
 
-      for (u32 isubset = 0; isubset < sponza_model->subsets.size; isubset++)
-      {
-        SceneObjHandle handle = init_render_scene_obj(sponza_model, isubset);
-        (void)handle;
-      }
 
       dbgln("Loaded sponza!");
       break;
     }
   }
-
-  // TODO(bshihabi): Remove this... It is temporary for BVH building
-  wait_for_gpu_device_idle(g_GpuDevice);
-  build_acceleration_structures();
+#endif
 
 
   DirectX::Keyboard d3d12_keyboard;
@@ -255,6 +250,7 @@ application_entry(HINSTANCE instance, int show_code)
   directional_light->sky_diffuse     = Vec3(0.529, 0.807, 0.921);
   directional_light->sky_illuminance = 20000;
 
+  bool is_model_loaded = false;
   bool done = false;
   while (!done)
   {
@@ -280,11 +276,26 @@ application_entry(HINSTANCE instance, int show_code)
       }
     }
 
+
+    if (!is_model_loaded && sponza_model.is_loaded())
+    {
+      is_model_loaded = true;
+      dbgln("Loaded sponza!");
+
+      for (u32 isubset = 0; isubset < sponza_model->subsets.size; isubset++)
+      {
+        SceneObjHandle handle = init_render_scene_obj(sponza_model, isubset);
+        (void)handle;
+      }
+
+      // TODO(bshihabi): Remove this... It is temporary for BVH building
+      wait_for_gpu_device_idle(g_GpuDevice);
+    }
+
     asset_server_update();
+    asset_streamer_update();
 
     reset_frame_heap();
-
-    asset_streamer_update();
 
     if (g_MainWindow->needs_resize)
     {

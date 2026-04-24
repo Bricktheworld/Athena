@@ -142,7 +142,7 @@ init_renderer(
   zero_memory(&g_Renderer, sizeof(g_Renderer));
 
   g_DescriptorCbvSrvUavPool   = HEAP_ALLOC(DescriptorPool, g_InitHeap, 1);
-  *g_DescriptorCbvSrvUavPool  = init_descriptor_pool(g_InitHeap, device, 2048, kDescriptorHeapTypeCbvSrvUav, kGrvTemporalCount * kBackBufferCount + kGrvCount);
+  *g_DescriptorCbvSrvUavPool  = init_descriptor_pool(g_InitHeap, 2048, kDescriptorHeapTypeCbvSrvUav, kGrvTemporalCount * kBackBufferCount + kGrvCount);
 
   const uint32_t kGraphMemory = MiB(32);
   g_Renderer.graph_allocator  = init_linear_allocator(HEAP_ALLOC_ALIGNED(g_InitHeap, kGraphMemory, alignof(u64)), kGraphMemory);

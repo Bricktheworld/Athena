@@ -185,10 +185,6 @@ render_handler_frame_init(RenderContext* ctx, const RenderSettings& settings, co
   RenderSettingsGpu render_settings_gpu = to_gpu_render_settings(settings);
   ctx->write_cpu_upload_buffer(params->render_settings, &render_settings_gpu, sizeof(render_settings_gpu));
 
-  // For global resources you need to put manual resource barriers since they aren't tracked at compile time (assumed that everyone is going to use them)
-  ctx->uav_barrier(params->debug_draw_args_buffer);
-  ctx->uav_barrier(params->debug_line_vert_buffer);
-  ctx->uav_barrier(params->debug_sdf_buffer);
 
   ctx->set_graphics_root_shader_resource_view(kIndexBufferSlot ,           &g_UnifiedGeometryBuffer.index_buffer);
   ctx->set_graphics_root_shader_resource_view(kVertexBufferSlot,           &g_UnifiedGeometryBuffer.vertex_buffer);
@@ -197,12 +193,10 @@ render_handler_frame_init(RenderContext* ctx, const RenderSettings& settings, co
   ctx->set_compute_root_shader_resource_view(kVertexBufferSlot,           &g_UnifiedGeometryBuffer.vertex_buffer);
 
   // Clear/initialize the multi draw indirect args
+  ctx->memory_barrier();
   ctx->set_compute_pso(&params->init_debug_draw_buffers_pso);
   ctx->dispatch(UCEIL_DIV(MAX(kDebugMaxVertices, kDebugMaxSdfs), 64), 1, 1);
-
-  ctx->uav_barrier(params->debug_draw_args_buffer);
-  ctx->uav_barrier(params->debug_line_vert_buffer);
-  ctx->uav_barrier(params->debug_sdf_buffer);
+  ctx->memory_barrier();
 }
 
 FrameResources

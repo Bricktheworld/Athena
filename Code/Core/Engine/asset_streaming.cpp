@@ -26,6 +26,7 @@ enum StreamingCmd : u32
   kModelCpuStreamHeader,
   kModelCpuStreamContent,
   kModelGpuStreamContent,
+  kModelStreamDependencies,
   kModelCmdEnd,           // Leave this at the end here, so that we can determine streaming cmd type
 
   // Material cmds
@@ -39,6 +40,7 @@ enum StreamingCmd : u32
   kTextureCpuStreamHeader,
   kTextureCpuStreamContent,
   kTextureGpuStreamContent,
+  kTextureMainThreadInitialize,
   kTextureCmdEnd,         // Leave this at the end here, so that we can determine streaming cmd type
 };
 
@@ -64,6 +66,10 @@ struct AssetDependencyCmdHeader
   StreamingCmd     cmd              = kNullStreamingCmd;
   u32              dependency_count = 0;
   const Asset**    dependencies     = nullptr;
+
+  u32              pkt_size         = 0;
+  void*            pkt              = nullptr;
+
 };
 
 struct AssetStreamer
@@ -74,6 +80,7 @@ struct AssetStreamer
   PushBuffer                                content_file_io_buffer;
   PushBuffer                                gpu_io_buffer;
   PushBuffer                                asset_dependency_queue;
+  u32                                       num_asset_waiting_for_dependencies = 0;
 
   // Asset Streaming Thread (producer) -> Main Thread (consumer)
   //   Use this for any work that isn't thread safe. It will be done at the beginning of the frame.
@@ -84,10 +91,12 @@ struct AssetStreamer
   FileStreamingCmdHeader                    next_content_file_io_cmd;
   u32                                       file_io_assets_in_flight = 0;
   GpuStreamingCmdHeader                     next_gpu_cmd;
-  AssetDependencyCmdHeader                  next_asset_dependency_cmd;
 
   GpuRingBuffer                             gpu_staging_buffer;
   GpuBuffer                                 gpu_scratch_buffer;
+
+  // TODO(bshihabi): We should really use virtual memory for this
+  GpuLinearAllocator                        gpu_texture_allocator;
 
   CmdList                                   gpu_cmd_buffer;
   CmdListAllocator                          gpu_cmd_buffer_allocator;
@@ -112,11 +121,11 @@ flush_gpu_cmds(AssetStreamer* streamer)
 }
 
 static u64
-alloc_gpu_staging_bytes_blocking(AssetStreamer* streamer, u32 size)
+alloc_gpu_staging_bytes_blocking(AssetStreamer* streamer, u32 size, u32 alignment = 1)
 {
   while (true)
   {
-    Result<u64, FenceValue> ret = gpu_ring_buffer_alloc(&streamer->gpu_staging_buffer, size);
+    Result<u64, FenceValue> ret = gpu_ring_buffer_alloc(&streamer->gpu_staging_buffer, size, alignment);
     if (ret)
     {
       return ret.value();
@@ -205,6 +214,12 @@ struct ModelGpuContentStreamingPacket
 {
   Model*           model = nullptr;
   ModelAsset       asset_header;
+};
+
+struct ModelDependencyStreamingPacket
+{
+  Model*          model  = nullptr;
+  ModelAsset      asset_header;
 };
 
 static void
@@ -481,6 +496,7 @@ process_model_file_request(AssetStreamer* streamer, FileStreamingCmdHeader heade
           0
         );
       }
+      gpu_memory_barrier(&streamer->gpu_cmd_buffer);
 
       u64   scratch_size      = sizeof(GpuStreamingCmdHeader) + sizeof(ModelGpuContentStreamingPacket);
       void* gpu_stream_memory = push_buffer_begin_edit(&streamer->gpu_io_buffer, scratch_size);
@@ -533,11 +549,82 @@ process_model_gpu_request(AssetStreamer* streamer, GpuStreamingCmdHeader header)
         return;
       }
 
+      // We need to wait for the materials to be initialized to finish initializing the model
+      u64          scratch_size      = sizeof(AssetDependencyCmdHeader)          +
+                                       sizeof(Asset*) * model->materials.size    +
+                                       sizeof(ModelDependencyStreamingPacket);
+      void*        dependency_memory = push_buffer_begin_edit(&streamer->asset_dependency_queue, scratch_size);
+      defer { push_buffer_end_edit(&streamer->asset_dependency_queue, dependency_memory); };
+
+      void*         scratch_memory   = dependency_memory;
+                              
+      auto*         dst_header       = (AssetDependencyCmdHeader*      )ALLOC_OFF(scratch_memory, sizeof(AssetDependencyCmdHeader));
+      const Asset** dependencies     = (const Asset**                  )ALLOC_OFF(scratch_memory, sizeof(Asset*) * model->materials.size);
+      // NOTE(bshihabi): This has to appear after the header and dependencies because the consumer pops the dependencies off first
+      auto*         dst_pkt          = (ModelDependencyStreamingPacket*)ALLOC_OFF(scratch_memory, sizeof(ModelDependencyStreamingPacket));
+
+      dst_header->cmd                = kModelStreamDependencies;
+      dst_header->dependency_count   = (u32)model->materials.size;
+      dst_header->dependencies       = dependencies;
+      dst_header->pkt_size           = sizeof(ModelDependencyStreamingPacket);
+      dst_header->pkt                = dst_pkt;
+      dst_pkt->model                 = model;
+      dst_pkt->asset_header          = src_pkt.asset_header;
+
+      // Fill the dependencies
+      for (u32 imaterial = 0; imaterial < model->materials.size; imaterial++, dependencies++)
+      {
+        MaterialHandle material = model->materials[imaterial];
+        *dependencies = material.to_asset();
+      }
+
+      model->asset.state = kAssetUninitialized;
+
+      streamer->num_asset_waiting_for_dependencies++;
+    } break;
+    default: UNREACHABLE; break;
+  }
+}
+
+static void
+process_model_dep_request(AssetStreamer* streamer, AssetDependencyCmdHeader header)
+{
+  switch (header.cmd)
+  {
+    // Streaming in of the header
+    case kModelStreamDependencies:
+    {
+      // Pop the rest of the packet off of the queue
+      ModelDependencyStreamingPacket src_pkt;
+      push_buffer_pop(&streamer->asset_dependency_queue, &src_pkt, sizeof(src_pkt));
+
+      Model*  model    = src_pkt.model;
+      AssetId asset_id = model->asset.id;
+
+      // A bunch of validation checks for the model data
+      ASSERT_MSG_FATAL(src_pkt.asset_header.metadata.magic_number == kAssetMagicNumber,  "Model header data is corrupted for asset 0x%x. Expected magic number 0x%x but got 0x%x", asset_id, kAssetMagicNumber, src_pkt.asset_header.metadata.magic_number);
+      ASSERT_MSG_FATAL(src_pkt.asset_header.metadata.asset_hash   == asset_id,           "Model header data is corrupted for asset 0x%x. Expected asset ID 0x%x but got 0x%x",     asset_id, asset_id,          src_pkt.asset_header.metadata.asset_hash);
+      ASSERT_MSG_FATAL(src_pkt.asset_header.metadata.asset_type   == AssetType::kModel,  "Model header data is corrupted for asset 0x%x. Expected asset type 0x%x but got 0x%x",   asset_id, AssetType::kModel, src_pkt.asset_header.metadata.asset_type);
+      ASSERT_MSG_FATAL(src_pkt.asset_header.metadata.version      == kModelAssetVersion, "Model asset version for asset 0x%x mismatched. Expected version 0x%x but got 0x%x. Please run the asset builder on this asset.", asset_id, kModelAssetVersion, src_pkt.asset_header.metadata.version);
+
+      bool valid_data = src_pkt.asset_header.metadata.magic_number == kAssetMagicNumber &&
+                        src_pkt.asset_header.metadata.asset_hash   == asset_id          &&
+                        src_pkt.asset_header.metadata.asset_type   == AssetType::kModel &&
+                        src_pkt.asset_header.metadata.version      == kModelAssetVersion;
+      if (!valid_data)
+      {
+        dbgln("Skipping corrupted asset 0x%x", asset_id);
+        model->asset.state = kAssetFailedToLoad;
+        return;
+      }
+
+      // The asset is now ready
       model->asset.state = kAssetReady;
     } break;
     default: UNREACHABLE; break;
   }
 }
+
 
 //////////////////////////////
 //    Material Streaming    //
@@ -776,20 +863,16 @@ process_material_file_request(AssetStreamer* streamer, FileStreamingCmdHeader he
       {
         TextureHandle* dst = array_add(&material->textures);
         *dst               = kick_texture_load(texture_asset_ids[itexture]);
-        if (dst->is_streaming())
+        if (!dst->is_loaded())
         {
           unstreamed_textures++;
         }
-        else if (!dst->is_loaded())
-        {
-          material->asset.state = kAssetFailedToInitialize;
-        }
       }
 
+      // We need to wait for the textures to be initialized to finish initializing the material
       u64          scratch_size      = sizeof(AssetDependencyCmdHeader)          +
                                        sizeof(Asset*) * unstreamed_textures      +
                                        sizeof(MaterialDependencyStreamingPacket);
-      // We need to wait for the textures to be initialized to finish initializing the material
       void*        dependency_memory = push_buffer_begin_edit(&streamer->asset_dependency_queue, scratch_size);
       defer { push_buffer_end_edit(&streamer->asset_dependency_queue, dependency_memory); };
 
@@ -803,6 +886,8 @@ process_material_file_request(AssetStreamer* streamer, FileStreamingCmdHeader he
       dst_header->cmd                = kMaterialStreamDependencies;
       dst_header->dependency_count   = unstreamed_textures;
       dst_header->dependencies       = dependencies;
+      dst_header->pkt_size           = sizeof(MaterialDependencyStreamingPacket);
+      dst_header->pkt                = dst_pkt;
       dst_pkt->material              = material;
       dst_pkt->asset_header          = src_pkt.asset_header;
 
@@ -816,6 +901,8 @@ process_material_file_request(AssetStreamer* streamer, FileStreamingCmdHeader he
           dependencies++;
         }
       }
+
+      streamer->num_asset_waiting_for_dependencies++;
     } break;
     default: UNREACHABLE; break;
   }
@@ -852,15 +939,12 @@ process_material_dep_request(AssetStreamer* streamer, AssetDependencyCmdHeader h
 
       for (u32 itexture = 0; itexture < material->textures.size; itexture++)
       {
-        if (!material->textures[itexture].is_loaded())
+        if (!material->textures[itexture].is_loaded() && !material->textures[itexture].is_broken())
         {
           ASSERT_MSG_FATAL(material->textures[itexture].is_loaded(), "Material textures should have loaded before process_material_dep_request was reached! This is a bug in the asset streamer.");
           return;
         }
       }
-
-      // TODO(bshihabi): We should make this more flexible once we know what our material system looks like.
-      ASSERT_MSG_FATAL(material->textures.size == 4, "Only 4 textures are supported per material. This material was built incorrectly by the builder.");
 
       // Upload the material to the GPU using the staging buffer
       MaterialGpu gpu_material;
@@ -979,6 +1063,12 @@ struct TextureGpuContentStreamingPacket
   TextureAsset asset_header;
 };
 
+struct TextureInitializationPacket
+{
+  Texture*     texture = nullptr;
+  TextureAsset asset_header;
+};
+
 static void
 kick_texture_load(TextureRegistry* registry, AssetStreamer* streamer, AssetId asset_id)
 {
@@ -1029,6 +1119,20 @@ kick_texture_load(TextureRegistry* registry, AssetStreamer* streamer, AssetId as
   }
 }
 
+static GpuFormat
+texture_format_to_gpu_format(TextureFormat format, ColorSpaceName color_space)
+{
+  // TODO(bshihabi): We need to support EOTF conversions and such
+  UNREFERENCED_PARAMETER(color_space);
+  switch (format)
+  {
+    case TextureFormat::kRGBA8Unorm:   return kGpuFormatRGBA8Unorm;
+    case TextureFormat::kRGB10A2Unorm: return kGpuFormatRGB10A2Unorm;
+    case TextureFormat::kRGBA16Float:  return kGpuFormatRGBA16Float;
+    default: UNREACHABLE;
+  }
+}
+
 static void
 process_texture_file_request(AssetStreamer* streamer, FileStreamingCmdHeader header, AwaitError await_result)
 {
@@ -1073,6 +1177,13 @@ process_texture_file_request(AssetStreamer* streamer, FileStreamingCmdHeader hea
         return;
       }
 
+      // Copy in all the metadata
+      texture->width       = src_pkt.asset_header.width;
+      texture->height      = src_pkt.asset_header.height;
+      texture->format      = src_pkt.asset_header.format;
+      texture->color_space = src_pkt.asset_header.color_space;
+
+      // Allocate the scratch data for the content read
       u64   read_size    = src_pkt.asset_header.compressed_size;
 
       u64   scratch_size = sizeof(FileStreamingCmdHeader)            +
@@ -1084,6 +1195,7 @@ process_texture_file_request(AssetStreamer* streamer, FileStreamingCmdHeader hea
 
       void* scratch_memory = file_io_memory;
 
+      // Fill in the packet data
       auto* dst_header         = (FileStreamingCmdHeader*           )ALLOC_OFF(scratch_memory, sizeof(FileStreamingCmdHeader));
       dst_header->cmd          = kTextureCpuStreamContent;
       dst_header->file_promise = {0};
@@ -1095,6 +1207,7 @@ process_texture_file_request(AssetStreamer* streamer, FileStreamingCmdHeader hea
       dst_pkt->buf             = ALLOC_OFF(scratch_memory, read_size);
       dst_pkt->size            = read_size;
 
+      // Issue the async file I/O read request
       Result<void, FileError> stream_ok = read_file(dst_pkt->file_stream, &dst_header->file_promise, dst_pkt->buf, dst_pkt->size, src_pkt.size);
       if (!stream_ok)
       {
@@ -1108,8 +1221,20 @@ process_texture_file_request(AssetStreamer* streamer, FileStreamingCmdHeader hea
       TextureFileContentStreamingPacket src_pkt;
       push_buffer_pop(&streamer->content_file_io_buffer, &src_pkt, sizeof(src_pkt));
 
-      Texture* texture  = src_pkt.texture;
-      AssetId  asset_id = texture->asset.id;
+      // !!! WARNING !!!
+      //
+      // The first sizeof(MaterialAsset) bytes of this pointer are invalid.
+      //
+      // The pointer arithmetic simply makes more sense if I subtract off the MaterialAsset header which has
+      // already been read in. This way, the offset pointers are just added to this base pointer.
+      //
+      // Read from this pointer with care.
+      //
+      // !!! WARNING !!!
+      u8*      buf          = (u8*)src_pkt.buf - sizeof(TextureAsset);
+      Texture* texture      = src_pkt.texture;
+      AssetId  asset_id     = texture->asset.id;
+      u8*      texture_data = buf + src_pkt.asset_header.data;
 
       texture->asset.state = kAssetStreaming;
 
@@ -1147,6 +1272,30 @@ process_texture_file_request(AssetStreamer* streamer, FileStreamingCmdHeader hea
       }
 
       // TODO(bshihabi): Allocate a GpuTexture, copy src_pkt.buf into the GPU staging buffer, and issue the upload command
+      u8* gpu_scratch_mapped_base = (u8*)unwrap(streamer->gpu_staging_buffer.buffer.mapped);
+      u8* gpu_scratch_mapped      = gpu_scratch_mapped_base + alloc_gpu_staging_bytes_blocking(streamer, src_pkt.asset_header.uncompressed_size, kGpuTextureAlignment);
+
+      // Copy the data to staging buffer
+      memcpy(gpu_scratch_mapped, texture_data, src_pkt.asset_header.uncompressed_size);
+
+      // Allocate the GpuTexture
+      // TODO(bshihabi): Make this reserve virtual memory and only make required mips resident
+      GpuTextureDesc gpu_texture_desc = {0};
+      gpu_texture_desc.width             = texture->width;
+      gpu_texture_desc.height            = texture->height;
+      gpu_texture_desc.array_size        = 1;
+      gpu_texture_desc.format            = texture_format_to_gpu_format(texture->format, texture->color_space);
+      gpu_texture_desc.color_clear_value = Vec4(0.0f, 0.0f, 0.0f, 0.0f);
+      texture->gpu_texture               = alloc_gpu_texture(g_GpuDevice, streamer->gpu_texture_allocator, gpu_texture_desc, "Content Gpu Texture");
+
+      gpu_copy_texture(
+        &streamer->gpu_cmd_buffer,
+        &texture->gpu_texture,
+        streamer->gpu_staging_buffer.buffer,
+        gpu_scratch_mapped - gpu_scratch_mapped_base,
+        src_pkt.asset_header.uncompressed_size
+      );
+      gpu_texture_layout_transition(&streamer->gpu_cmd_buffer, &texture->gpu_texture, kGpuTextureLayoutGeneral);
 
       u64   scratch_size      = sizeof(GpuStreamingCmdHeader) + sizeof(TextureGpuContentStreamingPacket);
       void* gpu_stream_memory = push_buffer_begin_edit(&streamer->gpu_io_buffer, scratch_size);
@@ -1195,9 +1344,65 @@ process_texture_gpu_request(AssetStreamer* streamer, GpuStreamingCmdHeader heade
         return;
       }
 
-      // TODO(bshihabi): Register the GpuTexture with the bindless descriptor heap
+      // Now that the Gpu is done initialization, we need to allocate the descriptor on the main thread
+      u64   scratch_size      = sizeof(MainThreadCmdHeader) + sizeof(TextureInitializationPacket);
+      void* gpu_stream_memory = push_buffer_begin_edit(&streamer->main_thread_cmd_queue, scratch_size);
+      defer { push_buffer_end_edit(&streamer->main_thread_cmd_queue, gpu_stream_memory); };
 
-      texture->asset.state = kAssetReady;
+      void* scratch_memory    = gpu_stream_memory;
+
+      auto* dst_header        = (MainThreadCmdHeader*        )ALLOC_OFF(scratch_memory, sizeof(MainThreadCmdHeader));
+      dst_header->cmd         = kTextureMainThreadInitialize;
+                              
+      auto* dst_pkt           = (TextureInitializationPacket*)ALLOC_OFF(scratch_memory, sizeof(TextureInitializationPacket));
+      dst_pkt->texture        = texture;
+      dst_pkt->asset_header   = src_pkt.asset_header;
+
+      texture->asset.state    = kAssetUninitialized;
+    } break;
+    default: UNREACHABLE; break;
+  }
+}
+
+static void
+process_texture_main_thread(PushBuffer* main_thread_cmd_queue, MainThreadCmdHeader header)
+{
+  switch (header.cmd)
+  {
+    case kTextureMainThreadInitialize:
+    {
+      TextureGpuContentStreamingPacket src_pkt;
+      push_buffer_pop(main_thread_cmd_queue, &src_pkt, sizeof(src_pkt));
+
+      Texture* texture  = src_pkt.texture;
+      AssetId  asset_id = texture->asset.id;
+
+      ASSERT_MSG_FATAL(src_pkt.asset_header.metadata.magic_number == kAssetMagicNumber,    "Texture header data is corrupted for asset 0x%x. Expected magic number 0x%x but got 0x%x",    asset_id, kAssetMagicNumber,       src_pkt.asset_header.metadata.magic_number);
+      ASSERT_MSG_FATAL(src_pkt.asset_header.metadata.asset_hash   == asset_id,             "Texture header data is corrupted for asset 0x%x. Expected asset ID 0x%x but got 0x%x",         asset_id, asset_id,              src_pkt.asset_header.metadata.asset_hash);
+      ASSERT_MSG_FATAL(src_pkt.asset_header.metadata.asset_type   == AssetType::kTexture,  "Texture header data is corrupted for asset 0x%x. Expected asset type 0x%x but got 0x%x",       asset_id, AssetType::kTexture,  src_pkt.asset_header.metadata.asset_type);
+      ASSERT_MSG_FATAL(src_pkt.asset_header.metadata.version      == kTextureAssetVersion, "Texture asset version for asset 0x%x mismatched. Expected version 0x%x but got 0x%x. Please run the asset builder on this asset.", asset_id, kTextureAssetVersion, src_pkt.asset_header.metadata.version);
+
+      bool valid_data = src_pkt.asset_header.metadata.magic_number == kAssetMagicNumber   &&
+                        src_pkt.asset_header.metadata.asset_hash   == asset_id            &&
+                        src_pkt.asset_header.metadata.asset_type   == AssetType::kTexture &&
+                        src_pkt.asset_header.metadata.version      == kTextureAssetVersion;
+      if (!valid_data)
+      {
+        dbgln("Skipping corrupted asset 0x%x", asset_id);
+        texture->asset.state = kAssetFailedToLoad;
+        return;
+      }
+
+      // Allocate the descriptor on the main thread and initialize the SRV.
+      texture->srv_descriptor = alloc_descriptor(g_DescriptorCbvSrvUavPool);
+      GpuTextureSrvDesc desc;
+      desc.mip_levels        = 1;
+      desc.most_detailed_mip = 0;
+      desc.array_size        = 1;
+      desc.format            = texture->gpu_texture.desc.format;
+      init_texture_srv(&texture->srv_descriptor, &texture->gpu_texture, desc);
+
+      texture->asset.state   = kAssetReady;
     } break;
     default: UNREACHABLE; break;
   }
@@ -1319,34 +1524,79 @@ process_gpu_io(AssetStreamer* streamer)
 }
 
 static void
-process_asset_dependencies(AssetStreamer* streamer)
+process_main_thread(AssetStreamer* streamer)
 {
   while (true)
   {
-    if (streamer->next_asset_dependency_cmd.dependency_count == 0)
+    MainThreadCmdHeader header;
+    if (!try_push_buffer_pop(&streamer->main_thread_cmd_queue, &header, sizeof(header)))
     {
-      if (!try_push_buffer_pop(&streamer->asset_dependency_queue, &streamer->next_asset_dependency_cmd, sizeof(AssetDependencyCmdHeader)))
-      {
-        return;
-      }
+      return;
     }
 
-    AssetDependencyCmdHeader* cmd          = &streamer->next_asset_dependency_cmd;
-    const Asset**       dependencies = cmd->dependencies;
-    for (u32 iasset = 0; iasset < cmd->dependency_count; iasset++)
+    switch (header.cmd)
     {
+      case kTextureMainThreadInitialize: process_texture_main_thread(&streamer->main_thread_cmd_queue, header); break;
+      default: ASSERT_MSG_FATAL(false, "Invalid streaming command received %u!", header.cmd); break;
+    }
+  }
+}
+
+static void
+process_asset_dependencies(AssetStreamer* streamer)
+{
+  // TODO(bshihabi): This is a bit hacky, but we basically copy all of the packets around to avoid cyclical dependencies.
+  // This is my temporary solution for "out of order" consumption queue.
+  u32 asset_count = streamer->num_asset_waiting_for_dependencies;
+  for (u32 iasset = 0; iasset < asset_count; iasset++)
+  {
+    AssetDependencyCmdHeader header;
+    push_buffer_pop(&streamer->asset_dependency_queue, &header, sizeof(header));
+
+    const Asset** dependencies = header.dependencies;
+    for (u32 iasset = 0; iasset < header.dependency_count; iasset++)
+    {
+      // If one of the assets isn't ready
       if (dependencies[iasset]->state < kAssetReady)
       {
+        // Push the packet back onto the queue so that we can try again next time around
+        u64   scratch_size      = sizeof(AssetDependencyCmdHeader)         +
+                                  sizeof(Asset*) * header.dependency_count +
+                                  header.pkt_size;
+        void* dependency_memory = push_buffer_begin_edit(&streamer->asset_dependency_queue, scratch_size);
+        defer { push_buffer_end_edit(&streamer->asset_dependency_queue, dependency_memory); };
+
+        void* scratch_memory    = dependency_memory;
+
+        auto* dst_header        = (AssetDependencyCmdHeader*)ALLOC_OFF(scratch_memory, sizeof(AssetDependencyCmdHeader));
+        void* dst_dependencies  =                            ALLOC_OFF(scratch_memory, sizeof(Asset*) * header.dependency_count);
+        void* dst_pkt           =                            ALLOC_OFF(scratch_memory, header.pkt_size);
+
+        memcpy(dst_header,       &header,      sizeof(AssetDependencyCmdHeader));
+        memcpy(dst_dependencies, dependencies, sizeof(Asset*) * header.dependency_count);
+        memcpy(dst_pkt,          header.pkt,   header.pkt_size);
+
+        // Patch up all of the pointers since everything moved
+        dst_header->dependencies = (const Asset**)dst_dependencies;
+        dst_header->pkt          = dst_pkt;
+
+        // Pop off the old packet since we pushed it around the queue
+        push_buffer_pop(&streamer->asset_dependency_queue, sizeof(Asset*) * header.dependency_count + header.pkt_size);
+
         return;
       }
     }
 
-    // Pop off the rest of the packet since it's ready now
-    push_buffer_pop(&streamer->asset_dependency_queue, sizeof(const Asset*) * cmd->dependency_count);
+    push_buffer_pop(&streamer->asset_dependency_queue, sizeof(Asset*) * header.dependency_count);
 
-    if (streamer->next_gpu_cmd.cmd <= kMaterialCmdEnd)
+    switch (header.cmd)
     {
+      case kModelStreamDependencies:    process_model_dep_request   (streamer, header); break;
+      case kMaterialStreamDependencies: process_material_dep_request(streamer, header); break;
+      default: ASSERT_MSG_FATAL(false, "Invalid streaming command received %u!", header.cmd);
     }
+
+    streamer->num_asset_waiting_for_dependencies--;
   }
 }
 
@@ -1365,7 +1615,7 @@ kick_material_load(AssetId asset_id)
 
       material->asset.id    = asset_id;
       material->asset.type  = AssetType::kMaterial;
-      material->asset.state = kAssetUnloaded;
+      material->asset.state = asset_id == kNullAssetId ? kAssetFailedToLoad : kAssetUnloaded;
     }
     else
     {
@@ -1378,29 +1628,32 @@ kick_material_load(AssetId asset_id)
   ret.m_Id  = asset_id;
   ret.m_Ptr = material;
 
-  for (u32 itry = 0; /*TODO(bshihabi): Potentially put a max amount here in case of deadlock...*/ ; itry++)
+  if (asset_id != kNullAssetId)
   {
-    bool ok = ACQUIRE(&g_AssetStreamer->asset_stream_requests, auto* asset_stream_requests)
+    for (u32 itry = 0; /*TODO(bshihabi): Potentially put a max amount here in case of deadlock...*/ ; itry++)
     {
-      AssetStreamRequest request;
-      request.asset_type = AssetType::kMaterial;
-      request.asset_id   = asset_id;
-      return try_ring_queue_push(asset_stream_requests, request);
-    };
+      bool ok = ACQUIRE(&g_AssetStreamer->asset_stream_requests, auto* asset_stream_requests)
+      {
+        AssetStreamRequest request;
+        request.asset_type = AssetType::kMaterial;
+        request.asset_id   = asset_id;
+        return try_ring_queue_push(asset_stream_requests, request);
+      };
 
-    if (ok)
-    {
-      break;
-    }
+      if (ok)
+      {
+        break;
+      }
 
-    if (itry == 0)
-    {
-      dbgln("Asset stream request queue is full! This will stall the calling thread requesting asset 0x%x (this should not be the case as it could hold up other work). Consider increasing the size of the ring queue for g_AssetStreamer->asset_streaming_requests.", asset_id);
+      if (itry == 0)
+      {
+        dbgln("Asset stream request queue is full! This will stall the calling thread requesting asset 0x%x (this should not be the case as it could hold up other work). Consider increasing the size of the ring queue for g_AssetStreamer->asset_streaming_requests.", asset_id);
+      }
+      _mm_pause();
+      _mm_pause();
+      _mm_pause();
+      _mm_pause();
     }
-    _mm_pause();
-    _mm_pause();
-    _mm_pause();
-    _mm_pause();
   }
 
   return ret;
@@ -1420,7 +1673,8 @@ kick_texture_load(AssetId asset_id)
 
       texture->asset.id    = asset_id;
       texture->asset.type  = AssetType::kTexture;
-      texture->asset.state = kAssetUnloaded;
+      texture->asset.state = asset_id == kNullAssetId ? kAssetFailedToLoad : kAssetUnloaded;
+
     }
     else
     {
@@ -1433,29 +1687,32 @@ kick_texture_load(AssetId asset_id)
   ret.m_Id  = asset_id;
   ret.m_Ptr = texture;
 
-  for (u32 itry = 0; /*TODO(bshihabi): Potentially put a max amount here in case of deadlock...*/ ; itry++)
+  if (asset_id != kNullAssetId)
   {
-    bool ok = ACQUIRE(&g_AssetStreamer->asset_stream_requests, auto* asset_stream_requests)
+    for (u32 itry = 0; /*TODO(bshihabi): Potentially put a max amount here in case of deadlock...*/ ; itry++)
     {
-      AssetStreamRequest request;
-      request.asset_type = AssetType::kTexture;
-      request.asset_id   = asset_id;
-      return try_ring_queue_push(asset_stream_requests, request);
-    };
+      bool ok = ACQUIRE(&g_AssetStreamer->asset_stream_requests, auto* asset_stream_requests)
+      {
+        AssetStreamRequest request;
+        request.asset_type = AssetType::kTexture;
+        request.asset_id   = asset_id;
+        return try_ring_queue_push(asset_stream_requests, request);
+      };
 
-    if (ok)
-    {
-      break;
-    }
+      if (ok)
+      {
+        break;
+      }
 
-    if (itry == 0)
-    {
-      dbgln("Asset stream request queue is full! This will stall the calling thread requesting asset 0x%x (this should not be the case as it could hold up other work). Consider increasing the size of the ring queue for g_AssetStreamer->asset_streaming_requests.", asset_id);
+      if (itry == 0)
+      {
+        dbgln("Asset stream request queue is full! This will stall the calling thread requesting asset 0x%x (this should not be the case as it could hold up other work). Consider increasing the size of the ring queue for g_AssetStreamer->asset_streaming_requests.", asset_id);
+      }
+      _mm_pause();
+      _mm_pause();
+      _mm_pause();
+      _mm_pause();
     }
-    _mm_pause();
-    _mm_pause();
-    _mm_pause();
-    _mm_pause();
   }
 
   return ret;
@@ -1500,6 +1757,7 @@ asset_streaming_thread(void* param)
     process_header_file_io(streamer);
     process_content_file_io(streamer);
     process_gpu_io(streamer);
+    process_asset_dependencies(streamer);
   }
 
   return 0;
@@ -1516,18 +1774,22 @@ init_asset_streamer_impl(void)
   u64 kHeaderFileIOBufferSize   = MiB(4);
   u64 kContentFileIOBufferSize  = MiB(256);
   u64 kGpuStreamQueueSize       = MiB(128);
-  u64 kAssetDependencyQueueSize = KiB(4);
+  u64 kAssetDependencyQueueSize = MiB(4);
+  u64 kMainThreadQueueSize      = MiB(1);
   u32 kGpuStagingBufferSize     = MiB(64);
   u32 kGpuScratchBufferSize     = MiB(8);
 
-  ret->header_file_io_buffer        = init_push_buffer(KiB(1),  kHeaderFileIOBufferSize,   MiB(8));
-  ret->content_file_io_buffer       = init_push_buffer(MiB(16), kContentFileIOBufferSize,  GiB(1));
-  ret->gpu_io_buffer                = init_push_buffer(KiB(1),  kGpuStreamQueueSize,       GiB(1));
-  ret->asset_dependency_queue       = init_push_buffer(KiB(1),  kAssetDependencyQueueSize, MiB(1));
-  ret->next_header_file_io_cmd.cmd  = kNullStreamingCmd;
-  ret->next_content_file_io_cmd.cmd = kNullStreamingCmd;
-  ret->next_gpu_cmd.cmd             = kNullStreamingCmd;
-  ret->next_asset_dependency_cmd.dependency_count = 0;
+  u32 kGpuTextureHeapSize       = GiB(1);
+
+  ret->header_file_io_buffer              = init_push_buffer(KiB(1),  kHeaderFileIOBufferSize,   MiB(8));
+  ret->content_file_io_buffer             = init_push_buffer(MiB(16), kContentFileIOBufferSize,  GiB(1));
+  ret->gpu_io_buffer                      = init_push_buffer(KiB(1),  kGpuStreamQueueSize,       GiB(1));
+  ret->asset_dependency_queue             = init_push_buffer(KiB(1),  kAssetDependencyQueueSize, MiB(32));
+  ret->main_thread_cmd_queue              = init_push_buffer(KiB(4),  kMainThreadQueueSize,      MiB(1));
+  ret->next_header_file_io_cmd.cmd        = kNullStreamingCmd;
+  ret->next_content_file_io_cmd.cmd       = kNullStreamingCmd;
+  ret->next_gpu_cmd.cmd                   = kNullStreamingCmd;
+  ret->num_asset_waiting_for_dependencies = 0;
 
   GpuBufferDesc staging_desc    = {0};
   staging_desc.size             = kGpuStagingBufferSize;
@@ -1537,6 +1799,8 @@ init_asset_streamer_impl(void)
   staging_desc.size             = kGpuScratchBufferSize;
   scratch_desc.flags            = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
   ret->gpu_scratch_buffer       = alloc_gpu_buffer_no_heap(g_GpuDevice, staging_desc, kGpuHeapGpuOnly, "BLAS Scratch Buffer");
+
+  ret->gpu_texture_allocator    = init_gpu_linear_allocator(kGpuTextureHeapSize, kGpuHeapGpuOnly);
 
   ret->gpu_cmd_buffer_allocator = init_cmd_list_allocator(g_InitHeap, g_GpuDevice, &g_GpuDevice->compute_queue, 64);
   ret->gpu_cmd_buffer           = alloc_cmd_list(&ret->gpu_cmd_buffer_allocator);
@@ -1571,12 +1835,14 @@ asset_streamer_flush(AssetStreamer* streamer)
 {
   push_buffer_flush(&streamer->content_file_io_buffer);
   push_buffer_flush(&streamer->gpu_io_buffer);
+  push_buffer_flush(&streamer->main_thread_cmd_queue);
 }
 
 void
 asset_streamer_update(void)
 {
   asset_streamer_flush(g_AssetStreamer);
+  process_main_thread(g_AssetStreamer);
 }
 
 void
@@ -1607,7 +1873,7 @@ kick_model_load(AssetId asset_id)
 
       model->asset.id    = asset_id;
       model->asset.type  = AssetType::kModel;
-      model->asset.state = kAssetUnloaded;
+      model->asset.state = asset_id == kNullAssetId ? kAssetFailedToLoad : kAssetUnloaded;
     }
     else
     {
@@ -1621,29 +1887,32 @@ kick_model_load(AssetId asset_id)
   ret.m_Id  = asset_id;
   ret.m_Ptr = model;
 
-  for (u32 itry = 0; /*TODO(bshihabi): Potentially put a max amount here in case of deadlock...*/ ; itry++)
+  if (asset_id != kNullAssetId)
   {
-    bool ok = ACQUIRE(&g_AssetStreamer->asset_stream_requests, auto* asset_stream_requests)
+    for (u32 itry = 0; /*TODO(bshihabi): Potentially put a max amount here in case of deadlock...*/ ; itry++)
     {
-      AssetStreamRequest request;
-      request.asset_type = AssetType::kModel;
-      request.asset_id   = asset_id;
-      return try_ring_queue_push(asset_stream_requests, request);
-    };
+      bool ok = ACQUIRE(&g_AssetStreamer->asset_stream_requests, auto* asset_stream_requests)
+      {
+        AssetStreamRequest request;
+        request.asset_type = AssetType::kModel;
+        request.asset_id   = asset_id;
+        return try_ring_queue_push(asset_stream_requests, request);
+      };
 
-    if (ok)
-    {
-      break;
-    }
+      if (ok)
+      {
+        break;
+      }
 
-    if (itry == 0)
-    {
-      dbgln("Asset stream request queue is full! This will stall the calling thread requesting asset 0x%x (this should not be the case as it could hold up other work). Consider increasing the size of the ring queue for g_AssetStreamer->asset_streaming_requests.", asset_id);
+      if (itry == 0)
+      {
+        dbgln("Asset stream request queue is full! This will stall the calling thread requesting asset 0x%x (this should not be the case as it could hold up other work). Consider increasing the size of the ring queue for g_AssetStreamer->asset_streaming_requests.", asset_id);
+      }
+      _mm_pause();
+      _mm_pause();
+      _mm_pause();
+      _mm_pause();
     }
-    _mm_pause();
-    _mm_pause();
-    _mm_pause();
-    _mm_pause();
   }
 
   return ret;

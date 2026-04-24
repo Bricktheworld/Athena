@@ -76,6 +76,7 @@ struct AssetHandle
   AssetState get_asset_state() const { return (AssetState)to_asset()->state; }
 
   bool       is_loaded()       const { return get_asset_state() == kAssetReady;                                            }
+  bool       is_broken()       const { return get_asset_state() >= kAssetFailedToLoad;                                     }
   bool       is_streaming()    const { return get_asset_state() >= kAssetLoadRequested && get_asset_state() < kAssetReady; }
 
   T* deref()
@@ -106,14 +107,15 @@ struct AssetHandle
 
 struct Texture
 {
-  Asset         asset;
+  Asset          asset;
 
-  u32           width;
-  u32           height;
-  TextureFormat format;
+  u32            width;
+  u32            height;
+  TextureFormat  format;
+  ColorSpaceName color_space;
 
-  GpuTexture    gpu_texture;
-  GpuDescriptor srv_descriptor;
+  GpuTexture     gpu_texture;
+  GpuDescriptor  srv_descriptor;
 };
 typedef AssetHandle<Texture> TextureHandle;
 

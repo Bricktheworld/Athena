@@ -165,6 +165,4 @@ THREAD_SAFE u64       alloc_uber_vertex(u64 size);
 THREAD_SAFE u64       alloc_uber_index(u64 size);
 THREAD_SAFE GpuRtBlas alloc_uber_blas(u32 vertex_start, u32 vertex_count, u32 index_start, u32 index_count, const char* name);
 
-void build_acceleration_structures();
-
 

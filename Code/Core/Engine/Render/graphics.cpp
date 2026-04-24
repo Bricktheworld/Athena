@@ -504,7 +504,7 @@ init_gpu_profiler(void)
 }
 
 void
-begin_gpu_profiler_timestamp(const CmdList& cmd_buffer, const char* name)
+begin_gpu_profiler_timestamp(CmdList* cmd_buffer, const char* name)
 {
   GpuProfiler* profiler = &g_GpuDevice->profiler;
 
@@ -530,13 +530,13 @@ begin_gpu_profiler_timestamp(const CmdList& cmd_buffer, const char* name)
   ASSERT_MSG_FATAL(!timestamp->in_flight, "GPU profiler timestamp name '%s' wasn't closed properly!", name);
 
   u32 start_idx = idx * 2;
-  cmd_buffer.d3d12_list->EndQuery(profiler->d3d12_timestamp_heap, D3D12_QUERY_TYPE_TIMESTAMP, start_idx);
+  cmd_buffer->d3d12_list->EndQuery(profiler->d3d12_timestamp_heap, D3D12_QUERY_TYPE_TIMESTAMP, start_idx);
 
   timestamp->in_flight = true;
 }
 
 void
-end_gpu_profiler_timestamp(const CmdList& cmd_buffer, const char* name)
+end_gpu_profiler_timestamp(CmdList* cmd_buffer, const char* name)
 {
   GpuProfiler* profiler = &g_GpuDevice->profiler;
 
@@ -550,10 +550,12 @@ end_gpu_profiler_timestamp(const CmdList& cmd_buffer, const char* name)
 
   GpuTimestamp* timestamp = profiler->timestamps + idx;
 
-  cmd_buffer.d3d12_list->EndQuery(profiler->d3d12_timestamp_heap, D3D12_QUERY_TYPE_TIMESTAMP, end_idx);
+  cmd_buffer->d3d12_list->EndQuery(profiler->d3d12_timestamp_heap, D3D12_QUERY_TYPE_TIMESTAMP, end_idx);
 
   u64 dst_offset = sizeof(u64) * ((g_FrameId % kBackBufferCount) * kMaxGpuTimestamps * 2 + start_idx);
-  cmd_buffer.d3d12_list->ResolveQueryData(
+
+  gpu_memory_barrier(cmd_buffer);
+  cmd_buffer->d3d12_list->ResolveQueryData(
     profiler->d3d12_timestamp_heap,
     D3D12_QUERY_TYPE_TIMESTAMP,
     start_idx,
@@ -947,6 +949,16 @@ init_gpu_device(HWND window, u32 flags)
     HASSERT(g_GpuDevice->d3d12_info_queue->SetBreakOnID(D3D12_MESSAGE_ID_DEVICE_REMOVAL_PROCESS_AT_FAULT,          false));
     HASSERT(g_GpuDevice->d3d12_info_queue->SetBreakOnID(D3D12_MESSAGE_ID_DEVICE_REMOVAL_PROCESS_POSSIBLY_AT_FAULT, false));
     HASSERT(g_GpuDevice->d3d12_info_queue->SetBreakOnID(D3D12_MESSAGE_ID_DEVICE_REMOVAL_PROCESS_NOT_AT_FAULT,      false));
+
+    // There's some sort of bug with the validation layers in ResolveQueryData. I'm not sure of a better way to get rid of it so I'm disabling it entirely
+    D3D12_MESSAGE_ID denied_ids[] = { D3D12_MESSAGE_ID_CREATERESOURCE_STATE_IGNORED };
+
+    D3D12_INFO_QUEUE_FILTER filter = {};
+    filter.DenyList.NumIDs  = ARRAY_LENGTH(denied_ids);
+    filter.DenyList.pIDList = denied_ids;
+
+    g_GpuDevice->d3d12_info_queue->AddStorageFilterEntries(&filter);
+
   }
   else
   {
@@ -1339,7 +1351,7 @@ gpu_ring_buffer_wait(GpuRingBuffer* buffer, u32 size)
 
 // Either returns the offset or the fence value to wait for
 Result<u64, FenceValue>
-gpu_ring_buffer_alloc(GpuRingBuffer* buffer, u32 size)
+gpu_ring_buffer_alloc(GpuRingBuffer* buffer, u32 size, u32 alignment)
 {
   gpu_ring_buffer_consume_finished(buffer);
 
@@ -1347,24 +1359,27 @@ gpu_ring_buffer_alloc(GpuRingBuffer* buffer, u32 size)
   ASSERT_MSG_FATAL(size < capacity, "Attempted to allocate %u bytes from GPU ring buffer with capacity %u", size, capacity);
   if (buffer->write >= buffer->read)
   {
+    u32 aligned_write = ALIGN_UP(buffer->write, alignment);
+    u32 padding       = aligned_write - buffer->write;
+    u32 padded_size   = size + padding;
     //                     read             write
     //                     |                |        |
     //  [                  xxxxxxxxxxxxxxxxx         ]
 
-    if (buffer->write + size <= capacity)
+    if (buffer->write + padded_size <= capacity)
     {
       // There's enough room at the end!
       //                     read             write
       //                     |                |        |
       //  [                  xxxxxxxxxxxxxxxxx         ]
-      u32 dst = buffer->write;
+      u32 dst = buffer->write + padding;
 
-      buffer->write += size;
-      buffer->used  += size;
+      buffer->write += padded_size;
+      buffer->used  += padded_size;
 
       GpuRingBuffer::GpuAllocationFence allocation_fence;
       allocation_fence.value  = inc_fence(&buffer->fence);
-      allocation_fence.size   = size;
+      allocation_fence.size   = padded_size;
       allocation_fence.offset = buffer->write;
       ring_queue_push(&buffer->queued_fences, allocation_fence);
 
@@ -1482,7 +1497,7 @@ init_d3d12_descriptor_heap(const GpuDevice* device, u32 size, DescriptorHeapType
 }
 
 DescriptorPool
-init_descriptor_pool(AllocHeap heap, const GpuDevice* device, u32 size, DescriptorHeapType type, u32 table_reserved)
+init_descriptor_pool(AllocHeap heap, u32 size, DescriptorHeapType type, u32 table_reserved)
 {
   ASSERT_MSG_FATAL(table_reserved < size, "The number of reserved entries for the descriptor table is more than the capacity for the descriptor pool.");
 
@@ -1490,9 +1505,9 @@ init_descriptor_pool(AllocHeap heap, const GpuDevice* device, u32 size, Descript
   ret.num_descriptors = size;
   ret.type = type;
   ret.free_descriptors = init_ring_queue<u32>(heap, size);
-  ret.d3d12_heap = init_d3d12_descriptor_heap(device, size, type);
+  ret.d3d12_heap = init_d3d12_descriptor_heap(g_GpuDevice, size, type);
 
-  ret.descriptor_size = device->d3d12->GetDescriptorHandleIncrementSize(get_d3d12_descriptor_type(type));
+  ret.descriptor_size = g_GpuDevice->d3d12->GetDescriptorHandleIncrementSize(get_d3d12_descriptor_type(type));
   ret.cpu_start = ret.d3d12_heap->GetCPUDescriptorHandleForHeapStart();
   if (descriptor_type_is_shader_visible(type))
   {
@@ -2106,8 +2121,6 @@ alloc_gpu_rt_blas(
 
   GpuBufferDesc buffer_desc = {};
   buffer_desc.size          = (u32)prebuild_info.ResultDataMaxSizeInBytes;
-  // TODO(bshihabi): Maybe we should just use a convention where we put everything in common and transition to something else and back whenever we need
-  buffer_desc.flags         = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
   buffer_desc.is_rt_bvh     = true;
 
   GpuRtBlas ret;
@@ -2790,6 +2803,50 @@ gpu_copy_buffer(
 }
 
 void
+gpu_copy_texture(
+        CmdList*    cmd,
+        GpuTexture* dst,
+  const GpuBuffer&  src,
+        u64         src_offset,
+        u64         src_size
+) {
+  D3D12_RESOURCE_DESC desc = {0};
+  desc.Dimension           = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+  desc.Alignment           = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+  desc.DepthOrArraySize    = 1;
+  desc.Width               = dst->desc.width;
+  desc.Height              = dst->desc.height;
+  desc.MipLevels           = 1;
+  desc.Format              = gpu_format_to_d3d12(dst->desc.format);
+  desc.SampleDesc.Count    = 1;
+  desc.SampleDesc.Quality  = 0;
+  desc.Layout              = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+  desc.Flags               = D3D12_RESOURCE_FLAG_NONE;
+
+  D3D12_PLACED_SUBRESOURCE_FOOTPRINT src_footprint;
+  u32 row_count;
+  u64 row_byte_count;
+  u64 total_size;
+  g_GpuDevice->d3d12->GetCopyableFootprints(&desc, 0, 1, 0, &src_footprint, &row_count, &row_byte_count, &total_size);
+  src_footprint.Offset = src_offset;
+
+  ASSERT_MSG_FATAL(total_size == src_size, "Size mismatch for copyable footprint of buffer! Are you copying to the correct format?");
+  
+
+  D3D12_TEXTURE_COPY_LOCATION src_location = {0};
+  src_location.pResource        = src.d3d12_buffer;
+  src_location.Type             = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+  src_location.PlacedFootprint  = src_footprint;
+
+  D3D12_TEXTURE_COPY_LOCATION dst_location = {0};
+  dst_location.pResource        = dst->d3d12_texture;
+  dst_location.Type             = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+  dst_location.SubresourceIndex = 0;
+
+  cmd->d3d12_list->CopyTextureRegion(&dst_location, 0, 0, 0, &src_location, nullptr);
+}
+
+void
 gpu_memory_barrier(CmdList* cmd)
 {
   // TODO(bshihabi): We can add more fine-grained caches in the future, this is fine for now.
@@ -2811,12 +2868,19 @@ void
 gpu_texture_layout_transition(CmdList* cmd, GpuTexture* texture, GpuTextureLayout layout)
 {
   D3D12_TEXTURE_BARRIER barrier;
-  barrier.SyncBefore     = D3D12_BARRIER_SYNC_ALL;
-  barrier.SyncAfter      = D3D12_BARRIER_SYNC_ALL;
-  barrier.AccessBefore   = D3D12_BARRIER_ACCESS_COMMON;
-  barrier.AccessAfter    = D3D12_BARRIER_ACCESS_COMMON;
-  barrier.LayoutBefore   = gpu_texture_layout_to_d3d12(texture->layout);
-  barrier.LayoutAfter    = gpu_texture_layout_to_d3d12(layout);
+  barrier.SyncBefore                        = D3D12_BARRIER_SYNC_ALL;
+  barrier.SyncAfter                         = D3D12_BARRIER_SYNC_ALL;
+  barrier.AccessBefore                      = D3D12_BARRIER_ACCESS_COMMON;
+  barrier.AccessAfter                       = D3D12_BARRIER_ACCESS_COMMON;
+  barrier.LayoutBefore                      = gpu_texture_layout_to_d3d12(texture->layout);
+  barrier.LayoutAfter                       = gpu_texture_layout_to_d3d12(layout);
+  barrier.pResource                         = texture->d3d12_texture;
+  barrier.Subresources.IndexOrFirstMipLevel = 0;
+  barrier.Subresources.NumMipLevels         = 1;
+  barrier.Subresources.FirstArraySlice      = 0;
+  barrier.Subresources.NumArraySlices       = texture->desc.array_size;
+  barrier.Subresources.FirstPlane           = 0;
+  barrier.Subresources.NumPlanes            = 0;
 
   D3D12_BARRIER_GROUP group;
   group.Type             = D3D12_BARRIER_TYPE_TEXTURE;

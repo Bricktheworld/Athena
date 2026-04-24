@@ -1230,9 +1230,9 @@ execute_render_graph(const GpuTexture* back_buffer, const RenderSettings& settin
   ctx.m_ClearBufferPso     = g_RenderGraph->clear_buffer_pso;
 
   {
-    GPU_SCOPED_EVENT(PIX_COLOR_DEFAULT, cmd_buffer, "Frame %lu", g_FrameId);
-    begin_gpu_profiler_timestamp(cmd_buffer, kTotalFrameGpuMarker);
-    defer { end_gpu_profiler_timestamp(cmd_buffer, kTotalFrameGpuMarker); };
+    GPU_SCOPED_EVENT(PIX_COLOR_DEFAULT, &cmd_buffer, "Frame %lu", g_FrameId);
+    begin_gpu_profiler_timestamp(&cmd_buffer, kTotalFrameGpuMarker);
+    defer { end_gpu_profiler_timestamp(&cmd_buffer, kTotalFrameGpuMarker); };
 
     set_descriptor_heaps(&cmd_buffer, {g_DescriptorCbvSrvUavPool});
 
@@ -1247,14 +1247,14 @@ execute_render_graph(const GpuTexture* back_buffer, const RenderSettings& settin
     // Main render loop
     for (u32 ilevel = 0; ilevel < g_RenderGraph->dependency_levels.size; ilevel++)
     {
-      GPU_SCOPED_EVENT(PIX_COLOR_DEFAULT, cmd_buffer, "Dependency Level %u", ilevel);
+      GPU_SCOPED_EVENT(PIX_COLOR_DEFAULT, &cmd_buffer, "Dependency Level %u", ilevel);
 
 
       RG_DBGLN("Level %u", ilevel);
       const RgDependencyLevel& level = g_RenderGraph->dependency_levels[ilevel];
       if (level.barriers.size > 0)
       {
-        GPU_SCOPED_EVENT(PIX_COLOR_DEFAULT, cmd_buffer, "Resource Barriers");
+        GPU_SCOPED_EVENT(PIX_COLOR_DEFAULT, &cmd_buffer, "Resource Barriers");
         ScratchAllocator scratch_arena = alloc_scratch_arena();
         defer { free_scratch_arena(&scratch_arena); };
 
@@ -1297,7 +1297,7 @@ execute_render_graph(const GpuTexture* back_buffer, const RenderSettings& settin
 
         g_HandlerId = pass_id;
         const RenderPass& pass = g_RenderGraph->render_passes[pass_id];
-        GPU_SCOPED_EVENT(PIX_COLOR_DEFAULT, cmd_buffer, pass.name);
+        GPU_SCOPED_EVENT(PIX_COLOR_DEFAULT, &cmd_buffer, pass.name);
         (*pass.handler)(&ctx, settings, pass.data);
 
         set_descriptor_heaps(&cmd_buffer, {g_DescriptorCbvSrvUavPool});
@@ -2153,7 +2153,7 @@ RenderContext::clear_uav_u32(const RgRWStructuredBuffer<u32>& uav, u32 clear_val
   set_compute_pso(&m_ClearBufferPso);
   dispatch(ALIGN_POW2(srt.count, 64) / 64, 1, 1);
 
-  uav_barrier(physical);
+  memory_barrier();
 }
 
 void
@@ -2280,17 +2280,9 @@ RenderContext::dispatch_rays(const ShaderTable* shader_table, u32 x, u32 y, u32 
 }
 
 void
-RenderContext::uav_barrier(const GpuBuffer* buffer)
+RenderContext::memory_barrier()
 {
-  D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::UAV(buffer->d3d12_buffer);
-  m_CmdBuffer.d3d12_list->ResourceBarrier(1, &barrier);
-}
-
-void
-RenderContext::uav_barrier(const GpuTexture* texture)
-{
-  D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::UAV(texture->d3d12_texture);
-  m_CmdBuffer.d3d12_list->ResourceBarrier(1, &barrier);
+  gpu_memory_barrier(&m_CmdBuffer);
 }
 
 void
