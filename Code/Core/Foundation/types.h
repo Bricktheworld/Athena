@@ -239,9 +239,9 @@ template <class F> __Deferrer__<F> operator*(__DeferDummy__, F f) { return {f}; 
     } \
   } while (0)
 
-// #ifdef _DEBUG
+#ifdef _DEBUG
 #define DEBUG
-// #endif
+#endif
 
 FOUNDATION_API void print_backtrace(const char* fmt, ...);
 

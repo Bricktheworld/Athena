@@ -1192,6 +1192,18 @@ operator*(Mat4 a, f32x4 v)
        + hadamard_f32(v_w, a.cols[3]);
 }
 
+inline f32x4 pass_by_register
+get_translation(Mat4 m)
+{
+  return m.cols[3];
+}
+
+inline f32 pass_by_register
+get_uniform_scale(Mat4 m)
+{
+  return m.entries[0][0];
+}
+
 // If you want to treat your matrix as row major, then a transpose will be performed
 // to transform into col major and then the same calculation will occur.
 // NOTE(Brandon): This has a performance implication, so use this sparingly.
@@ -1582,4 +1594,64 @@ struct Aabb3d
   Vec3 min;
   Vec3 max;
 };
+
+struct BoundingSphere
+{
+  Vec3 center;
+  f32  radius;
+};
+
+struct Plane
+{
+  Vec3 normal; 
+  f32  d;
+};
+
+struct Frustum
+{
+  // We ignore the far plane for frustums since it's infinite in this engine
+  Plane planes[5];
+};
+
+inline Frustum
+frustum_from_view_projection(Mat4 vp)
+{
+  Mat4 t    = transpose_f32(vp);
+  Vec4 row0 = t.cols[0];
+  Vec4 row1 = t.cols[1];
+  Vec4 row2 = t.cols[2];
+  Vec4 row3 = t.cols[3];
+
+  Vec4 plane_vecs[5] = {
+    row3 + row0, // left
+    row3 - row0, // right
+    row3 + row1, // bottom
+    row3 - row1, // top
+    row3 - row2, // near (reverse-Z: z_clip <= w_clip)
+  };
+
+  Frustum frustum;
+  for (u32 i = 0; i < 5; i++)
+  {
+    Vec4  v       = plane_vecs[i];
+    f32   inv_len = 1.0f / length(Vec3(v.x, v.y, v.z));
+    frustum.planes[i].normal = Vec3(v.x, v.y, v.z) * inv_len;
+    frustum.planes[i].d      = v.w * inv_len;
+  }
+  return frustum;
+}
+
+inline bool
+frustum_cull(const Frustum& frustum, const BoundingSphere& sphere)
+{
+  for (u32 iplane = 0; iplane < ARRAY_LENGTH(frustum.planes); iplane++)
+  {
+    f32 signed_distance = dot(frustum.planes[iplane].normal, sphere.center) - frustum.planes[iplane].d;
+    if (signed_distance >= -sphere.radius)
+    {
+      return false;
+    }
+  }
+  return true;
+}
 

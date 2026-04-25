@@ -67,7 +67,7 @@ StructuredBuffer<MaterialGpu>             g_Materials             : register(t12
 RaytracingAccelerationStructure           g_AccelerationStructure : register(t130);
 
 //////////// Temporal ////////////
-ConstantBuffer<Viewport>                  g_ViewportBuffer        : register(b112);
+ConstantBuffer<ViewportGpu>               g_ViewportBuffer        : register(b112);
 ConstantBuffer<RenderSettingsGpu>         g_RenderSettings        : register(b113);
 
 RWStructuredBuffer<MultiDrawIndirectArgs> g_DebugArgsBuffer       : register(u128);

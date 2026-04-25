@@ -76,4 +76,5 @@ DirectionalLight*       get_scene_directional_light();
 
 // TODO(bshihabi): I don't love this, I wish there was a nicer way to "iterate through all scene objects with given flags"
 const SceneObj*         get_all_scene_objs();
+BoundingSphere          get_bounding_sphere(const SceneObj* obj);
 

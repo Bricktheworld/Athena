@@ -146,23 +146,28 @@ render_handler_frame_init(RenderContext* ctx, const RenderSettings& settings, co
 {
   FrameInitParams* params = (FrameInitParams*)data;
 
-  g_Renderer.taa_jitter   = get_taa_jitter();
-
-  memcpy(&g_Renderer.prev_camera,       &g_Renderer.camera,            sizeof(g_Renderer.prev_camera));
   memcpy(&g_Renderer.camera,            get_scene_camera(),            sizeof(g_Renderer.camera));
   memcpy(&g_Renderer.directional_light, get_scene_directional_light(), sizeof(g_Renderer.directional_light));
 
-  Mat4 prev_view = view_from_camera(&g_Renderer.prev_camera);
-  Mat4 view      = view_from_camera(&g_Renderer.camera);
+  memcpy(&g_RenderHandlerState.prev_main_view, &g_RenderHandlerState.main_view, sizeof(g_RenderHandlerState.prev_main_view));
 
-  Viewport main_viewport;
-  main_viewport.proj                  = perspective_infinite_reverse_lh(kPI / 4.0f, (f32)ctx->m_Width / (f32)ctx->m_Height, kZNear);
-  main_viewport.view                  = view;
-  main_viewport.view_proj             = main_viewport.proj * view;
-  main_viewport.prev_view_proj        = main_viewport.proj * prev_view;
-  main_viewport.inverse_view_proj     = inverse_mat4(main_viewport.view_proj);
-  main_viewport.camera_world_pos      = g_Renderer.camera.world_pos;
-  main_viewport.prev_camera_world_pos = g_Renderer.prev_camera.world_pos;
+  ViewCtx* view_ctx           = &g_RenderHandlerState.main_view;
+  view_ctx->camera            = g_Renderer.camera;
+  view_ctx->proj              = perspective_infinite_reverse_lh(kPI / 4.0f, (f32)ctx->m_Width / (f32)ctx->m_Height, kZNear);
+  view_ctx->view              = view_from_camera(&view_ctx->camera);
+  view_ctx->view_proj         = view_ctx->proj * view_ctx->view;
+  view_ctx->inverse_view_proj = inverse_mat4(view_ctx->view_proj);
+  view_ctx->taa_jitter        = get_taa_jitter();
+  view_ctx->frustum           = frustum_from_view_projection(view_ctx->view_proj);
+
+  ViewportGpu viewport_gpu;
+  viewport_gpu.proj                  = view_ctx->proj;
+  viewport_gpu.view                  = view_ctx->view;
+  viewport_gpu.view_proj             = view_ctx->view_proj;
+  viewport_gpu.prev_view_proj        = g_RenderHandlerState.prev_main_view.view_proj;
+  viewport_gpu.inverse_view_proj     = view_ctx->inverse_view_proj;
+  viewport_gpu.camera_world_pos      = view_ctx->camera.world_pos;
+  viewport_gpu.prev_camera_world_pos = g_RenderHandlerState.prev_main_view.camera.world_pos;
 
 
   // TODO(bshihabi): We should really do this somewhere else...
@@ -175,12 +180,11 @@ render_handler_frame_init(RenderContext* ctx, const RenderSettings& settings, co
   g_Renderer.directional_light.illuminance     /= max_luminance;
   g_Renderer.directional_light.sky_illuminance /= max_luminance;
   g_Renderer.directional_light.diffuse          = diffuse_from_temperature((f32)g_Renderer.directional_light.temperature);
-  main_viewport.directional_light               = g_Renderer.directional_light;
+  viewport_gpu.directional_light               = g_Renderer.directional_light;
 
-  main_viewport.taa_jitter                      = !settings.disable_taa ? g_Renderer.taa_jitter : Vec2(0.0f, 0.0f);
+  viewport_gpu.taa_jitter                      = !settings.disable_taa ? view_ctx->taa_jitter : Vec2(0.0f, 0.0f);
 
-
-  ctx->write_cpu_upload_buffer(params->viewport_buffer, &main_viewport, sizeof(main_viewport));
+  ctx->write_cpu_upload_buffer(params->viewport_buffer, &viewport_gpu, sizeof(viewport_gpu));
 
   RenderSettingsGpu render_settings_gpu = to_gpu_render_settings(settings);
   ctx->write_cpu_upload_buffer(params->render_settings, &render_settings_gpu, sizeof(render_settings_gpu));
@@ -207,7 +211,7 @@ init_frame_init_pass(AllocHeap heap, RgBuilder* builder)
 
   FrameResources ret;
 
-  ret.viewport_buffer        = rg_create_upload_buffer(builder, "Viewport Buffer",     kGpuHeapSysRAMCpuToGpu, sizeof(Viewport));
+  ret.viewport_buffer        = rg_create_upload_buffer(builder, "Viewport Buffer",     kGpuHeapSysRAMCpuToGpu, sizeof(ViewportGpu));
   ret.render_settings        = rg_create_upload_buffer(builder, "Render Settings",     kGpuHeapSysRAMCpuToGpu, sizeof(RenderSettingsGpu));
 
   ret.debug_draw_args_buffer = rg_create_buffer(builder, "Debug Draw Args Buffer",      sizeof(MultiDrawIndirectArgs) * 2);
@@ -224,7 +228,7 @@ init_frame_init_pass(AllocHeap heap, RgBuilder* builder)
   params->init_debug_draw_buffers_pso = init_compute_pipeline(g_GpuDevice, get_engine_shader(kCS_DebugDrawInitMultiDrawIndirectArgs), "Debug Draw Init MultiDrawIndirect Args");
 
   // Bind globals
-  RgConstantBuffer<Viewport>::                 bind_grv(heap, builder, kViewportBufferSlot,     ret.viewport_buffer);
+  RgConstantBuffer<ViewportGpu>::                 bind_grv(heap, builder, kViewportBufferSlot,     ret.viewport_buffer);
   RgConstantBuffer<RenderSettingsGpu>::        bind_grv(heap, builder, kRenderSettingsSlot,     ret.render_settings);
   RgRWStructuredBuffer<MultiDrawIndirectArgs>::bind_grv(heap, builder, kDebugArgsBufferSlot,   &ret.debug_draw_args_buffer);
   RgRWStructuredBuffer<DebugLinePoint>::       bind_grv(heap, builder, kDebugVertexBufferSlot, &ret.debug_line_vert_buffer);
@@ -264,6 +268,7 @@ render_handler_imgui(RenderContext* ctx, const RenderSettings&, const void* data
   ImGui::Checkbox("Disable Diffuse GI", &g_Renderer.settings.disable_diffuse_gi);
   ImGui::Checkbox("Disable HDR", &g_Renderer.settings.disable_hdr);
   ImGui::Checkbox("Disable DoF", &g_Renderer.settings.disable_dof);
+  ImGui::Checkbox("Disable Frustum Culling", &g_Renderer.settings.disable_frustum_culling);
   ImGui::Checkbox("Enable Debug Draw", &g_Renderer.settings.enabled_debug_draw);
   ImGui::Checkbox("Show Detailed Performance", &s_ShowDetailedPerformance);
 

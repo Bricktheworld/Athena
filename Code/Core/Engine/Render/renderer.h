@@ -85,6 +85,7 @@ struct RenderSettings
   bool  debug_gi_sample_probes   = false;
   bool  enabled_debug_draw       = false;
   bool  freeze_probe_rotation    = false;
+  bool  disable_frustum_culling  = false;
 };
 
 inline RenderSettingsGpu to_gpu_render_settings(const RenderSettings& settings)
@@ -109,6 +110,7 @@ inline RenderSettingsGpu to_gpu_render_settings(const RenderSettings& settings)
   ret.enabled_debug_draw       = settings.enabled_debug_draw;
   ret.freeze_gi_probe_rotation = settings.freeze_probe_rotation;
   ret.mouse_pos                = settings.mouse_pos;
+  ret.disable_frustum_culling  = settings.disable_frustum_culling;
   return ret;
 }
 
@@ -118,9 +120,7 @@ struct Renderer
 
   DescriptorLinearAllocator imgui_descriptor_heap;
 
-  Camera prev_camera;
   Camera camera;
-  Vec2   taa_jitter;
 
   RenderSettings settings;
 
@@ -129,6 +129,27 @@ struct Renderer
   GraphicsPSO   back_buffer_blit_pso;
   ComputePSO    texture_copy_pso;
 };
+
+struct ViewCtx
+{
+  Mat4    proj;
+  Mat4    view;
+  Mat4    view_proj;
+  Mat4    inverse_view_proj;
+
+  Vec2    taa_jitter;
+
+  Camera  camera;
+  Frustum frustum;
+};
+
+struct RenderHandlerState
+{
+  ViewCtx  main_view;
+  ViewCtx  prev_main_view;
+};
+
+extern RenderHandlerState g_RenderHandlerState;
 
 extern Renderer g_Renderer;
 

@@ -35,7 +35,7 @@ struct GBufferStaticParams
 };
 
 static void
-render_handler_gbuffer_static(RenderContext* ctx, const RenderSettings&, const void* data)
+render_handler_gbuffer_static(RenderContext* ctx, const RenderSettings& settings, const void* data)
 {
   GBufferStaticParams* params = (GBufferStaticParams*)data;
 
@@ -74,6 +74,12 @@ render_handler_gbuffer_static(RenderContext* ctx, const RenderSettings&, const v
     }
 
     if (obj->needs_instance_data_gpu_upload)
+    {
+      continue;
+    }
+
+    BoundingSphere bounding_sphere = get_bounding_sphere(obj);
+    if (!settings.disable_frustum_culling && frustum_cull(g_RenderHandlerState.main_view.frustum, bounding_sphere))
     {
       continue;
     }

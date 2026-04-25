@@ -19,6 +19,7 @@
 #include "Core/Engine/Vendor/imgui/imgui_impl_dx12.h"
 
 Renderer g_Renderer;
+RenderHandlerState g_RenderHandlerState;
 
 UnifiedGeometryBuffer g_UnifiedGeometryBuffer;
 ShaderManager*  g_ShaderManager           = nullptr;

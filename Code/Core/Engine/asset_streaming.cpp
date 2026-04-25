@@ -462,6 +462,7 @@ process_model_file_request(AssetStreamer* streamer, FileStreamingCmdHeader heade
           runtime_lod->vertex_count   = (u32)asset_lod->num_vertices;
           runtime_lod->index_start    = (u32)index_offset_bytes  / sizeof(u16);
           runtime_lod->index_count    = (u32)asset_lod->num_indices;
+          runtime_lod->error          = asset_lod->error;
 
           u32 lod_vertex_size_in_bytes = (u32)(sizeof(Vertex) * asset_lod->num_vertices);
           u32 lod_index_size_in_bytes  = (u32)(sizeof(u16)    * asset_lod->num_indices);

@@ -105,6 +105,7 @@ struct ModelSubsetLod
   u32  vertex_count = 0;
   u32  index_start  = 0;
   u32  index_count  = 0;
+  f32  error        = 0.0f;
 };
 
 struct ModelSubset

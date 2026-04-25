@@ -16,6 +16,8 @@ namespace asset_builder
 
     VertexAsset* vertices;
     u16*         indices;
+
+    f32          error;
   };
 
   struct ImportedModelSubset

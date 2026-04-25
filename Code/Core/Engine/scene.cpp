@@ -422,3 +422,15 @@ get_all_scene_objs()
 {
   return g_Scene->scene_objs;
 }
+
+
+BoundingSphere
+get_bounding_sphere(const SceneObj* obj)
+{
+  BoundingSphere ret;
+  Vec4 translation = get_translation(obj->obj_to_world);
+  ret.center = Vec3(translation.x, translation.y, translation.z);
+  ret.radius = get_uniform_scale(obj->obj_to_world);
+
+  return ret;
+}

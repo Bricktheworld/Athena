@@ -234,6 +234,7 @@ asset_builder::import_model(
 
       u32                 simplified_num_vertices = num_vertices;
       u32                 simplified_num_indices  = num_indices;
+      f32                 simplified_error        = 0.0f;
       // Simplify each LoD recursively based on the previous one
       if (ilod > 0)
       {
@@ -241,8 +242,7 @@ asset_builder::import_model(
         f32 threshold          = powf(0.7, (f32)ilod);
         u32 target_index_count = (u32)(num_indices * threshold) / 3 * 3;
         f32 target_error       = 1e-2f;
-        f32 result_error       = 0.0f;
-        simplified_num_indices = (u32)meshopt_simplify<u16>(simplified_indices, indices, num_indices, &uncompressed_vertices[0].position.x, num_vertices, sizeof(UncompressedVertex), target_index_count, target_error, 0, &result_error);
+        simplified_num_indices = (u32)meshopt_simplify<u16>(simplified_indices, indices, num_indices, &uncompressed_vertices[0].position.x, num_vertices, sizeof(UncompressedVertex), target_index_count, target_error, 0, &simplified_error);
       }
       else
       {
@@ -278,6 +278,7 @@ asset_builder::import_model(
       lod->num_indices  = simplified_num_indices;
       lod->vertices     = vertices;
       lod->indices      = simplified_indices;
+      lod->error        = simplified_error;
     }
 
     model_subset->material     = materials[assimp_mesh->mMaterialIndex].hash;
@@ -357,6 +358,7 @@ asset_builder::write_model_to_asset(const char* project_root, const ImportedMode
       auto* lod         = (ModelAsset::ModelSubsetLod*)ALLOC_OFF(dst_lods, sizeof(ModelAsset::ModelSubsetLod));
       lod->num_vertices = imported_lod->num_vertices;
       lod->num_indices  = imported_lod->num_indices;
+      lod->error        = imported_lod->error;
 
       auto* vertices    = ALLOC_OFF(dst_vertices, sizeof(VertexAsset) * lod->num_vertices);
       auto* indices     = ALLOC_OFF(dst_indices,  sizeof(u16)         * lod->num_indices );

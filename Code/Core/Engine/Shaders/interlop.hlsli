@@ -239,7 +239,7 @@ struct DirectionalLight
   f32  sky_illuminance;
 };
 
-struct Viewport
+struct ViewportGpu
 {
   Mat4 proj;
   Mat4 view;
@@ -280,6 +280,7 @@ struct RenderSettingsGpu
   u32    enabled_debug_draw:       1;
   u32    freeze_gi_probe_rotation: 1;
   u32    freeze_gi_probe_clipmap:  1;
+  u32    disable_frustum_culling:  1;
 };
 
 struct Transform

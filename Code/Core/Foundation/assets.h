@@ -33,7 +33,7 @@ using AssetRef = AssetId;
 
 static constexpr u32 kAssetMagicNumber = CRC32_STR("ATHENA_ASSET");
 
-static constexpr u32 kModelAssetVersion    = 5;
+static constexpr u32 kModelAssetVersion    = 6;
 static constexpr u32 kTextureAssetVersion  = 4;
 static constexpr u32 kMaterialAssetVersion = 4;
 
@@ -223,6 +223,9 @@ struct ModelAsset
     u64                     num_indices;
     OffsetPtr<VertexAsset>  vertices;
     OffsetPtr<u16>          indices;
+
+    f32                     error;
+    u32                     __pad0__;
   };
 
   struct ModelSubset
