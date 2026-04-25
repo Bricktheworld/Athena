@@ -77,15 +77,15 @@ build_asset(const char* model_path, const char* project_root)
         continue;
       }
 
-      asset_builder::ImportedTexture imported_texture;
-      res = asset_builder::import_texture(texture_allocator, texture_path, project_root, &imported_texture);
+      ImportedTexture imported_texture;
+      res = import_texture(texture_allocator, texture_path, project_root, &imported_texture);
       if (!res)
       {
         printf("Failed to import texture! Skipping...\n");
         continue;
       }
 
-      res = asset_builder::write_texture_to_asset(device, project_root, imported_texture);
+      res = write_texture_to_asset(device, project_root, imported_texture);
       if (!res)
       {
         printf("Failed to write texture to asset!\n");

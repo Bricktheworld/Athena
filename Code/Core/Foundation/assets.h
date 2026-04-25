@@ -7,6 +7,8 @@
 
 #include "Core/Foundation/Containers/array.h"
 
+#include "Core/Foundation/Gpu/gpu.h"
+
 // NOTE(bshihabi): Keep in sync with interlop.hlsli!
 struct VertexAsset
 {
@@ -33,7 +35,7 @@ using AssetRef = AssetId;
 static constexpr u32 kAssetMagicNumber = CRC32_STR("ATHENA_ASSET");
 
 static constexpr u32 kModelAssetVersion    = 4;
-static constexpr u32 kTextureAssetVersion  = 3;
+static constexpr u32 kTextureAssetVersion  = 4;
 static constexpr u32 kMaterialAssetVersion = 4;
 
 struct U8Color4
@@ -120,6 +122,15 @@ enum struct TextureFormat : u32
   kRGBA16Float,
 };
 
+enum struct TextureCompression : u32
+{
+  kBc1,
+  kBc5,
+  kBc6,
+  kBc7,
+  kUncompressed,
+};
+
 inline const char*
 texture_format_to_str(TextureFormat format)
 {
@@ -200,14 +211,16 @@ ASSERT_SERIALIZABLE(AssetMetadata);
 
 struct TextureAsset
 {
-  AssetMetadata  metadata;
-  TextureFormat  format;
-  ColorSpaceName color_space;
-  u32            width;
-  u32            height;
-  u32            compressed_size;
-  u32            uncompressed_size;
-  OffsetPtr<u8>  data;
+  AssetMetadata      metadata;
+  TextureCompression texture_compression;
+  GpuFormat          gpu_format;
+  u8                 __pad0__[7];
+  ColorSpaceName     color_space;
+  u32                width;
+  u32                height;
+  u32                compressed_size;
+  u32                uncompressed_size;
+  OffsetPtr<u8>      data;
 };
 ASSERT_SERIALIZABLE(TextureAsset);
 

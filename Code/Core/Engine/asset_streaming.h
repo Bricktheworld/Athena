@@ -84,7 +84,6 @@ struct Texture
 
   u32            width;
   u32            height;
-  TextureFormat  format;
   ColorSpaceName color_space;
 
   GpuTexture     gpu_texture;

@@ -169,12 +169,13 @@ push_buffer_begin_edit(PushBuffer* pb, u64 size)
   auto allocate_segment = [pb](u64 size) -> Segment*
   {
     ASSERT_MSG(false, "Overflowed push buffer! Allocated %llu bytes. This incurs a memory allocation which could be slow. Consider bumping this push buffer.", size);
-    Segment* ret      = (Segment*)push_stack(&pb->allocator, sizeof(Segment), alignof(Segment));
-    ret->base         = (uintptr_t)push_stack(&pb->allocator, size, 1);
-    ret->write        = ret->base;
-    ret->read         = ret->base;
-    ret->next         = nullptr;
-    ret->segment_size = size;
+    Segment* ret         = (Segment*)push_stack(&pb->allocator, sizeof(Segment), alignof(Segment));
+    ret->base            = (uintptr_t)push_stack(&pb->allocator, size, 1);
+    ret->write           = ret->base;
+    ret->read            = ret->base;
+    ret->next            = nullptr;
+    ret->segment_size    = size;
+    ret->write_semaphore = 0;
 
     return ret;
   };
@@ -187,6 +188,17 @@ push_buffer_begin_edit(PushBuffer* pb, u64 size)
 
     void* dst = alloc_from_segment(bespoke_segment, size);
     locked_push_buffer_flush_segment(pb, bespoke_segment);
+
+    uintptr_t segment_offset = (uintptr_t)dst - pb->commit_segments_memory;
+    // Put a lock on writing until we're done writing from it
+    if (segment_offset >= pb->commit_size)
+    {
+      pb->overflow_write_semaphore++;
+    }
+    else
+    {
+      bespoke_segment->write_semaphore++;
+    }
 
     return dst;
   }

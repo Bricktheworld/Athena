@@ -178,6 +178,24 @@ get_d3d12_cmd_list_type(CmdQueueType type)
   }
 }
 
+u64
+get_gpu_memory_usage()
+{
+  DXGI_QUERY_VIDEO_MEMORY_INFO info;
+  g_GpuDevice->dxgi_adapter->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &info);
+
+  return info.CurrentUsage;
+}
+
+u64
+get_gpu_memory_budget()
+{
+  DXGI_QUERY_VIDEO_MEMORY_INFO info;
+  g_GpuDevice->dxgi_adapter->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &info);
+
+  return info.Budget;
+}
+
 static ID3D12Fence* 
 init_gpu_fence(ID3D12Device2* d3d12_dev)
 {
@@ -906,6 +924,8 @@ init_gpu_device(HWND window, u32 flags)
   init_d3d12_device(window, factory, &adapter, &g_GpuDevice->d3d12, g_GpuDevice->gpu_name);
   defer { COM_RELEASE(adapter); };
 
+  HASSERT(adapter->QueryInterface(IID_PPV_ARGS(&g_GpuDevice->dxgi_adapter)));
+
   g_GpuDevice->graphics_queue = init_cmd_queue(g_GpuDevice, kCmdQueueTypeGraphics);
 
   g_GpuDevice->graphics_cmd_allocator = init_cmd_list_allocator(
@@ -1336,6 +1356,7 @@ void
 gpu_ring_buffer_wait(GpuRingBuffer* buffer, u32 size)
 {
   u32 capacity = buffer->buffer.desc.size;
+  ASSERT_MSG_FATAL(size <= capacity, "Attempting to allocate 0x%llx bytes from GPU ring buffer of capacity 0x%llx. You will wait for ever. Increase the size of this GPU ring buffer to fix.", size, capacity);
   while (true)
   {
     gpu_ring_buffer_consume_finished(buffer);
@@ -1346,6 +1367,10 @@ gpu_ring_buffer_wait(GpuRingBuffer* buffer, u32 size)
       // Block until the next even is completed and then consume more
       block_gpu_fence(&buffer->fence, buffer->fence.last_completed_value + 1);
       continue;
+    }
+    else
+    {
+      break;
     }
   }
 }

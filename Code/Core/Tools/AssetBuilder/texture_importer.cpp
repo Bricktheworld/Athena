@@ -1,7 +1,10 @@
+#include "Core/Foundation/Gpu/gpu.h"
+
 #include "Core/Tools/AssetBuilder/texture_importer.h"
 
 #include "Core/Tools/AssetBuilder/Vendor/StbImage/stb_image.h"
 #include "Core/Tools/AssetBuilder/Vendor/DirectXTex/DirectXTex.h"
+#include "Core/Tools/AssetBuilder/Vendor/bc7enc/bc7enc.h"
 
 #include "Core/Vendor/D3D12/d3d12.h"
 #include <dxgidebug.h>
@@ -12,7 +15,7 @@
 #pragma comment(lib, "d3d12.lib")
 
 bool
-asset_builder::import_texture(
+import_texture(
   AllocHeap heap,
   const char* path,
   const char* project_root,
@@ -152,7 +155,7 @@ asset_builder::import_texture(
 }
 
 void
-asset_builder::dump_imported_texture(ImportedTexture texture)
+dump_imported_texture(ImportedTexture texture)
 {
   ASSERT_MSG_FATAL(path_to_asset_id(texture.path) == texture.hash, "Imported texture path and hash do not match!");
 
@@ -163,12 +166,55 @@ asset_builder::dump_imported_texture(ImportedTexture texture)
   dbgln("  Format: %s", texture_format_to_str(texture.format));
 }
 
-bool
-asset_builder::write_texture_to_asset(
-  ID3D12Device* device,
-  const char* project_root,
-  const ImportedTexture& texture
-) {
+struct BCCompressionStats
+{
+  u32 blocks_x          = 0;
+  u32 blocks_y          = 0;
+  u32 uncompressed_size = 0;
+  u32 compressed_size   = 0;
+};
+
+static BCCompressionStats
+get_bc7_compression_stats(const ImportedTexture& texture)
+{
+  BCCompressionStats ret = {0};
+  ret.blocks_x           = UCEIL_DIV(texture.width,  4);
+  ret.blocks_y           = UCEIL_DIV(texture.height, 4);
+  ret.uncompressed_size  = ret.blocks_x * ret.blocks_y * BC7ENC_BLOCK_SIZE;
+  return ret;
+}
+
+struct GpuTextureCopyableFootprint
+{
+  u64 offset                = 0;
+  u64 row_count             = 0;
+  u64 row_byte_count        = 0;
+  u64 row_padded_byte_count = 0;
+  u64 total_size            = 0;
+};
+
+static u32
+get_uncompressed_bytes_per_pixel(const ImportedTexture& src)
+{
+  switch (src.format)
+  {
+    case TextureFormat::kRGBA8Unorm:   return 4;
+    case TextureFormat::kRGB10A2Unorm: return 4;
+    case TextureFormat::kRGBA16Float:  return 8;
+    default: UNREACHABLE;
+  }
+}
+
+static DXGI_FORMAT gpu_format_to_d3d12(GpuFormat format)
+{
+  return (DXGI_FORMAT)format;
+}
+
+// TODO(bshihabi): How will this work with other graphics API backends in the future? I'm guessing
+// we'll have to have a platform independent and platform dependent built asset files in the future.
+static GpuTextureCopyableFootprint
+get_d3d12_texture_copyable_footprint(ID3D12Device* device, const ImportedTexture& texture, GpuFormat dst_format)
+{
   D3D12_RESOURCE_DESC desc = {0};
   desc.Dimension           = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
   desc.Alignment           = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
@@ -176,7 +222,7 @@ asset_builder::write_texture_to_asset(
   desc.Width               = texture.width;
   desc.Height              = texture.height;
   desc.MipLevels           = 1;
-  desc.Format              = DXGI_FORMAT_R8G8B8A8_UNORM;
+  desc.Format              = gpu_format_to_d3d12(dst_format);
   desc.SampleDesc.Count    = 1;
   desc.SampleDesc.Quality  = 0;
   desc.Layout              = D3D12_TEXTURE_LAYOUT_UNKNOWN;
@@ -188,60 +234,114 @@ asset_builder::write_texture_to_asset(
   u64 total_size;
   device->GetCopyableFootprints(&desc, 0, 1, 0, &footprint, &row_count, &row_byte_count, &total_size);
 
-  u32 output_size = (u32)(sizeof(TextureAsset) + total_size);
+  GpuTextureCopyableFootprint ret;
+  ret.offset                = footprint.Offset;
+  ret.row_count             = row_count;
+  ret.row_byte_count        = row_byte_count;
+  ret.row_padded_byte_count = footprint.Footprint.RowPitch;
+  ret.total_size            = total_size;
+  return ret;
+}
+
+static u64
+compress_bc7_write_to_buffer(u8* dst_base, const ImportedTexture& texture, const BCCompressionStats& stats, const GpuTextureCopyableFootprint& footprint)
+{
+  bc7enc_compress_block_init();
+
+  bc7enc_compress_block_params params;
+  bc7enc_compress_block_params_init(&params);
+
+  u32 bpp = get_uncompressed_bytes_per_pixel(texture);
+  u8* dst = dst_base + footprint.offset;
+
+  for (u32 by = 0; by < stats.blocks_y; by++)
+  {
+    u8* row_dst = dst + by * footprint.row_padded_byte_count;
+
+    for (u32 bx = 0; bx < stats.blocks_x; bx++)
+    {
+      color_rgba uncompressed_block[16];
+      for (u32 py = 0; py < 4; py++)
+      {
+        for (u32 px = 0; px < 4; px++)
+        {
+                u32 src_x = MIN(bx * 4 + px, texture.width  - 1);
+                u32 src_y = MIN(by * 4 + py, texture.height - 1);
+          const u8* src   = texture.buf + (src_y * texture.width + src_x) * bpp;
+          uncompressed_block[py * 4 + px] = { src[0], src[1], src[2], src[3] };
+        }
+      }
+
+      bc7enc_compress_block(row_dst + bx * BC7ENC_BLOCK_SIZE, uncompressed_block, &params);
+    }
+  }
+
+  return footprint.total_size;
+}
+
+
+static u64
+uncompressed_write_to_buffer(u8* dst_base, const ImportedTexture& texture, const GpuTextureCopyableFootprint& footprint)
+{
+  u32 bpp                        = get_uncompressed_bytes_per_pixel(texture);
+  u32 src_row_pitch_bytes        = bpp * texture.width;
+
+  u8* dst = dst_base;
+
+  dst += footprint.offset;
+  u32 dst_row_pitch_padded_bytes = (u32)footprint.row_padded_byte_count;
+  u32 dst_row_pitch_packed_bytes = (u32)footprint.row_byte_count;
+
+  u64 min_height                 = MIN(texture.height, footprint.row_count);
+  u64 min_packed_row_pitch       = MIN(MIN(dst_row_pitch_padded_bytes, src_row_pitch_bytes), dst_row_pitch_packed_bytes);
+  ASSERT_MSG_FATAL(min_packed_row_pitch == texture.width * bpp, "Unsupported row pitch configuration!");
+  for (u64 y = 0; y < min_height; y++)
+  {
+    u8* dst_row = ALLOC_OFF(dst, dst_row_pitch_padded_bytes);
+    memcpy(dst_row, texture.buf + y * texture.width * 4, min_packed_row_pitch);
+  }
+
+  return dst - dst_base;
+}
+
+bool
+write_texture_to_asset(
+  ID3D12Device* device,
+  const char* project_root,
+  const ImportedTexture& texture
+) {
+  TextureCompression          compression = TextureCompression::kBc7; // TextureCompression::kUncompressed;
+  GpuFormat                   format      = kGpuFormatBC7Unorm; // kGpuFormatRGBA8Unorm;
+  BCCompressionStats          stats       = get_bc7_compression_stats(texture);
+  GpuTextureCopyableFootprint footprint   = get_d3d12_texture_copyable_footprint(device, texture, format);
+
+  u32 output_size = (u32)(sizeof(TextureAsset) + footprint.total_size);
 
   u8* buffer = HEAP_ALLOC(u8, GLOBAL_HEAP, output_size);
   defer { HEAP_FREE(GLOBAL_HEAP, buffer); };
-  u32 offset = 0;
+
+  u8* dst    = buffer;
 
   TextureAsset texture_asset = {0};
   texture_asset.metadata.magic_number    = kAssetMagicNumber;
   texture_asset.metadata.version         = kTextureAssetVersion;
   texture_asset.metadata.asset_type      = AssetType::kTexture;
   texture_asset.metadata.asset_hash      = texture.hash;
-  texture_asset.format                   = texture.format;
+  texture_asset.texture_compression      = compression;
+  texture_asset.gpu_format               = format;
   texture_asset.color_space              = texture.color_space;
   texture_asset.width                    = texture.width;
   texture_asset.height                   = texture.height;
-  texture_asset.compressed_size          = (u32)total_size;
-  texture_asset.uncompressed_size        = (u32)total_size;
+  // NOTE(bshihabi): I intentionally use the BC compressed size as the "uncompressed size". This is because
+  // "uncompressed size" means what is consumed after LZ compression. It is used as a "check" of sorts in the runtime.
+  // I never block decompress the raw texture so there is no point in storing that information in the texture anywhere.
+  texture_asset.compressed_size          = (u32)footprint.total_size;
+  texture_asset.uncompressed_size        = (u32)footprint.total_size;
   texture_asset.data                     = sizeof(TextureAsset);
 
-  memcpy(buffer + offset, &texture_asset, sizeof(TextureAsset)); offset += sizeof(TextureAsset);
-  {
-    u32 src_row_pitch_bytes   = (4 * texture.width);
-    // u32 src_slice_pitch_bytes = texture.height * src_row_pitch_bytes;
-
-    offset += (u32)footprint.Offset;
-    u32 dst_row_pitch_padded_bytes = (u32)footprint.Footprint.RowPitch;
-    u32 dst_row_pitch_packed_bytes = (u32)row_byte_count;
-    // u32 dst_slice_pitch_bytes      = (u32)row_count * dst_row_pitch_padded_bytes;
-
-    u32 min_height                 = MIN(texture.height, (u32)row_count);
-    u32 min_packed_row_pitch       = MIN(MIN(dst_row_pitch_padded_bytes, src_row_pitch_bytes), dst_row_pitch_packed_bytes);
-    ASSERT_MSG_FATAL(min_packed_row_pitch == texture.width * 4, "Unsupported row pitch configuration!");
-    for (u64 y = 0; y < min_height; y++)
-    {
-      // If you want to debug with just UVs
-#if 0
-      for (u64 x = 0; x < texture.width; x++)
-      {
-        Vec2 uv = Vec2((f32)x / (f32)texture.width, (f32)y / (f32)texture.height);
-        u8 r = 255 *  uv.x;
-        u8 g = 255 *  uv.y;
-        u8 b = 0;
-        u8 a = 255;
-        buffer[offset + x * 4 + 0] = r;
-        buffer[offset + x * 4 + 1] = g;
-        buffer[offset + x * 4 + 2] = b;
-        buffer[offset + x * 4 + 3] = a;
-      }
-#else
-      memcpy(buffer + offset, texture.buf + y * texture.width * 4, min_packed_row_pitch);
-#endif
-      offset += dst_row_pitch_padded_bytes;
-    }
-  }
+  memcpy(dst, &texture_asset, sizeof(TextureAsset)); dst += sizeof(TextureAsset);
+  dst += compress_bc7_write_to_buffer(dst, texture, stats, footprint);
+  // ASSERT_MSG_FATAL(dst - buffer == sizeof(TextureAsset) + texture_asset.uncompressed_size, "Wrote out incorrect number of bytes to final texture! Expected 0x%llx but got 0x%llx", texture_asset.uncompressed_size, dst - buffer - sizeof(TextureAsset));
 
   char built_path[kMaxPathLength]{0};
   snprintf(built_path, sizeof(built_path), "%s/Assets/Built/0x%08x.built", project_root, texture.hash);

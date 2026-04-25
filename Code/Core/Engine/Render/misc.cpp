@@ -351,6 +351,11 @@ render_handler_imgui(RenderContext* ctx, const RenderSettings&, const void* data
   ImGui::Text("File I/O: %s/Sec", file_io_fmt_bps);
   ImGui::Text("GPU  I/O: %s/Sec", gpu_io_fmt_bps);
 
+  char gpu_memory_fmt[32];
+  bytes_to_readable_str(gpu_memory_fmt, sizeof(gpu_memory_fmt), (f64)get_gpu_memory_usage());
+
+  ImGui::Text("VRAM: %s", gpu_memory_fmt);
+
 
   if (s_ShowDetailedPerformance)
   {

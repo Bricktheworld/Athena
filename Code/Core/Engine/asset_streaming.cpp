@@ -1180,20 +1180,6 @@ kick_texture_load(TextureRegistry* registry, AssetStreamer* streamer, AssetId as
   }
 }
 
-static GpuFormat
-texture_format_to_gpu_format(TextureFormat format, ColorSpaceName color_space)
-{
-  // TODO(bshihabi): We need to support EOTF conversions and such
-  UNREFERENCED_PARAMETER(color_space);
-  switch (format)
-  {
-    case TextureFormat::kRGBA8Unorm:   return kGpuFormatRGBA8Unorm;
-    case TextureFormat::kRGB10A2Unorm: return kGpuFormatRGB10A2Unorm;
-    case TextureFormat::kRGBA16Float:  return kGpuFormatRGBA16Float;
-    default: UNREACHABLE;
-  }
-}
-
 static void
 process_texture_file_request(AssetStreamer* streamer, FileStreamingCmdHeader header, AwaitError await_result)
 {
@@ -1241,7 +1227,6 @@ process_texture_file_request(AssetStreamer* streamer, FileStreamingCmdHeader hea
       // Copy in all the metadata
       texture->width       = src_pkt.asset_header.width;
       texture->height      = src_pkt.asset_header.height;
-      texture->format      = src_pkt.asset_header.format;
       texture->color_space = src_pkt.asset_header.color_space;
 
       // Allocate the scratch data for the content read
@@ -1349,7 +1334,7 @@ process_texture_file_request(AssetStreamer* streamer, FileStreamingCmdHeader hea
       gpu_texture_desc.width             = texture->width;
       gpu_texture_desc.height            = texture->height;
       gpu_texture_desc.array_size        = 1;
-      gpu_texture_desc.format            = texture_format_to_gpu_format(texture->format, texture->color_space);
+      gpu_texture_desc.format            = src_pkt.asset_header.gpu_format;
       gpu_texture_desc.color_clear_value = Vec4(0.0f, 0.0f, 0.0f, 0.0f);
       texture->gpu_texture               = alloc_gpu_texture(g_GpuDevice, streamer->gpu_texture_allocator, gpu_texture_desc, "Content Gpu Texture");
 
@@ -1370,15 +1355,16 @@ process_texture_file_request(AssetStreamer* streamer, FileStreamingCmdHeader hea
 
       auto* dst_header               = (GpuStreamingCmdHeader*           )ALLOC_OFF(scratch_memory, sizeof(GpuStreamingCmdHeader));
       dst_header->cmd                = kTextureGpuStreamContent;
-      dst_header->request_timestamp  = begin_cpu_profiler_timestamp();
-      dst_header->gpu_fence_value    = flush_gpu_cmds(streamer);
 
       // Fill in the statistics
       dst_header->io_byte_count      = src_pkt.asset_header.uncompressed_size;
+      dst_header->request_timestamp  = begin_cpu_profiler_timestamp();
 
-      auto* dst_pkt               = (TextureGpuContentStreamingPacket*)ALLOC_OFF(scratch_memory, sizeof(TextureGpuContentStreamingPacket));
-      dst_pkt->texture            = texture;
-      dst_pkt->asset_header       = src_pkt.asset_header;
+      dst_header->gpu_fence_value    = flush_gpu_cmds(streamer);
+
+      auto* dst_pkt                  = (TextureGpuContentStreamingPacket*)ALLOC_OFF(scratch_memory, sizeof(TextureGpuContentStreamingPacket));
+      dst_pkt->texture               = texture;
+      dst_pkt->asset_header          = src_pkt.asset_header;
     } break;
     default: UNREACHABLE; break;
   }
@@ -1648,7 +1634,6 @@ process_asset_dependencies(AssetStreamer* streamer)
                                   sizeof(Asset*) * header.dependency_count +
                                   header.pkt_size;
         void* dependency_memory = push_buffer_begin_edit(&streamer->asset_dependency_queue, scratch_size);
-        defer { push_buffer_end_edit(&streamer->asset_dependency_queue, dependency_memory); };
 
         void* scratch_memory    = dependency_memory;
 
@@ -1663,6 +1648,9 @@ process_asset_dependencies(AssetStreamer* streamer)
         // Patch up all of the pointers since everything moved
         dst_header->dependencies = (const Asset**)dst_dependencies;
         dst_header->pkt          = dst_pkt;
+
+        // End the edit before popping: write semaphore must be 0 for pop to read through the old data
+        push_buffer_end_edit(&streamer->asset_dependency_queue, dependency_memory);
 
         // Pop off the old packet since we pushed it around the queue
         push_buffer_pop(&streamer->asset_dependency_queue, sizeof(Asset*) * header.dependency_count + header.pkt_size);
@@ -1858,17 +1846,17 @@ init_asset_streamer_impl(void)
   u64 kHeaderFileIOBufferSize   = MiB(4);
   u64 kContentFileIOBufferSize  = MiB(256);
   u64 kGpuStreamQueueSize       = MiB(128);
-  u64 kAssetDependencyQueueSize = MiB(4);
+  u64 kAssetDependencyQueueSize = MiB(8);
   u64 kMainThreadQueueSize      = MiB(1);
-  u32 kGpuStagingBufferSize     = MiB(64);
+  u32 kGpuStagingBufferSize     = MiB(128);
   u32 kGpuScratchBufferSize     = MiB(8);
 
   u32 kGpuTextureHeapSize       = GiB(1);
 
   ret->header_file_io_buffer              = init_push_buffer(KiB(1),  kHeaderFileIOBufferSize,   MiB(8));
-  ret->content_file_io_buffer             = init_push_buffer(MiB(16), kContentFileIOBufferSize,  GiB(1));
+  ret->content_file_io_buffer             = init_push_buffer(MiB(32), kContentFileIOBufferSize,  GiB(1));
   ret->gpu_io_buffer                      = init_push_buffer(KiB(1),  kGpuStreamQueueSize,       GiB(1));
-  ret->asset_dependency_queue             = init_push_buffer(KiB(1),  kAssetDependencyQueueSize, MiB(32));
+  ret->asset_dependency_queue             = init_push_buffer(KiB(4),  kAssetDependencyQueueSize, MiB(16));
   ret->main_thread_cmd_queue              = init_push_buffer(KiB(4),  kMainThreadQueueSize,      MiB(1));
   ret->next_header_file_io_cmd.cmd        = kNullStreamingCmd;
   ret->next_content_file_io_cmd.cmd       = kNullStreamingCmd;
@@ -1889,7 +1877,7 @@ init_asset_streamer_impl(void)
   ret->gpu_cmd_buffer_allocator = init_cmd_list_allocator(g_InitHeap, g_GpuDevice, &g_GpuDevice->compute_queue, 64);
   ret->gpu_cmd_buffer           = alloc_cmd_list(&ret->gpu_cmd_buffer_allocator);
 
-  u64 kModelSubsetAllocatorSize = KiB(16);
+  u64 kModelSubsetAllocatorSize = MiB(16);
   ret->metadata_allocator       = init_linear_allocator(kModelSubsetAllocatorSize, GiB(1));
 
 
