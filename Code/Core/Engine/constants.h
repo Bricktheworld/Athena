@@ -9,5 +9,5 @@ static constexpr u32 kMaxDynamicSceneObjs = 0x500;
 static constexpr u32 kMaxStaticSceneObjs = 0x1500;
 static constexpr u32 kMaxSceneObjs = kMaxStaticSceneObjs + kMaxDynamicSceneObjs;
 
-static constexpr u64 kVertexBufferSize = MiB(200);
+static constexpr u64 kVertexBufferSize = MiB(300);
 static constexpr u64 kIndexBufferSize  = MiB(100);

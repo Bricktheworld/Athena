@@ -99,16 +99,20 @@ struct Material
 };
 typedef AssetHandle<Material> MaterialHandle;
 
-
-struct ModelSubset
+struct ModelSubsetLod
 {
   u32  vertex_start = 0;
   u32  vertex_count = 0;
   u32  index_start  = 0;
   u32  index_count  = 0;
-  u32  mat_gpu_id   = 0;
-  Vec3 center       = {};
-  f32  radius       = 0.0f;
+};
+
+struct ModelSubset
+{
+  Array<ModelSubsetLod> lods;
+  u32  mat_gpu_id = 0;
+  Vec3 center     = {};
+  f32  radius     = 0.0f;
 };
 
 struct Model

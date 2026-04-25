@@ -8,20 +8,25 @@
 #include "Core/Tools/AssetBuilder/material_importer.h"
 
 namespace asset_builder
-{  
-  struct ImportedModelSubset
+{
+  struct ImportedModelSubsetLod
   {
     u32          num_vertices;
     u32          num_indices;
 
     VertexAsset* vertices;
     u16*         indices;
+  };
 
-    AssetId      material;
+  struct ImportedModelSubset
+  {
+    AssetId                 material;
+
+    ImportedModelSubsetLod* lods;
 
     // For the bounding sphere
-    Vec3         center;
-    f32          radius;
+    Vec3                    center;
+    f32                     radius;
   };
   
   struct ImportedModel
@@ -31,6 +36,8 @@ namespace asset_builder
 
     ImportedModelSubset* model_subsets;
     u32                  num_model_subsets;
+
+    u32                  lod_count;
   };
   
   DONT_IGNORE_RETURN bool import_model(
@@ -43,8 +50,6 @@ namespace asset_builder
   );
 
   void free_imported_model(ImportedModel* imported_model);
-
-  void dump_imported_model(ImportedModel model);
 
   DONT_IGNORE_RETURN bool write_model_to_asset(
     const char* project_root,

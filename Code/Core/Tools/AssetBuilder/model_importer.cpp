@@ -151,10 +151,14 @@ asset_builder::import_model(
     }
   }
 
+  // TODO(bshihabi): Make this configurable
+  static constexpr u32 kModelLodCount = 4;
+
   u64 path_len = strlen(path);
 
   ImportedModel imported_model     = {0};
   imported_model.hash              = asset_id;
+  imported_model.lod_count         = kModelLodCount;
   memcpy(imported_model.path, path, path_len + 1);
 
   imported_model.num_model_subsets = assimp_model->mNumMeshes;
@@ -174,6 +178,8 @@ asset_builder::import_model(
     }
 
     ImportedModelSubset* model_subset = imported_model.model_subsets + imesh;
+    model_subset->lods                = HEAP_ALLOC(ImportedModelSubsetLod, heap, imported_model.lod_count);
+
     struct UncompressedVertex
     {
       Vec3 position;
@@ -215,32 +221,59 @@ asset_builder::import_model(
     }
     num_indices = iindex;
 
-    meshopt_optimizeVertexCache<u16>(indices, indices, num_indices, num_vertices);
-    meshopt_optimizeOverdraw<u16>(indices, indices, num_indices, &uncompressed_vertices[0].position.x, num_vertices, sizeof(UncompressedVertex), 1.05f);
-    num_vertices = (u32)meshopt_optimizeVertexFetch<u16>(uncompressed_vertices, indices, num_indices, uncompressed_vertices, num_vertices, sizeof(UncompressedVertex));
-
     meshopt_Bounds bounds = meshopt_computeSphereBounds(&uncompressed_vertices[0].position.x, num_vertices, sizeof(UncompressedVertex), nullptr, 0);
+    Vec3           center = Vec3(bounds.center[0], bounds.center[1], bounds.center[2]);
+    f32            radius = bounds.radius;
 
-    VertexAsset* vertices = HEAP_ALLOC(VertexAsset, GLOBAL_HEAP, num_vertices);
-
-    Vec3 center = Vec3(bounds.center[0], bounds.center[1], bounds.center[2]);
-    f32  radius = bounds.radius;
-    for (u32 ivertex = 0; ivertex < num_vertices; ivertex++)
+    for (u32 ilod = 0; ilod < imported_model.lod_count; ilod++)
     {
-      Vec3    uncompressed_pos   = uncompressed_vertices[ivertex].position;
-      Vec3    offset             = uncompressed_pos - center;
-      Vec3    scaled_offset      = offset / radius;
-      Vec3s16 quantized_position = Vec3s16(f32_to_snorm16(scaled_offset.x), f32_to_snorm16(scaled_offset.y), f32_to_snorm16(scaled_offset.z));
+      UncompressedVertex* simplified_uncompressed_vertices = HEAP_ALLOC(UncompressedVertex, GLOBAL_HEAP, num_vertices);
+      u16*                simplified_indices               = HEAP_ALLOC(u16,                GLOBAL_HEAP, num_indices);
 
-      vertices[ivertex].position = quantized_position;
-      vertices[ivertex].normal   = uncompressed_vertices[ivertex].normal;
-      vertices[ivertex].uv       = uncompressed_vertices[ivertex].uv;
+      defer { HEAP_FREE(GLOBAL_HEAP, simplified_uncompressed_vertices); };
+
+      u32                 simplified_num_vertices = num_vertices;
+      u32                 simplified_num_indices  = num_indices;
+      // Simplify each LoD recursively based on the previous one
+      if (ilod > 0)
+      {
+        // Bogus numbers I stole from the meshoptimizer demo. I'm sure we can improve these.
+        f32 threshold          = powf(0.7, (f32)ilod);
+        u32 target_index_count = (u32)(num_indices * threshold) / 3 * 3;
+        f32 target_error       = 1e-2f;
+        f32 result_error       = 0.0f;
+        simplified_num_indices = (u32)meshopt_simplify<u16>(simplified_indices, indices, num_indices, &uncompressed_vertices[0].position.x, num_vertices, sizeof(UncompressedVertex), target_index_count, target_error, 0, &result_error);
+      }
+      else
+      {
+        memcpy(simplified_indices, indices, num_indices * sizeof(u16));
+      }
+
+      meshopt_optimizeVertexCache<u16>(simplified_indices, simplified_indices, simplified_num_indices, num_vertices);
+      meshopt_optimizeOverdraw<u16>(simplified_indices, simplified_indices, simplified_num_indices, &uncompressed_vertices[0].position.x, num_vertices, sizeof(UncompressedVertex), 1.05f);
+      simplified_num_vertices = (u32)meshopt_optimizeVertexFetch<u16>(simplified_uncompressed_vertices, simplified_indices, simplified_num_indices, uncompressed_vertices, num_vertices, sizeof(UncompressedVertex));
+
+      VertexAsset* vertices = HEAP_ALLOC(VertexAsset, GLOBAL_HEAP, simplified_num_vertices);
+
+      for (u32 ivertex = 0; ivertex < simplified_num_vertices; ivertex++)
+      {
+        Vec3    uncompressed_pos   = simplified_uncompressed_vertices[ivertex].position;
+        Vec3    offset             = uncompressed_pos - center;
+        Vec3    scaled_offset      = offset / radius;
+        Vec3s16 quantized_position = Vec3s16(f32_to_snorm16(scaled_offset.x), f32_to_snorm16(scaled_offset.y), f32_to_snorm16(scaled_offset.z));
+
+        vertices[ivertex].position = quantized_position;
+        vertices[ivertex].normal   = simplified_uncompressed_vertices[ivertex].normal;
+        vertices[ivertex].uv       = simplified_uncompressed_vertices[ivertex].uv;
+      }
+
+      ImportedModelSubsetLod* lod = model_subset->lods + ilod;
+      lod->num_vertices = simplified_num_vertices;
+      lod->num_indices  = simplified_num_indices;
+      lod->vertices     = vertices;
+      lod->indices      = simplified_indices;
     }
 
-    model_subset->num_vertices = num_vertices;
-    model_subset->num_indices  = num_indices;
-    model_subset->vertices     = vertices;
-    model_subset->indices      = indices;
     model_subset->material     = materials[assimp_mesh->mMaterialIndex].hash;
     model_subset->center       = center;
     model_subset->radius       = radius;
@@ -254,47 +287,6 @@ asset_builder::import_model(
   return true;
 }
 
-void
-asset_builder::dump_imported_model(ImportedModel model)
-{
-  ASSERT_MSG_FATAL(path_to_asset_id(model.path) == model.hash, "Imported model path and hash do not match!");
-  dbgln("Model(0x%x): %s", model.hash, model.path);
-  dbgln("  Subset: %lu", model.num_model_subsets);
-  for (u32 imodel_subset = 0; imodel_subset < model.num_model_subsets; imodel_subset++)
-  {
-    const ImportedModelSubset* model_subset = model.model_subsets + imodel_subset;
-    dbgln(
-      "  ModelSubset[%lu]: %lu vertices, %lu indices ",
-      imodel_subset,
-      model_subset->num_vertices,
-      model_subset->num_indices
-    );
-
-    for (u32 ivertex = 0; ivertex < model_subset->num_vertices; ivertex++)
-    {
-      const VertexAsset* vertex = model_subset->vertices + ivertex;
-      dbgln(
-        "    [%u]{position: (%f,%f,%f), normal: (%f,%f,%f), uv: (%f,%f)}",
-        ivertex,
-        vertex->position.x,
-        vertex->position.y,
-        vertex->position.z,
-        vertex->normal.x,
-        vertex->normal.y,
-        vertex->normal.z,
-        vertex->uv.x,
-        vertex->uv.y
-      );
-    }
-
-    for (u32 iindex = 0; iindex < model_subset->num_indices; iindex++)
-    {
-      dbg("%u, ", model_subset->indices[iindex]);
-    }
-    dbg("\n");
-  }
-}
-
 DONT_IGNORE_RETURN bool 
 asset_builder::write_model_to_asset(const char* project_root, const ImportedModel& model)
 {
@@ -302,11 +294,16 @@ asset_builder::write_model_to_asset(const char* project_root, const ImportedMode
   u64 total_index_count  = 0;
   for (u32 imodel_subset = 0; imodel_subset < model.num_model_subsets; imodel_subset++)
   {
-    total_vertex_count += model.model_subsets[imodel_subset].num_vertices;
-    total_index_count  += model.model_subsets[imodel_subset].num_indices;
+    const ImportedModelSubset* subset = &model.model_subsets[imodel_subset];
+    for (u32 ilod = 0; ilod < model.lod_count; ilod++)
+    {
+      const ImportedModelSubsetLod* lod = &subset->lods[ilod];
+      total_vertex_count += lod->num_vertices;
+      total_index_count  += lod->num_indices;
+    }
   }
 
-  size_t model_subsets_size = sizeof(ModelAsset::ModelSubset) * model.num_model_subsets;
+  size_t model_subsets_size = (sizeof(ModelAsset::ModelSubset) + sizeof(ModelAsset::ModelSubsetLod) * model.lod_count) * model.num_model_subsets;
 
   u64    vertices_size      = sizeof(VertexAsset) * total_vertex_count ;
   u64    indices_size       = sizeof(u16)         * total_index_count;
@@ -315,49 +312,55 @@ asset_builder::write_model_to_asset(const char* project_root, const ImportedMode
                               vertices_size       +
                               indices_size;
 
-  u64 vertex_dst           = sizeof(ModelAsset) + model_subsets_size;
-  u64 index_dst            = vertex_dst + vertices_size;
 
   u8* buffer = HEAP_ALLOC(u8, GLOBAL_HEAP, output_size);
   defer { HEAP_FREE(GLOBAL_HEAP, buffer); };
-  u32 offset = 0;
 
+  u8* dst    = buffer;
 
-  ModelAsset model_asset = {0};
-  model_asset.metadata.magic_number    = kAssetMagicNumber;
-  model_asset.metadata.version         = kModelAssetVersion;
-  model_asset.metadata.asset_type      = AssetType::kModel,
-  model_asset.metadata.asset_hash      = model.hash;
-  model_asset.num_model_subsets        = model.num_model_subsets;
-  model_asset.model_subsets            = sizeof(ModelAsset);
-  model_asset.vertices                 = vertex_dst;
-  model_asset.indices                  = index_dst;
-  model_asset.vertices_size            = vertices_size;
-  model_asset.indices_size             = indices_size;
+  ModelAsset* model_asset = (ModelAsset*)ALLOC_OFF(dst, sizeof(ModelAsset));
+  model_asset->metadata.magic_number    = kAssetMagicNumber;
+  model_asset->metadata.version         = kModelAssetVersion;
+  model_asset->metadata.asset_type      = AssetType::kModel,
+  model_asset->metadata.asset_hash      = model.hash;
+  model_asset->num_model_subsets        = model.num_model_subsets;
+  model_asset->lod_count                = model.lod_count;
+  model_asset->vertices_size            = vertices_size;
+  model_asset->indices_size             = indices_size;
 
-  memcpy(buffer + offset, &model_asset, sizeof(ModelAsset)); offset += sizeof(ModelAsset);
+  auto* dst_subsets  = ALLOC_OFF(dst, sizeof(ModelAsset::ModelSubset   ) * model.num_model_subsets);
+  auto* dst_lods     = ALLOC_OFF(dst, sizeof(ModelAsset::ModelSubsetLod) * model.num_model_subsets * model.lod_count);
+  auto* dst_vertices = ALLOC_OFF(dst, sizeof(VertexAsset) * total_vertex_count);
+  auto* dst_indices  = ALLOC_OFF(dst, sizeof(u16)         * total_index_count);
 
-
+  model_asset->model_subsets = dst_subsets - buffer;
+  model_asset->vertices      = dst_vertices - buffer;
+  model_asset->indices       = dst_indices  - buffer;
   for (u32 imodel_subset = 0; imodel_subset < model.num_model_subsets; imodel_subset++)
   {
-    ImportedModelSubset* imported_model_subset = model.model_subsets + imodel_subset;
-    ModelAsset::ModelSubset model_subset       = {0};
+    const ImportedModelSubset* imported_model_subset = model.model_subsets + imodel_subset;
+    auto* model_subset     = (ModelAsset::ModelSubset*)ALLOC_OFF(dst_subsets, sizeof(ModelAsset::ModelSubset));
 
-    model_subset.num_vertices = imported_model_subset->num_vertices;
-    model_subset.num_indices  = imported_model_subset->num_indices;
-    model_subset.material     = imported_model_subset->material;
-    model_subset.center       = imported_model_subset->center;
-    model_subset.radius       = imported_model_subset->radius;
+    model_subset->material = imported_model_subset->material;
+    model_subset->center   = imported_model_subset->center;
+    model_subset->radius   = imported_model_subset->radius;
+    model_subset->lods     = dst_lods - buffer;
+    for (u32 ilod = 0; ilod < model.lod_count; ilod++)
+    {
+      const ImportedModelSubsetLod* imported_lod = imported_model_subset->lods + ilod;
+      auto* lod         = (ModelAsset::ModelSubsetLod*)ALLOC_OFF(dst_lods, sizeof(ModelAsset::ModelSubsetLod));
+      lod->num_vertices = imported_lod->num_vertices;
+      lod->num_indices  = imported_lod->num_indices;
 
-    size_t vertex_size        = sizeof(VertexAsset) * model_subset.num_vertices;
-    size_t index_size         = sizeof(u16)         * model_subset.num_indices;
+      auto* vertices    = ALLOC_OFF(dst_vertices, sizeof(VertexAsset) * lod->num_vertices);
+      auto* indices     = ALLOC_OFF(dst_indices,  sizeof(u16)         * lod->num_indices );
 
-    model_subset.vertices     = vertex_dst; vertex_dst += vertex_size;
-    model_subset.indices      = index_dst;  index_dst  += index_size;
+      lod->vertices     = vertices - buffer;
+      lod->indices      = indices  - buffer;
 
-    memcpy(buffer + offset, &model_subset, sizeof(model_subset)); offset += sizeof(model_subset);
-    memcpy(buffer + model_subset.vertices, imported_model_subset->vertices, vertex_size);
-    memcpy(buffer + model_subset.indices,  imported_model_subset->indices,  index_size);
+      memcpy(vertices, imported_lod->vertices, sizeof(VertexAsset) * lod->num_vertices);
+      memcpy(indices,  imported_lod->indices,  sizeof(u16)         * lod->num_indices );
+    }
   }
 
   char built_path[512]{0};
@@ -373,6 +376,7 @@ asset_builder::write_model_to_asset(const char* project_root, const ImportedMode
 
   defer { close_file(&new_file.value()); };
 
+  ASSERT_MSG_FATAL((u64)(dst - buffer) == output_size, "Mismatched output size and written size! Expected %llu bytes but got %llu bytes", output_size, dst - buffer);
   if (!write_file(new_file.value(), buffer, output_size))
   {
     printf("Failed to write output file!\n");
@@ -388,7 +392,11 @@ asset_builder::free_imported_model(ImportedModel* imported_model)
   for (u32 imodel_subset = 0; imodel_subset < imported_model->num_model_subsets; imodel_subset++)
   {
     ImportedModelSubset* imported_model_subset = imported_model->model_subsets + imodel_subset;
-    HEAP_FREE(GLOBAL_HEAP, imported_model_subset->indices);
-    HEAP_FREE(GLOBAL_HEAP, imported_model_subset->vertices);
+    for (u32 ilod = 0; ilod < imported_model->lod_count; ilod++)
+    {
+      ImportedModelSubsetLod* lod = imported_model_subset->lods + ilod;
+      HEAP_FREE(GLOBAL_HEAP, lod->indices);
+      HEAP_FREE(GLOBAL_HEAP, lod->vertices);
+    }
   }
 }

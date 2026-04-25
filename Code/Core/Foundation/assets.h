@@ -161,44 +161,6 @@ enum struct AssetType : u32
   kUnknown,
 };
 
-
-struct ModelSubsetData
-{
-  Array<VertexAsset> vertices;
-  Array<u32>         indices;
-  AssetId            material;
-};
-
-struct ModelData
-{
-  Array<ModelSubsetData> model_subsets;
-};
-
-struct MaterialData
-{
-  AssetId        shader;
-  Vec4           diffuse_base;
-  Array<AssetId> textures;
-};
-
-enum struct AssetLoadResult : u32
-{
-  kOk,
-  kErrCorrupted,
-  kErrMismatchedAssetType,
-};
-
-FOUNDATION_API AssetType get_asset_type(const void* buffer, size_t size);
-
-FOUNDATION_API DONT_IGNORE_RETURN AssetLoadResult load_model(
-  AllocHeap heap,
-  const void* buffer,
-  size_t size,
-  ModelData* out_model
-);
-
-FOUNDATION_API void dump_model_info(const ModelData& model);
-
 struct AssetMetadata
 {
   u32       magic_number;
@@ -255,17 +217,23 @@ ASSERT_SERIALIZABLE(MaterialAsset);
 // that the engine will then de-construct into mesh instances that can be rendered separately.
 struct ModelAsset
 {
-  struct ModelSubset
+  struct ModelSubsetLod
   {
     u64                     num_vertices;
     u64                     num_indices;
-    AssetRef<MaterialAsset> material;
-    u32                     __pad0__;
     OffsetPtr<VertexAsset>  vertices;
     OffsetPtr<u16>          indices;
+  };
 
-    Vec3                    center;
-    f32                     radius;
+  struct ModelSubset
+  {
+    AssetRef<MaterialAsset>   material;
+    u32                       __pad0__;
+
+    OffsetPtr<ModelSubsetLod> lods;
+
+    Vec3                      center;
+    f32                       radius;
   };
 
   struct Meshlet
@@ -277,6 +245,9 @@ struct ModelAsset
   AssetMetadata          metadata;
   u64                    num_model_subsets;
   OffsetPtr<ModelSubset> model_subsets;
+
+  u32                    lod_count;
+  u32                    __pad0__;
 
   // Offset pointers for the entire model asset to stream directly to GPU memory
   OffsetPtr<VertexAsset> vertices;

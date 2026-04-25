@@ -345,8 +345,9 @@ process_model_file_request(AssetStreamer* streamer, FileStreamingCmdHeader heade
       model->materials        = init_array<MaterialHandle>(streamer->metadata_allocator, src_pkt.asset_header.num_model_subsets);
 
       // Bytes to read from the asset file for the content
-      u64   read_size    = src_pkt.asset_header.num_model_subsets * sizeof(ModelAsset::ModelSubset) +
-                           src_pkt.asset_header.vertices_size                                       +
+      u64   read_size    = src_pkt.asset_header.num_model_subsets * sizeof(ModelAsset::ModelSubset)                                                                      +
+                           src_pkt.asset_header.num_model_subsets * src_pkt.asset_header.lod_count * sizeof(ModelAsset::ModelSubsetLod) +
+                           src_pkt.asset_header.vertices_size                                                                           +
                            src_pkt.asset_header.indices_size;
 
       // Allocate some scratch memory in the ring buffer to read the file data
@@ -441,67 +442,72 @@ process_model_file_request(AssetStreamer* streamer, FileStreamingCmdHeader heade
       u64 gpu_io_byte_count = 0;
 
       // Initialize all the model subsets in the metadata
-      ModelAsset::ModelSubset* asset_subset    = (ModelAsset::ModelSubset*)(buf + src_pkt.asset_header.model_subsets);
+      ModelAsset::ModelSubset* asset_subset = (ModelAsset::ModelSubset*)(buf + src_pkt.asset_header.model_subsets);
       for (u32 isubset = 0; isubset < src_pkt.asset_header.num_model_subsets; isubset++, asset_subset++)
       {
-        // Initialize the memory for the model subsets
-        ModelSubset* runtime_subset    = array_add(&model->subsets);
+        ModelSubset* runtime_subset = array_add(&model->subsets);
+        runtime_subset->center      = asset_subset->center;
+        runtime_subset->radius      = asset_subset->radius;
+        runtime_subset->lods        = init_array<ModelSubsetLod>(streamer->metadata_allocator, src_pkt.asset_header.lod_count);
+
+        // Copy vertex/index data and populate runtime LODs
+        ModelAsset::ModelSubsetLod* asset_lod = (ModelAsset::ModelSubsetLod*)(buf + asset_subset->lods);
+        for (u32 ilod = 0; ilod < src_pkt.asset_header.lod_count; ilod++, asset_lod++)
         {
-          runtime_subset->vertex_count = (u32)asset_subset->num_vertices;
-          runtime_subset->index_count  = (u32)asset_subset->num_indices;
-          runtime_subset->center       = asset_subset->center;
-          runtime_subset->radius       = asset_subset->radius;
+          u64 vertex_offset_bytes = alloc_uber_vertex(asset_lod->num_vertices * sizeof(Vertex));
+          u64 index_offset_bytes  = alloc_uber_index (asset_lod->num_indices  * sizeof(u16));
 
-          u64 vertex_offset_bytes      = alloc_uber_vertex(asset_subset->num_vertices * sizeof(Vertex));
-          u64 index_offset_bytes       = alloc_uber_index (asset_subset->num_indices  * sizeof(u16));
-          runtime_subset->vertex_start = (u32)vertex_offset_bytes / sizeof(Vertex);
-          runtime_subset->index_start  = (u32)index_offset_bytes  / sizeof(u16);
+          ModelSubsetLod* runtime_lod = array_add(&runtime_subset->lods);
+          runtime_lod->vertex_start   = (u32)vertex_offset_bytes / sizeof(Vertex);
+          runtime_lod->vertex_count   = (u32)asset_lod->num_vertices;
+          runtime_lod->index_start    = (u32)index_offset_bytes  / sizeof(u16);
+          runtime_lod->index_count    = (u32)asset_lod->num_indices;
 
-          // TODO(bshihabi): We need to add proper debug names for the BLASes
-          GpuRtBlas* subset_rt_blas    = array_add(&model->subset_rt_blases);
-          *subset_rt_blas              = alloc_uber_blas(runtime_subset->vertex_start, runtime_subset->vertex_count, runtime_subset->index_start, runtime_subset->index_count, "Content subset RT BLAS");
+          u32 lod_vertex_size_in_bytes = (u32)(sizeof(Vertex) * asset_lod->num_vertices);
+          u32 lod_index_size_in_bytes  = (u32)(sizeof(u16)    * asset_lod->num_indices);
+
+          u8* gpu_scratch_mapped_base  = (u8*)unwrap(streamer->gpu_staging_buffer.buffer.mapped);
+          u8* gpu_scratch_mapped       = gpu_scratch_mapped_base + alloc_gpu_staging_bytes_blocking(streamer, lod_vertex_size_in_bytes + lod_index_size_in_bytes);
+
+          u8* lod_vertex_staging       = ALLOC_OFF(gpu_scratch_mapped, lod_vertex_size_in_bytes);
+          u8* lod_index_staging        = ALLOC_OFF(gpu_scratch_mapped, lod_index_size_in_bytes );
+          memcpy(lod_vertex_staging, buf + asset_lod->vertices, lod_vertex_size_in_bytes);
+          memcpy(lod_index_staging,  buf + asset_lod->indices,  lod_index_size_in_bytes );
+
+          gpu_copy_buffer(
+            &streamer->gpu_cmd_buffer,
+            g_UnifiedGeometryBuffer.vertex_buffer,
+            runtime_lod->vertex_start * sizeof(Vertex),
+            streamer->gpu_staging_buffer.buffer,
+            lod_vertex_staging - gpu_scratch_mapped_base,
+            lod_vertex_size_in_bytes
+          );
+
+          gpu_io_byte_count += lod_vertex_size_in_bytes;
+
+          gpu_copy_buffer(
+            &streamer->gpu_cmd_buffer,
+            g_UnifiedGeometryBuffer.index_buffer,
+            runtime_lod->index_start * sizeof(u16),
+            streamer->gpu_staging_buffer.buffer,
+            lod_index_staging - gpu_scratch_mapped_base,
+            lod_index_size_in_bytes
+          );
+
+          gpu_io_byte_count += lod_index_size_in_bytes;
         }
+
+        // TODO(bshihabi): This should be configurable at runtime
+        static constexpr u32 kRtBlasLod = 3;
+        // TODO(bshihabi): We need to add proper debug names for the BLASes
+        GpuRtBlas* subset_rt_blas    = array_add(&model->subset_rt_blases);
+        const ModelSubsetLod* rt_lod = &runtime_subset->lods[MIN(kRtBlasLod, src_pkt.asset_header.lod_count - 1)];
+        *subset_rt_blas              = alloc_uber_blas(rt_lod->vertex_start, rt_lod->vertex_count, rt_lod->index_start, rt_lod->index_count, "Content subset RT BLAS");
 
         // Kick off the material loads
         {
           MaterialHandle* dst = array_add(&model->materials);
           *dst                = kick_material_load(asset_subset->material);
-        }
-
-        // Copy the data into the ring buffer
-        {
-          u32 subset_vertex_size_in_bytes = (u32)(sizeof(Vertex) * asset_subset->num_vertices);
-          u32 subset_index_size_in_bytes  = (u32)(sizeof(u16)    * asset_subset->num_indices);
-
-          u8* gpu_scratch_mapped_base     = (u8*)unwrap(streamer->gpu_staging_buffer.buffer.mapped);
-          u8* gpu_scratch_mapped          = gpu_scratch_mapped_base + alloc_gpu_staging_bytes_blocking(streamer, subset_vertex_size_in_bytes + subset_index_size_in_bytes);
-
-          u8* subset_vertex_staging       = ALLOC_OFF(gpu_scratch_mapped, subset_vertex_size_in_bytes);
-          u8* subset_index_staging        = ALLOC_OFF(gpu_scratch_mapped, subset_index_size_in_bytes );
-          memcpy(subset_vertex_staging, buf + asset_subset->vertices, subset_vertex_size_in_bytes);
-          memcpy(subset_index_staging,  buf + asset_subset->indices,  subset_index_size_in_bytes );
-
-          gpu_copy_buffer(
-            &streamer->gpu_cmd_buffer,
-            g_UnifiedGeometryBuffer.vertex_buffer,
-            runtime_subset->vertex_start * sizeof(Vertex),
-            streamer->gpu_staging_buffer.buffer,
-            subset_vertex_staging - gpu_scratch_mapped_base,
-            subset_vertex_size_in_bytes
-          );
-
-          gpu_io_byte_count += subset_vertex_size_in_bytes;
-
-          gpu_copy_buffer(
-            &streamer->gpu_cmd_buffer,
-            g_UnifiedGeometryBuffer.index_buffer,
-            runtime_subset->index_start * sizeof(u16),
-            streamer->gpu_staging_buffer.buffer,
-            subset_index_staging - gpu_scratch_mapped_base,
-            subset_index_size_in_bytes
-          );
-
-          gpu_io_byte_count += subset_index_size_in_bytes;
         }
       }
 

@@ -77,7 +77,7 @@ render_handler_gbuffer_static(RenderContext* ctx, const RenderSettings&, const v
     {
       continue;
     }
-
+   
     MaterialSrt srt;
     srt.diffuse_base = Vec4(1.0f);
     srt.gpu_id       = obj->gpu_id;

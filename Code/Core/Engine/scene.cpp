@@ -237,12 +237,13 @@ render_handler_scene_gpu_upload(RenderContext* ctx, const RenderSettings&, const
       // If the subset ID is just straight up invalid, we're not gonna bother trying to do anything meaningful, just leave it as not drawing
       if (subset_id < src->model->subsets.size)
       {
-        dst->index_count        = model->subsets[subset_id].index_count;
-        dst->start_index        = model->subsets[subset_id].index_start;
-        dst->start_vertex       = model->subsets[subset_id].vertex_start;
-        dst->blas_addr          = model->subset_rt_blases[subset_id].buffer.gpu_addr;
-        src->index_count        = dst->index_count;
-        src->start_index        = dst->start_index;
+        const ModelSubsetLod& lod0  = model->subsets[subset_id].lods[2];
+        dst->index_count            = lod0.index_count;
+        dst->start_index            = lod0.index_start;
+        dst->start_vertex           = lod0.vertex_start;
+        dst->blas_addr              = model->subset_rt_blases[subset_id].buffer.gpu_addr;
+        src->index_count            = dst->index_count;
+        src->start_index            = dst->start_index;
       }
 
       src->needs_instance_data_gpu_upload = false;
