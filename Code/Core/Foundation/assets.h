@@ -14,7 +14,7 @@ struct VertexAsset
 {
   Vec4s16 position; // Position MUST be at the START of the struct in order for BVHs to be built
   Vec3    normal;
-  Vec2    uv;
+  Vec2s16 uv;
 };
 
 struct BoneAsset

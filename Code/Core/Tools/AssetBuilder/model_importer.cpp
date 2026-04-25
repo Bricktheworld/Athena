@@ -262,9 +262,15 @@ asset_builder::import_model(
         Vec3    scaled_offset      = offset / radius;
         Vec3s16 quantized_position = Vec3s16(f32_to_snorm16(scaled_offset.x), f32_to_snorm16(scaled_offset.y), f32_to_snorm16(scaled_offset.z));
 
-        vertices[ivertex].position = quantized_position;
+        Vec2    uncompressed_uv    = simplified_uncompressed_vertices[ivertex].uv;
+        f32     uv_scale           = MAX(MAX(fabs(uncompressed_uv.x), fabs(uncompressed_uv.y)), 1.0f);
+        Vec2    scaled_uvs         = uncompressed_uv / uv_scale;
+
+        f16     quantized_uv_scale = f32_to_f16(uv_scale);
+
+        vertices[ivertex].position = Vec4s16(quantized_position, *(s16*)&quantized_uv_scale);
         vertices[ivertex].normal   = simplified_uncompressed_vertices[ivertex].normal;
-        vertices[ivertex].uv       = simplified_uncompressed_vertices[ivertex].uv;
+        vertices[ivertex].uv       = Vec2s16(f32_to_snorm16(scaled_uvs.x), f32_to_snorm16(scaled_uvs.y));
       }
 
       ImportedModelSubsetLod* lod = model_subset->lods + ilod;

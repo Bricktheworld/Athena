@@ -2,6 +2,7 @@
 #include "../interlop.hlsli"
 
 #include "../Include/math.hlsli"
+#include "../Include/vertex_common.hlsli"
 
 ConstantBuffer<MaterialSrt> g_Srt : register(b0);
 [RootSignature(BINDLESS_ROOT_SIGNATURE)]
@@ -12,7 +13,8 @@ BasicVSOut VS_Basic(uint vert_id: SV_VertexID)
   // ConstantBuffer<Transform> transform = DEREF(g_Srt.transform);
   SceneObjGpu scene_obj = g_SceneObjs[g_Srt.gpu_id];
 
-  Vertex vertex = g_VertexBuffer[scene_obj.start_vertex + vert_id];
+  Vertex compressed_vertex = g_VertexBuffer[scene_obj.start_vertex + vert_id];
+  VertexUncompressed vertex = decompress_vertex(compressed_vertex);
 
   static const float4x4 kIdentity =
   {
@@ -22,7 +24,7 @@ BasicVSOut VS_Basic(uint vert_id: SV_VertexID)
     0, 0, 0, 1
   };
 
-  float3 obj_pos = snorm16_to_f32_x4(vertex.position).xyz;
+  float3 obj_pos = vertex.position.xyz;
   ret.world_pos  = mul(scene_obj.obj_to_world, float4(obj_pos, 1.0f));
   ret.ndc_pos    = mul(g_ViewportBuffer.view_proj, ret.world_pos);
 

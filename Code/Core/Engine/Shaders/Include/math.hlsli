@@ -33,14 +33,28 @@ float4 screen_to_world(float3 screen, float2 screen_size)
   return world;
 }
 
-float4 snorm16_to_f32_x4(Vec4s16 packed)
+template<int N>
+vector<f32, N> snorm16_to_f32(vector<s16, N> packed)
 {
-  return max((float4)packed / 32767.0f, -1.0f);
+  return max((vector<f32, N>)packed / 32767.0f, -1.0f);
 }
 
-Vec4s16 f32_to_snorm16_x4(float4 v)
+template<int N>
+vector<s16, N>  f32_to_snorm16(vector<f32, N> v)
 {
-  return (Vec4s16)clamp(select(v >= 0.0f, (v * 32767.0f + 0.5f), (v * 32767.0f - 0.5f)), -32768.0f, 32767.0f);
+  return (vector<s16, N>)clamp(select(v >= 0.0f, (v * 32767.0f + 0.5f), (v * 32767.0f - 0.5f)), -32768.0f, 32767.0f);
+}
+
+template<int N>
+vector<f32, N> unorm16_to_f32(vector<u16, N> packed)
+{
+  return max((vector<f32, N>)packed / 65535.0f, 0.0f);
+}
+
+template<int N>
+vector<u16, N> f32_to_unorm16(vector<f32, N> v)
+{
+  return (vector<u16, N>)clamp(v * 65535.0f + 0.5f, 0.0f, 65535.0f);
 }
 
 #endif

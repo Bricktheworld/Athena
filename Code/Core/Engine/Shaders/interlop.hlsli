@@ -44,7 +44,12 @@ typedef float16_t            f16;
 typedef half2                Vec2f16;
 typedef half3                Vec3f16;
 typedef half4                Vec4f16;
-typedef vector<int16_t, 4>   Vec4s16;
+typedef vector<int16_t,  2>  Vec2s16;
+typedef vector<int16_t,  3>  Vec3s16;
+typedef vector<int16_t,  4>  Vec4s16;
+typedef vector<uint16_t, 2>  Vec2u16;
+typedef vector<uint16_t, 3>  Vec3u16;
+typedef vector<uint16_t, 4>  Vec4u16;
 
 #define kQNaN (asfloat(0x7FC00000))
 #endif
@@ -200,9 +205,18 @@ using Texture2DArrayPtr = uint;
 
 struct Vertex
 {
-  Vec4s16 position; // Position MUST be at the START of the struct in order for BVHs to be built
+  // Position MUST be at the START of the struct in order for BVHs to be built
+  // Also, if the type is changed it must match what is built in the BLASes.
+  Vec4s16 position; 
   Vec3    normal;
-  Vec2    uv;
+  Vec2s16 uv;
+};
+
+struct VertexUncompressed
+{
+  Vec3 position;
+  Vec3 normal;
+  Vec2 uv;
 };
 
 struct Meshlet
@@ -285,6 +299,9 @@ struct SceneObjGpu
   u32  index_count;
   u32  start_vertex;
   u32  start_index;
+
+  Vec3 bounding_sphere_center; // snorm16 position decompression: pos = center + n * radius
+  f32  bounding_sphere_radius;
 
   u64  blas_addr;
   u32  __pad0__;

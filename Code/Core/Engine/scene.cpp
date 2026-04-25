@@ -237,7 +237,7 @@ render_handler_scene_gpu_upload(RenderContext* ctx, const RenderSettings&, const
       // If the subset ID is just straight up invalid, we're not gonna bother trying to do anything meaningful, just leave it as not drawing
       if (subset_id < src->model->subsets.size)
       {
-        const ModelSubsetLod& lod0  = model->subsets[subset_id].lods[2];
+        const ModelSubsetLod& lod0  = model->subsets[subset_id].lods[0];
         dst->index_count            = lod0.index_count;
         dst->start_index            = lod0.index_start;
         dst->start_vertex           = lod0.vertex_start;

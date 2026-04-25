@@ -171,11 +171,11 @@ void CS_RtDiffuseGiTraceRays(
   uint dst_idx = probe_idx * 64 + group_thread_id;
   if (query.CommittedStatus() == COMMITTED_TRIANGLE_HIT)
   {
-    Vertex vert   = get_traced_vertex(query);
+    VertexUncompressed vert    = get_traced_vertex(query);
     // TODO(bshihabi): Get actual diffuse from material
-    float3 diffuse = 0.9f;
-    float3 ws_pos = ray.Origin + ray.Direction * query.CommittedRayT();
-    float3 normal = vert.normal;
+    float3             diffuse = 0.9f;
+    float3             ws_pos  = ray.Origin + ray.Direction * query.CommittedRayT();
+    float3             normal  = vert.normal;
 
     // If we hit a backface
     if (dot(normal, ray.Direction) > 0)

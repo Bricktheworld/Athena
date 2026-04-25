@@ -138,3 +138,21 @@ snorm16_to_f32(s16 v)
   return MAX(v / 32767.0f, -1.0f);
 }
 
+inline u16
+f32_to_unorm16(f32 v)
+{
+  return (u16)CLAMP(v * 65535.0f + 0.5f, 0.0f, 65535.0f);
+}
+
+inline f32
+unorm16_to_f32(u16 v)
+{
+  return MAX(v / 65535.0f, 0.0f);
+}
+
+inline f16
+f32_to_f16(f32 v)
+{
+  __m128i h = _mm_cvtps_ph(_mm_set_ss(v), _MM_FROUND_TO_NEAREST_INT);
+  return (f16)(u16)_mm_extract_epi16(h, 0);
+}
