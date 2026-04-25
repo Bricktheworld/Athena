@@ -230,10 +230,9 @@ application_entry(HINSTANCE instance, int show_code)
   directional_light->sky_diffuse     = Vec3(0.529, 0.807, 0.921);
   directional_light->sky_illuminance = 20000;
 
-  u64 sponza_load_start_timestamp = begin_cpu_profiler_timestamp();
-  ModelHandle sponza_model = kick_model_load(ASSET_ID("Assets/Source/sponza/Sponza.gltf"));
-
-  bool is_model_loaded = false;
+  u64  sponza_load_start_timestamp = 0;
+  ModelHandle sponza_model;
+  bool        is_model_loaded      = false;
   bool done = false;
   while (!done)
   {
@@ -259,8 +258,15 @@ application_entry(HINSTANCE instance, int show_code)
       }
     }
 
+    // Wait for the engine to warm up because of random committed resource stuff from ImGui 
+    if (g_FrameId == 32)
+    {
+      sponza_load_start_timestamp = begin_cpu_profiler_timestamp();
+      sponza_model = kick_model_load(ASSET_ID("Assets/Source/Bistro/BistroExterior.fbx")); // kick_model_load(ASSET_ID("Assets/Source/sponza/Sponza.gltf"));
+    }
 
-    if (!is_model_loaded && sponza_model.is_loaded())
+
+    if (!is_model_loaded && g_FrameId > 32 && sponza_model.is_loaded())
     {
       is_model_loaded = true;
       f64 sponza_load_time_ms = end_cpu_profiler_timestamp(sponza_load_start_timestamp);
@@ -269,6 +275,7 @@ application_entry(HINSTANCE instance, int show_code)
       for (u32 isubset = 0; isubset < sponza_model->subsets.size; isubset++)
       {
         SceneObjHandle handle = init_render_scene_obj(sponza_model, isubset);
+        dbgln("Allocated subset %u at ID %u", isubset, handle.id);
         (void)handle;
       }
     }

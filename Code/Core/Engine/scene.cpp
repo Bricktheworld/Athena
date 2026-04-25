@@ -200,7 +200,7 @@ dynamic_scene_obj_attach_render_model(SceneObjHandle handle, ModelHandle model, 
 
 // TODO(bshihabi): I don't love this, I wish there was a better way to manage the maximum number of uploads per frame
 // so that we could handle high stream loads without having to constantly have this bit of memory
-static constexpr u64 kUploadBufferSize = KiB(8);
+static constexpr u64 kUploadBufferSize = MiB(4);
 
 struct SceneGpuUploadParams
 {

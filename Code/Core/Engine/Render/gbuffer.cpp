@@ -73,35 +73,10 @@ render_handler_gbuffer_static(RenderContext* ctx, const RenderSettings&, const v
       continue;
     }
 
-    // ASSERT_MSG_FATAL(subset.material != kNullAssetId, "Model subset has null material!");
-
-#if 0
-    auto material_res = get_material_asset(subset.material);
-    if (!material_res)
+    if (obj->needs_instance_data_gpu_upload)
     {
       continue;
     }
-
-    Texture2DPtr<float4> diffuse = {0};
-    {
-      AssetId asset = material_res.value()->textures[0];
-      auto res = get_srv_texture_asset(asset);
-      if (res)
-      {
-        diffuse = res.value();
-      }
-    }
-
-    Texture2DPtr<float4> normal = {0};
-    {
-      AssetId asset = material_res.value()->textures[1];
-      auto res = get_srv_texture_asset(asset);
-      if (res)
-      {
-        normal = res.value();
-      }
-    }
-#endif
 
     MaterialSrt srt;
     srt.diffuse_base = Vec4(1.0f);

@@ -201,7 +201,7 @@ init_unified_geometry_buffer(const GpuDevice* device)
   g_UnifiedGeometryBuffer.index_buffer     = alloc_gpu_buffer_no_heap(device, index_uber_desc, kGpuHeapGpuOnly, "Index Buffer");
   g_UnifiedGeometryBuffer.index_buffer_pos = 0;
 
-  g_UnifiedGeometryBuffer.blas_allocator   = init_gpu_linear_allocator(MiB(32), kGpuHeapGpuOnly);
+  g_UnifiedGeometryBuffer.blas_allocator   = init_gpu_linear_allocator(MiB(256), kGpuHeapGpuOnly);
 }
 
 void

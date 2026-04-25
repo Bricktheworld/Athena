@@ -984,7 +984,7 @@ compile_render_graph(AllocHeap heap, const RgBuilder& builder, RenderGraphDestro
     g_RenderGraph->local_heap        = init_gpu_linear_allocator(MiB(700), kGpuHeapGpuOnly);
     for (u32 i = 0; i < kBackBufferCount; i++)
     {
-      g_RenderGraph->sysram_upload_heaps[i] = init_gpu_linear_allocator(MiB(4), kGpuHeapSysRAMCpuToGpu);
+      g_RenderGraph->sysram_upload_heaps[i] = init_gpu_linear_allocator(MiB(32), kGpuHeapSysRAMCpuToGpu);
     }
 
 #if 0

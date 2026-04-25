@@ -28,7 +28,7 @@ bit_alloc(BitAllocator* allocator)
     }
 
     u32 idx = (u32)count_trailing_zeroes(~(*qword));
-    u32 bit = 1ULL << idx;
+    u64 bit = 1ULL << idx;
     *qword |= bit;
 
     allocator->allocated_count++;
@@ -44,7 +44,7 @@ bool
 bit_is_allocated(const BitAllocator& allocator, u32 idx)
 {
   u64* qword = allocator.bits + (idx / 64);
-  u32  bit   = 1ULL << idx;
+  u64  bit   = 1ULL << idx;
   return (*qword) & bit;
 }
 

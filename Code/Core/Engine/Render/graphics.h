@@ -6,6 +6,8 @@
 #include "Core/Foundation/Containers/ring_buffer.h"
 #include "Core/Foundation/Containers/hash_table.h"
 
+#include "Core/Foundation/Gpu/gpu.h"
+
 #include "Core/Foundation/math.h"
 
 #include "Core/Engine/Shaders/interlop.hlsli"
@@ -33,184 +35,13 @@ enum : u8
   kCommandAllocators     = kBackBufferCount * kMaxCommandListThreads,
 };
 
+u64 get_gpu_memory_budget();
+u64 get_gpu_memory_usage();
+
 typedef u64 FenceValue;
 
 typedef Vec4 Rgba;
 typedef Vec3 Rgb;
-
-enum GpuFormat : u8
-{
-  kGpuFormatUnknown                  = 0,
-  kGpuFormatRGBA32Typeless           = 1,
-  kGpuFormatRGBA32Float              = 2,
-  kGpuFormatRGBA32Uint               = 3,
-  kGpuFormatRGBA32Sint               = 4,
-  kGpuFormatRGB32Typeless            = 5,
-  kGpuFormatRGB32Float               = 6,
-  kGpuFormatRGB32Uint                = 7,
-  kGpuFormatRGB32Sint                = 8,
-  kGpuFormatRGBA16Typeless           = 9,
-  kGpuFormatRGBA16Float              = 10,
-  kGpuFormatRGBA16Unorm              = 11,
-  kGpuFormatRGBA16Uint               = 12,
-  kGpuFormatRGBA16Snorm              = 13,
-  kGpuFormatRGBA16Sint               = 14,
-  kGpuFormatRG32Typeless             = 15,
-  kGpuFormatRG32Float                = 16,
-  kGpuFormatRG32Uint                 = 17,
-  kGpuFormatRG32Sint                 = 18,
-  kGpuFormatR32G8x24Typeless         = 19,
-  kGpuFormatD32FloatS8x24Uint        = 20,
-  kGpuFormatR32FloatX8x24Typeless    = 21,
-  kGpuFormatX32TypelessG8x24Uint     = 22,
-  kGpuFormatRGB10A2Typeless          = 23,
-  kGpuFormatRGB10A2Unorm             = 24,
-  kGpuFormatRGB10A2Uint              = 25,
-  kGpuFormatR11G11B10Float           = 26,
-  kGpuFormatRGBA8Typeless            = 27,
-  kGpuFormatRGBA8Unorm               = 28,
-  kGpuFormatRGBA8UnormSrgb           = 29,
-  kGpuFormatRGBA8Uint                = 30,
-  kGpuFormatRGBA8Snorm               = 31,
-  kGpuFormatRGBA8Sint                = 32,
-  kGpuFormatRG16Typeless             = 33,
-  kGpuFormatRG16Float                = 34,
-  kGpuFormatRG16Unorm                = 35,
-  kGpuFormatRG16Uint                 = 36,
-  kGpuFormatRG16Snorm                = 37,
-  kGpuFormatRG16Sint                 = 38,
-  kGpuFormatR32Typeless              = 39,
-  kGpuFormatD32Float                 = 40,
-  kGpuFormatR32Float                 = 41,
-  kGpuFormatR32Uint                  = 42,
-  kGpuFormatR32Sint                  = 43,
-  kGpuFormatR24G8Typeless            = 44,
-  kGpuFormatD24UnormS8Uint           = 45,
-  kGpuFormatR24UnormX8Typeless       = 46,
-  kGpuFormatX24TypelessG8Uint        = 47,
-  kGpuFormatRG8Typeless              = 48,
-  kGpuFormatRG8Unorm                 = 49,
-  kGpuFormatRG8Uint                  = 50,
-  kGpuFormatRG8Snorm                 = 51,
-  kGpuFormatRG8Sint                  = 52,
-  kGpuFormatR16Typeless              = 53,
-  kGpuFormatR16Float                 = 54,
-  kGpuFormatD16Unorm                 = 55,
-  kGpuFormatR16Unorm                 = 56,
-  kGpuFormatR16Uint                  = 57,
-  kGpuFormatR16Snorm                 = 58,
-  kGpuFormatR16Sint                  = 59,
-  kGpuFormatR8Typeless               = 60,
-  kGpuFormatR8Unorm                  = 61,
-  kGpuFormatR8Uint                   = 62,
-  kGpuFormatR8Snorm                  = 63,
-  kGpuFormatR8Sint                   = 64,
-  kGpuFormatA8Unorm                  = 65,
-  kGpuFormatR1Unorm                  = 66,
-  kGpuFormatRGB9E5SharedExp          = 67,
-  kGpuFormatRG8B8G8Unorm             = 68,
-  kGpuFormatG8R8G8B8Unorm            = 69,
-  kGpuFormatBC1Typeless              = 70,
-  kGpuFormatBC1Unorm                 = 71,
-  kGpuFormatBC1UnormSrgb             = 72,
-  kGpuFormatBC2Typeless              = 73,
-  kGpuFormatBC2Unorm                 = 74,
-  kGpuFormatBC2UnormSrgb             = 75,
-  kGpuFormatBC3Typeless              = 76,
-  kGpuFormatBC3Unorm                 = 77,
-  kGpuFormatBC3UnormSrgb             = 78,
-  kGpuFormatBC4Typeless              = 79,
-  kGpuFormatBC4Unorm                 = 80,
-  kGpuFormatBC4Snorm                 = 81,
-  kGpuFormatBC5Typeless              = 82,
-  kGpuFormatBC5Unorm                 = 83,
-  kGpuFormatBC5Snorm                 = 84,
-  kGpuFormatB5G6R5Unorm              = 85,
-  kGpuFormatB5G5R5A1Unorm            = 86,
-  kGpuFormatBGRA8Unorm               = 87,
-  kGpuFormatBGRX8Unorm               = 88,
-  kGpuFormatRGB10XRBiasA2Unorm       = 89,
-  kGpuFormatBGRA8Typeless            = 90,
-  kGpuFormatBGRA8UnormSrgb           = 91,
-  kGpuFormatBGRX8Typeless            = 92,
-  kGpuFormatBGRX8UnormSrgb           = 93,
-  kGpuFormatBC6HTypeless             = 94,
-  kGpuFormatBC6HUF16                 = 95,
-  kGpuFormatBC6HSF16                 = 96,
-  kGpuFormatBC7Typeless              = 97,
-  kGpuFormatBC7Unorm                 = 98,
-  kGpuFormatBC7UnormSrgb             = 99,
-  kGpuFormatAYUV                     = 100,
-  kGpuFormatY410                     = 101,
-  kGpuFormatY416                     = 102,
-  kGpuFormatNV12                     = 103,
-  kGpuFormatP010                     = 104,
-  kGpuFormatP016                     = 105,
-  kGpuFormatOpaque420                = 106,
-  kGpuFormatYUY2                     = 107,
-  kGpuFormatY210                     = 108,
-  kGpuFormatY216                     = 109,
-  kGpuFormatNV11                     = 110,
-  kGpuFormatAI44                     = 111,
-  kGpuFormatIA44                     = 112,
-  kGpuFormatP8                       = 113,
-  kGpuFormatA8P8                     = 114,
-  kGpuFormatB4G4R4A4Unorm            = 115,
-  kGpuFormatP208                     = 130,
-  kGpuFormatV208                     = 131,
-  kGpuFormatV408                     = 132,
-  kGpuFormatSamplerFeedbackMinMip    = 189,
-  kGpuFormatSamplerFeedbackMipRegion = 190,
-};
-
-
-template <typename T>
-inline GpuFormat gpu_format_from_type();
-
-template <>
-inline GpuFormat gpu_format_from_type<float>()    { return kGpuFormatR32Float;    }
-
-template <>
-inline GpuFormat gpu_format_from_type<f16>()      { return kGpuFormatR16Float;    }
-
-template <>
-inline GpuFormat gpu_format_from_type<float2>()   { return kGpuFormatRG32Float;   }
-
-template <>
-inline GpuFormat gpu_format_from_type<float3>()   { return kGpuFormatRGB32Float;  }
-
-template <>
-inline GpuFormat gpu_format_from_type<float4>()   { return kGpuFormatRGBA32Float; }
-
-template <>
-inline GpuFormat gpu_format_from_type<u8>()       { return kGpuFormatR8Uint;      }
-
-template <>
-inline GpuFormat gpu_format_from_type<Vec2u8>()   { return kGpuFormatRG8Uint;     }
-
-template <>
-inline GpuFormat gpu_format_from_type<Vec4u8>()   { return kGpuFormatRGBA8Uint;   }
-
-template <>
-inline GpuFormat gpu_format_from_type<u16>()      { return kGpuFormatR16Uint;     }
-
-template <>
-inline GpuFormat gpu_format_from_type<Vec2u16>()  { return kGpuFormatRG16Uint;    }
-
-template <>
-inline GpuFormat gpu_format_from_type<Vec4u16>()  { return kGpuFormatRGBA16Uint;  }
-
-template <>
-inline GpuFormat gpu_format_from_type<uint>()     { return kGpuFormatR32Uint;     }
-
-template <>
-inline GpuFormat gpu_format_from_type<uint2>()    { return kGpuFormatRG32Uint;    }
-
-template <>
-inline GpuFormat gpu_format_from_type<uint3>()    { return kGpuFormatRGB32Uint;   }
-
-template <>
-inline GpuFormat gpu_format_from_type<uint4>()    { return kGpuFormatRGBA32Uint;  }
 
 struct GpuFence
 {
@@ -871,6 +702,7 @@ struct GpuProfiler
 struct GpuDevice
 {
   ID3D12Device15*         d3d12           = nullptr;
+  IDXGIAdapter4*          dxgi_adapter     = nullptr;
   IDXGIDebug*             dxgi_debug      = nullptr;
   u32                     flags;
 
@@ -1008,4 +840,53 @@ void imgui_render(CmdList* cmd);
 
 #define U32_COLOR(r, g, b) (0xff000000u | ((u32)r << 16) | ((u32)g << 8) | (u32)b)
 #define GPU_SCOPED_EVENT(color, cmdlist, fmt, ...) PIXBeginEvent((cmdlist)->d3d12_list, color, fmt, ##__VA_ARGS__); begin_gpu_profiler_timestamp((cmdlist), fmt); defer { PIXEndEvent((cmdlist)->d3d12_list); end_gpu_profiler_timestamp((cmdlist), fmt); }
+
+
+template <typename T>
+inline GpuFormat gpu_format_from_type();
+
+template <>
+inline GpuFormat gpu_format_from_type<float>()    { return kGpuFormatR32Float;    }
+
+template <>
+inline GpuFormat gpu_format_from_type<f16>()      { return kGpuFormatR16Float;    }
+
+template <>
+inline GpuFormat gpu_format_from_type<float2>()   { return kGpuFormatRG32Float;   }
+
+template <>
+inline GpuFormat gpu_format_from_type<float3>()   { return kGpuFormatRGB32Float;  }
+
+template <>
+inline GpuFormat gpu_format_from_type<float4>()   { return kGpuFormatRGBA32Float; }
+
+template <>
+inline GpuFormat gpu_format_from_type<u8>()       { return kGpuFormatR8Uint;      }
+
+template <>
+inline GpuFormat gpu_format_from_type<Vec2u8>()   { return kGpuFormatRG8Uint;     }
+
+template <>
+inline GpuFormat gpu_format_from_type<Vec4u8>()   { return kGpuFormatRGBA8Uint;   }
+
+template <>
+inline GpuFormat gpu_format_from_type<u16>()      { return kGpuFormatR16Uint;     }
+
+template <>
+inline GpuFormat gpu_format_from_type<Vec2u16>()  { return kGpuFormatRG16Uint;    }
+
+template <>
+inline GpuFormat gpu_format_from_type<Vec4u16>()  { return kGpuFormatRGBA16Uint;  }
+
+template <>
+inline GpuFormat gpu_format_from_type<uint>()     { return kGpuFormatR32Uint;     }
+
+template <>
+inline GpuFormat gpu_format_from_type<uint2>()    { return kGpuFormatRG32Uint;    }
+
+template <>
+inline GpuFormat gpu_format_from_type<uint3>()    { return kGpuFormatRGB32Uint;   }
+
+template <>
+inline GpuFormat gpu_format_from_type<uint4>()    { return kGpuFormatRGBA32Uint;  }
 
