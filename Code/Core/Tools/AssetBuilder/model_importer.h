@@ -13,12 +13,15 @@ namespace asset_builder
   {
     u32          num_vertices;
     u32          num_indices;
-                 
+
     VertexAsset* vertices;
     u16*         indices;
-                 
+
     AssetId      material;
-    Aabb3d       aabb;
+
+    // For the bounding sphere
+    Vec3         center;
+    f32          radius;
   };
   
   struct ImportedModel

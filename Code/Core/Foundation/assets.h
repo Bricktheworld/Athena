@@ -12,11 +12,10 @@
 // NOTE(bshihabi): Keep in sync with interlop.hlsli!
 struct VertexAsset
 {
-  Vec3 position; // Position MUST be at the START of the struct in order for BVHs to be built
-  Vec3 normal;
-  Vec2 uv;
+  Vec4s16 position; // Position MUST be at the START of the struct in order for BVHs to be built
+  Vec3    normal;
+  Vec2    uv;
 };
-static_assert(sizeof(VertexAsset) == sizeof(f32) * 8);
 
 struct BoneAsset
 {
@@ -34,7 +33,7 @@ using AssetRef = AssetId;
 
 static constexpr u32 kAssetMagicNumber = CRC32_STR("ATHENA_ASSET");
 
-static constexpr u32 kModelAssetVersion    = 4;
+static constexpr u32 kModelAssetVersion    = 5;
 static constexpr u32 kTextureAssetVersion  = 4;
 static constexpr u32 kMaterialAssetVersion = 4;
 
@@ -261,8 +260,12 @@ struct ModelAsset
     u64                     num_vertices;
     u64                     num_indices;
     AssetRef<MaterialAsset> material;
+    u32                     __pad0__;
     OffsetPtr<VertexAsset>  vertices;
     OffsetPtr<u16>          indices;
+
+    Vec3                    center;
+    f32                     radius;
   };
 
   struct Meshlet

@@ -249,7 +249,7 @@ alloc_uber_blas(u32 vertex_start, u32 vertex_count, u32 index_start, u32 index_c
   desc.vertex_start  = vertex_start;
   desc.vertex_count  = vertex_count;
   // TODO(bshihabi): When we add vertex buffer compression we'll need to figure out how to construct the BLAS with the compressed data
-  desc.vertex_format = kGpuFormatRGB32Float;
+  desc.vertex_format = kGpuFormatRGBA16Snorm;
   desc.vertex_stride = sizeof(Vertex);
   desc.index_start   = index_start;
   desc.index_count   = index_count;

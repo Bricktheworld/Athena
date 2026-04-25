@@ -4,6 +4,8 @@
 #include "Core/Tools/AssetBuilder/Vendor/assimp/scene.h"
 #include "Core/Tools/AssetBuilder/Vendor/assimp/postprocess.h"
 
+#include "Core/Tools/AssetBuilder/Vendor/meshoptimizer/meshoptimizer.h"
+
 DONT_IGNORE_RETURN bool
 asset_builder::import_model(
   AllocHeap heap,
@@ -28,8 +30,7 @@ asset_builder::import_model(
     aiProcess_JoinIdenticalVertices |
     aiProcess_SortByPType           |
     aiProcess_SplitLargeMeshes      | // Need this to handle large meshes that overflow u16
-    aiProcess_PreTransformVertices  | // TODO(Brandon): We're gonna delete this soon and replace with prefab system
-    aiProcess_GenBoundingBoxes
+    aiProcess_PreTransformVertices    // TODO(Brandon): We're gonna delete this and replace with prefab system
   );
 
   if (assimp_model == nullptr)
@@ -173,10 +174,15 @@ asset_builder::import_model(
     }
 
     ImportedModelSubset* model_subset = imported_model.model_subsets + imesh;
+    struct UncompressedVertex
+    {
+      Vec3 position;
+      Vec3 normal;
+      Vec2 uv;
+    };
 
-    VertexAsset* vertices = HEAP_ALLOC(VertexAsset, GLOBAL_HEAP, num_vertices);
-    u16*         indices  = HEAP_ALLOC(u16,         GLOBAL_HEAP, num_indices );
-
+    UncompressedVertex* uncompressed_vertices = HEAP_ALLOC(UncompressedVertex, GLOBAL_HEAP, num_vertices);
+    u16*                indices               = HEAP_ALLOC(u16,                GLOBAL_HEAP, num_indices );
 
     const aiVector3D kAssimpZero3D(0.0f, 0.0f, 0.0f);
     for (u32 ivertex = 0; ivertex < assimp_mesh->mNumVertices; ivertex++)
@@ -187,9 +193,9 @@ asset_builder::import_model(
                                    assimp_mesh->mTextureCoords[0] + ivertex :
                                    &kAssimpZero3D;
       
-      vertices[ivertex].position = Vec3(position->x, position->y, position->z);
-      vertices[ivertex].normal   = Vec3(normal->x, normal->y, normal->z);
-      vertices[ivertex].uv       = Vec2(uv->x, uv->y);
+      uncompressed_vertices[ivertex].position = Vec3(position->x, position->y, position->z);
+      uncompressed_vertices[ivertex].normal   = Vec3(normal->x, normal->y, normal->z);
+      uncompressed_vertices[ivertex].uv       = Vec2(uv->x, uv->y);
     }
 
     u32 iindex = 0;
@@ -209,19 +215,35 @@ asset_builder::import_model(
     }
     num_indices = iindex;
 
+    meshopt_optimizeVertexCache<u16>(indices, indices, num_indices, num_vertices);
+    meshopt_optimizeOverdraw<u16>(indices, indices, num_indices, &uncompressed_vertices[0].position.x, num_vertices, sizeof(UncompressedVertex), 1.05f);
+    num_vertices = (u32)meshopt_optimizeVertexFetch<u16>(uncompressed_vertices, indices, num_indices, uncompressed_vertices, num_vertices, sizeof(UncompressedVertex));
+
+    meshopt_Bounds bounds = meshopt_computeSphereBounds(&uncompressed_vertices[0].position.x, num_vertices, sizeof(UncompressedVertex), nullptr, 0);
+
+    VertexAsset* vertices = HEAP_ALLOC(VertexAsset, GLOBAL_HEAP, num_vertices);
+
+    Vec3 center = Vec3(bounds.center[0], bounds.center[1], bounds.center[2]);
+    f32  radius = bounds.radius;
+    for (u32 ivertex = 0; ivertex < num_vertices; ivertex++)
+    {
+      Vec3    uncompressed_pos   = uncompressed_vertices[ivertex].position;
+      Vec3    offset             = uncompressed_pos - center;
+      Vec3    scaled_offset      = offset / radius;
+      Vec3s16 quantized_position = Vec3s16(f32_to_snorm16(scaled_offset.x), f32_to_snorm16(scaled_offset.y), f32_to_snorm16(scaled_offset.z));
+
+      vertices[ivertex].position = quantized_position;
+      vertices[ivertex].normal   = uncompressed_vertices[ivertex].normal;
+      vertices[ivertex].uv       = uncompressed_vertices[ivertex].uv;
+    }
+
     model_subset->num_vertices = num_vertices;
     model_subset->num_indices  = num_indices;
     model_subset->vertices     = vertices;
     model_subset->indices      = indices;
     model_subset->material     = materials[assimp_mesh->mMaterialIndex].hash;
-
-    // TODO(Brandon): We'll need to figure out how to link these correctly...
-    //model_subset->material.num_textures  = 0;
-    //model_subset->material.texture_paths = nullptr;
-
-    const aiAABB* aabb  = &assimp_mesh->mAABB;
-    model_subset->aabb.min = Vec3(aabb->mMin.x, aabb->mMin.y, aabb->mMin.z);
-    model_subset->aabb.max = Vec3(aabb->mMax.x, aabb->mMax.y, aabb->mMax.z);
+    model_subset->center       = center;
+    model_subset->radius       = radius;
   }
 
   ASSERT_MSG_FATAL(path_to_asset_id(imported_model.path) == imported_model.hash, "Imported model path and hash do not match!");
@@ -324,6 +346,8 @@ asset_builder::write_model_to_asset(const char* project_root, const ImportedMode
     model_subset.num_vertices = imported_model_subset->num_vertices;
     model_subset.num_indices  = imported_model_subset->num_indices;
     model_subset.material     = imported_model_subset->material;
+    model_subset.center       = imported_model_subset->center;
+    model_subset.radius       = imported_model_subset->radius;
 
     size_t vertex_size        = sizeof(VertexAsset) * model_subset.num_vertices;
     size_t index_size         = sizeof(u16)         * model_subset.num_indices;

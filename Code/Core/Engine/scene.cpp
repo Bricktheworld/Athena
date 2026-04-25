@@ -220,34 +220,37 @@ render_handler_scene_gpu_upload(RenderContext* ctx, const RenderSettings&, const
   {
     ASSERT_MSG_FATAL(src->gpu_id < kMaxSceneObjs, "Invalid GPU ID 0x%x!", src->gpu_id);
 
-    dst->obj_to_world       = src->obj_to_world;
-    dst->prev_obj_to_world  = src->prev_obj_to_world;
-    dst->mat_id             = src->mat_id;
-
     // This actually is a nice safeguard because we would never render a 0 index count object anyway even if we did make a draw call for it
-    dst->index_count        = 0;
-    dst->start_index        = 0;
-    dst->start_vertex       = 0;
+    dst->index_count            = 0;
+    dst->start_index            = 0;
+    dst->start_vertex           = 0;
     if (src->needs_instance_data_gpu_upload && src->model && src->model.is_loaded())
     {
-      ModelHandle model     = src->model;
-      u32         subset_id = src->subset_id;
+      ModelHandle model         = src->model;
+      u32         subset_id     = src->subset_id;
       ASSERT_MSG_FATAL(subset_id < model->subsets.size, "Invalid subset ID on scene object %u", src->subset_id);
+
+      src->obj_to_world        *= model->subsets[subset_id].radius;
+      src->obj_to_world.cols[3] = Vec4(model->subsets[subset_id].center, 1.0f);
+      src->prev_obj_to_world    = src->obj_to_world;
 
       // If the subset ID is just straight up invalid, we're not gonna bother trying to do anything meaningful, just leave it as not drawing
       if (subset_id < src->model->subsets.size)
       {
-        dst->index_count  = model->subsets[subset_id].index_count;
-        dst->start_index  = model->subsets[subset_id].index_start;
-        dst->start_vertex = model->subsets[subset_id].vertex_start;
-        dst->blas_addr    = model->subset_rt_blases[subset_id].buffer.gpu_addr;
-
-        src->index_count  = dst->index_count;
-        src->start_index  = dst->start_index;
+        dst->index_count        = model->subsets[subset_id].index_count;
+        dst->start_index        = model->subsets[subset_id].index_start;
+        dst->start_vertex       = model->subsets[subset_id].vertex_start;
+        dst->blas_addr          = model->subset_rt_blases[subset_id].buffer.gpu_addr;
+        src->index_count        = dst->index_count;
+        src->start_index        = dst->start_index;
       }
 
       src->needs_instance_data_gpu_upload = false;
     }
+
+    dst->obj_to_world           = src->obj_to_world;
+    dst->prev_obj_to_world      = src->prev_obj_to_world;
+    dst->mat_id                 = src->mat_id;
 
     src->needs_gpu_upload     = false;
   };

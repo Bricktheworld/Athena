@@ -32,6 +32,17 @@ float4 screen_to_world(float3 screen, float2 screen_size)
 
   return world;
 }
+
+float4 snorm16_to_f32_x4(Vec4s16 packed)
+{
+  return max((float4)packed / 32767.0f, -1.0f);
+}
+
+Vec4s16 f32_to_snorm16_x4(float4 v)
+{
+  return (Vec4s16)clamp(select(v >= 0.0f, (v * 32767.0f + 0.5f), (v * 32767.0f - 0.5f)), -32768.0f, 32767.0f);
+}
+
 #endif
 
 #endif

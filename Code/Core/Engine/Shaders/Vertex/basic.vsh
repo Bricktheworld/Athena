@@ -1,8 +1,9 @@
 #include "../root_signature.hlsli"
 #include "../interlop.hlsli"
 
-ConstantBuffer<MaterialSrt> g_Srt : register(b0);
+#include "../Include/math.hlsli"
 
+ConstantBuffer<MaterialSrt> g_Srt : register(b0);
 [RootSignature(BINDLESS_ROOT_SIGNATURE)]
 BasicVSOut VS_Basic(uint vert_id: SV_VertexID)
 {
@@ -21,8 +22,9 @@ BasicVSOut VS_Basic(uint vert_id: SV_VertexID)
     0, 0, 0, 1
   };
 
-  ret.world_pos = mul(kIdentity, float4(vertex.position.xyz, 1.0f));
-  ret.ndc_pos   = mul(g_ViewportBuffer.view_proj, ret.world_pos);
+  float3 obj_pos = snorm16_to_f32_x4(vertex.position).xyz;
+  ret.world_pos  = mul(scene_obj.obj_to_world, float4(obj_pos, 1.0f));
+  ret.ndc_pos    = mul(g_ViewportBuffer.view_proj, ret.world_pos);
 
   ret.curr_pos  = ret.ndc_pos;
   ret.prev_pos  = mul(g_ViewportBuffer.prev_view_proj, ret.world_pos);

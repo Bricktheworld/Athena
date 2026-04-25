@@ -262,7 +262,7 @@ application_entry(HINSTANCE instance, int show_code)
     if (g_FrameId == 32)
     {
       sponza_load_start_timestamp = begin_cpu_profiler_timestamp();
-      sponza_model = kick_model_load(ASSET_ID("Assets/Source/Bistro/BistroExterior.fbx")); // kick_model_load(ASSET_ID("Assets/Source/sponza/Sponza.gltf"));
+      sponza_model = kick_model_load(ASSET_ID("Assets/Source/sponza/Sponza.gltf")); // kick_model_load(ASSET_ID("Assets/Source/Bistro/BistroExterior.fbx"));
     }
 
 

@@ -449,6 +449,8 @@ process_model_file_request(AssetStreamer* streamer, FileStreamingCmdHeader heade
         {
           runtime_subset->vertex_count = (u32)asset_subset->num_vertices;
           runtime_subset->index_count  = (u32)asset_subset->num_indices;
+          runtime_subset->center       = asset_subset->center;
+          runtime_subset->radius       = asset_subset->radius;
 
           u64 vertex_offset_bytes      = alloc_uber_vertex(asset_subset->num_vertices * sizeof(Vertex));
           u64 index_offset_bytes       = alloc_uber_index (asset_subset->num_indices  * sizeof(u16));

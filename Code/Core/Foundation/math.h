@@ -84,7 +84,7 @@ struct Vec4T
   Vec4T(T all) : x(all), y(all), z(all), w(all) {}
   Vec4T(T x, T y, T z, T w) : x(x), y(y), z(z), w(w) {}
   Vec4T(Vec2T<T> v, T z = 0, T w = 0) : x(v.x), y(v.y), z(z), w(w) {}
-  Vec4T(Vec3T<T> v, T w = 0) : x(v.x), y(v.y), z(v.z), w(v.w) {}
+  Vec4T(Vec3T<T> v, T w = 0) : x(v.x), y(v.y), z(v.z), w(w) {}
 
   template <typename U>
   explicit operator Vec4T<U>() const

@@ -22,28 +22,29 @@ typedef Vec2f16 half2;
 typedef Vec3f16 half3;
 typedef Vec4f16 half4;
 #else
-typedef float4x4  Mat4;
-typedef float2    Vec2;
-typedef float3    Vec3;
-typedef float4    Vec4;
-typedef float4    Quat;
-typedef uint2     UVec2;
-typedef uint3     UVec3;
-typedef uint4     UVec4;
-typedef int2      SVec2;
-typedef int3      SVec3;
-typedef int4      SVec4;
-typedef uint16_t  u16;
-typedef uint      u32;
-typedef uint64_t  u64;
-typedef int16_t   s16;
-typedef int       s32;
-typedef int64_t   s64;
-typedef float     f32;
-typedef float16_t f16;
-typedef half2     Vec2f16;
-typedef half3     Vec3f16;
-typedef half4     Vec4f16;
+typedef float4x4             Mat4;
+typedef float2               Vec2;
+typedef float3               Vec3;
+typedef float4               Vec4;
+typedef float4               Quat;
+typedef uint2                UVec2;
+typedef uint3                UVec3;
+typedef uint4                UVec4;
+typedef int2                 SVec2;
+typedef int3                 SVec3;
+typedef int4                 SVec4;
+typedef uint16_t             u16;
+typedef uint                 u32;
+typedef uint64_t             u64;
+typedef int16_t              s16;
+typedef int                  s32;
+typedef int64_t              s64;
+typedef float                f32;
+typedef float16_t            f16;
+typedef half2                Vec2f16;
+typedef half3                Vec3f16;
+typedef half4                Vec4f16;
+typedef vector<int16_t, 4>   Vec4s16;
 
 #define kQNaN (asfloat(0x7FC00000))
 #endif
@@ -199,9 +200,9 @@ using Texture2DArrayPtr = uint;
 
 struct Vertex
 {
-  Vec3 position; // Position MUST be at the START of the struct in order for BVHs to be built
-  Vec3 normal;
-  Vec2 uv;
+  Vec4s16 position; // Position MUST be at the START of the struct in order for BVHs to be built
+  Vec3    normal;
+  Vec2    uv;
 };
 
 struct Meshlet

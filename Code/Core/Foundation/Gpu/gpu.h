@@ -126,3 +126,15 @@ enum GpuFormat : u8
   kGpuFormatSamplerFeedbackMipRegion = 190,
 };
 
+inline s16
+f32_to_snorm16(f32 v)
+{
+  return (s16)CLAMP(v >= 0.0f ? (v * 32767.0f + 0.5f) : (v * 32767.0f - 0.5f), -32768.0f, 32767.0f);
+}
+
+inline f32
+snorm16_to_f32(s16 v)
+{
+  return MAX(v / 32767.0f, -1.0f);
+}
+

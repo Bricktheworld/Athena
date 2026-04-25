@@ -1,6 +1,7 @@
 #ifndef __RT_COMMON__
 #define __RT_COMMON__
 #include "../interlop.hlsli"
+#include "../Include/math.hlsli"
 
 // TODO(Brandon): Eventually when we do full material's we will want to include more data than this...
 struct Payload
@@ -19,9 +20,10 @@ Vertex interpolate_vertex(Vertex vertices[3], float3 barycentrics)
 
   for (uint i = 0; i < 3; i++)
   {
-    ret.position += vertices[i].position * barycentrics[i];
-    ret.normal   += vertices[i].normal * barycentrics[i];
-    ret.uv       += vertices[i].uv * barycentrics[i];
+    float3 position = snorm16_to_f32_x4(vertices[i].position).xyz;
+    ret.position   += f32_to_snorm16_x4(float4(position * barycentrics[i], 1.0f));
+    ret.normal     += vertices[i].normal * barycentrics[i];
+    ret.uv         += vertices[i].uv * barycentrics[i];
   }
 
   ret.normal = normalize(ret.normal);
