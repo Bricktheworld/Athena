@@ -15,6 +15,8 @@ struct SceneGpuResources
   // Uploaded data to GPU Buffers
   RgHandle<GpuBuffer> scene_obj_buffer;
 
+  RgHandle<GpuBuffer> rt_obj_buffer;
+
   // TODO(bshihabi): Make this a ring-buffer type structure
   RgHandle<GpuBuffer> upload_buffer;
 };
@@ -43,9 +45,10 @@ struct SceneObj
   // TODO(bshihabi): rip these out when the shader can do all of the multi draw indirect automatically
   u32         start_index  = 0;
   u32         index_count  = 0;
+  u32         lod_idx      = 0;
 
   u64         needs_gpu_upload:               1 = 0;
-  u64         needs_blas_build:               1 = 0;
+  u64         needs_rt_upload:                1 = 0;
   u64         needs_instance_data_gpu_upload: 1 = 0;
 };
 

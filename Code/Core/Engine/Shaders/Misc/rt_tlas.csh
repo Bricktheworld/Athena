@@ -16,7 +16,7 @@ void CS_RtTlasFillInstances(uint thread_id : SV_DispatchThreadID)
   }
 
   u32             gpu_id    = thread_id;
-  SceneObjGpu     obj       = g_SceneObjs[gpu_id];
+  RtObjGpu        obj       = g_RtObjs[gpu_id];
   if (obj.blas_addr == 0)
   {
     return;

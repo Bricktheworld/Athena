@@ -43,9 +43,9 @@ void load_vertices(uint start_index, uint start_vertex, uint triangle_idx, out V
 
 VertexUncompressed get_traced_vertex(uint instance_id, uint primitive_idx, float2 in_barycentrics)
 {
-  SceneObjGpu scene_obj = g_SceneObjs[instance_id];
+  RtObjGpu rt_obj = g_RtObjs[instance_id];
   Vertex vertices[3];
-  load_vertices(scene_obj.start_index, scene_obj.start_vertex, primitive_idx * 3, vertices);
+  load_vertices(rt_obj.start_index, rt_obj.start_vertex, primitive_idx * 3, vertices);
 
   float3 barycentrics = float3((1.0f - in_barycentrics.x - in_barycentrics.y), in_barycentrics.x, in_barycentrics.y);
   return interpolate_vertex(vertices, barycentrics);

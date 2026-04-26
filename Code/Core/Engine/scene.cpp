@@ -80,11 +80,13 @@ alloc_scene_obj(u32 flags)
   if (obj)
   {
     obj->generation++;
-    obj->flags             = flags;
-    obj->obj_to_world      = Mat4();
-    obj->prev_obj_to_world = Mat4();
-    obj->gpu_id            = 0xFFFFFFFF;
-    obj->needs_gpu_upload  = false;
+    obj->flags                = flags;
+    obj->obj_to_world         = Mat4();
+    obj->prev_obj_to_world    = Mat4();
+    obj->gpu_id               = 0xFFFFFFFF;
+    obj->needs_gpu_upload     = false;
+    obj->needs_rt_upload      = false;
+    obj->needs_instance_data_gpu_upload = false;
 
     if (obj->flags & kSceneObjRender)
     {
@@ -94,6 +96,8 @@ alloc_scene_obj(u32 flags)
       {
         obj->gpu_id           = unwrap(gpu_id);
         obj->needs_gpu_upload = true;
+        obj->needs_rt_upload  = true;
+        obj->needs_instance_data_gpu_upload = false;
       }
     }
 
@@ -140,6 +144,8 @@ init_render_scene_obj(ModelHandle model, u32 subset, u32 flags)
   obj->subset_id     = subset;
   obj->mat_id        = model->materials[subset]->gpu_id;
   obj->needs_instance_data_gpu_upload = true;
+  obj->needs_gpu_upload               = true;
+  obj->needs_rt_upload                = true;
 
   return ret;
 }
@@ -177,6 +183,7 @@ get_mutable_scene_obj(SceneObjHandle handle)
   if (obj->flags & kSceneObjRender)
   {
     obj->needs_gpu_upload = true;
+    obj->needs_rt_upload  = true;
   }
 
   return obj;
@@ -196,6 +203,8 @@ dynamic_scene_obj_attach_render_model(SceneObjHandle handle, ModelHandle model, 
   obj->model       = model;
   obj->subset_id   = subset;
   obj->needs_instance_data_gpu_upload = true;
+  obj->needs_gpu_upload               = true;
+  obj->needs_rt_upload                = true;
 }
 
 // TODO(bshihabi): I don't love this, I wish there was a better way to manage the maximum number of uploads per frame
@@ -207,7 +216,34 @@ struct SceneGpuUploadParams
   RgCpuUploadBuffer upload_buffer;
   RgCopyDst         material_buffer;
   RgCopyDst         scene_obj_buffer;
+  RgCopyDst         rt_obj_buffer;
 };
+
+static u32
+pick_subset_lod(const Vec3& ws_camera, const Mat4& proj, const ModelSubset* subset)
+{
+  u32 ret         = (u32)subset->lods.size - 1;
+
+  if (g_Renderer.settings.forced_model_lod >= 0)
+  {
+    return MIN((u32)g_Renderer.settings.forced_model_lod, ret);
+  }
+  // TODO(bshihabi): We should use the transform here for this
+  f32 camera_dist = MAX(length(ws_camera - subset->center) - subset->radius, 0.0f);
+  f32 camera_proj = proj.entries[1][1];
+
+  while (ret != 0)
+  {
+    f32 projected_error = subset->lods[ret].error / MAX(camera_dist, kZNear) * camera_proj;
+    if (projected_error <= 1e-3f)
+    {
+      break;
+    }
+    ret--;
+  }
+
+  return ret;
+}
 
 static void
 render_handler_scene_gpu_upload(RenderContext* ctx, const RenderSettings&, const void* data)
@@ -216,44 +252,89 @@ render_handler_scene_gpu_upload(RenderContext* ctx, const RenderSettings&, const
 
   u64 offset = 0;
 
-  auto fill_scene_obj_gpu = [](SceneObjGpu* dst, SceneObj* src)
+  auto fill_scene_obj_gpu = [](SceneObjGpu* dst, SceneObj* src) -> bool
   {
     ASSERT_MSG_FATAL(src->gpu_id < kMaxSceneObjs, "Invalid GPU ID 0x%x!", src->gpu_id);
 
-    // This actually is a nice safeguard because we would never render a 0 index count object anyway even if we did make a draw call for it
-    dst->index_count            = 0;
-    dst->start_index            = 0;
-    dst->start_vertex           = 0;
-    if (src->needs_instance_data_gpu_upload && src->model && src->model.is_loaded())
+    if (!src->model || !src->model.is_loaded())
+    {
+      return false;
+    }
+
+    ModelHandle model         = src->model;
+    u32         subset_id     = src->subset_id;
+    
+    // If the subset ID is just straight up invalid, we're not gonna bother trying to do anything meaningful, just leave it as not drawing
+    if (subset_id >= src->model->subsets.size)
+    {
+      // This actually is a nice safeguard because we would never render a 0 index count object anyway even if we did make a draw call for it
+      dst->index_count  = 0;
+      dst->start_index  = 0;
+      dst->start_vertex = 0;
+
+      return false;
+    }
+
+    if (src->needs_instance_data_gpu_upload)
     {
       ModelHandle model         = src->model;
       u32         subset_id     = src->subset_id;
       ASSERT_MSG_FATAL(subset_id < model->subsets.size, "Invalid subset ID on scene object %u", src->subset_id);
 
+      // Add in the transformation to uncompress vertices correctly
       src->obj_to_world        *= model->subsets[subset_id].radius;
       src->obj_to_world.cols[3] = Vec4(model->subsets[subset_id].center, 1.0f);
       src->prev_obj_to_world    = src->obj_to_world;
 
-      // If the subset ID is just straight up invalid, we're not gonna bother trying to do anything meaningful, just leave it as not drawing
-      if (subset_id < src->model->subsets.size)
-      {
-        const ModelSubsetLod& lod0  = model->subsets[subset_id].lods[0];
-        dst->index_count            = lod0.index_count;
-        dst->start_index            = lod0.index_start;
-        dst->start_vertex           = lod0.vertex_start;
-        dst->blas_addr              = model->subset_rt_blases[subset_id].buffer.gpu_addr;
-        src->index_count            = dst->index_count;
-        src->start_index            = dst->start_index;
-      }
-
       src->needs_instance_data_gpu_upload = false;
     }
 
-    dst->obj_to_world           = src->obj_to_world;
-    dst->prev_obj_to_world      = src->prev_obj_to_world;
-    dst->mat_id                 = src->mat_id;
+    const ViewCtx* view        = &g_RenderHandlerState.main_view;
+    src->lod_idx               = pick_subset_lod(view->camera.world_pos, view->proj, &model->subsets[subset_id]);
+    const ModelSubsetLod& lod  = model->subsets[subset_id].lods[src->lod_idx];
+
+    dst->obj_to_world          = src->obj_to_world;
+    dst->prev_obj_to_world     = src->prev_obj_to_world;
+    dst->mat_id                = src->mat_id;
+    dst->index_count           = lod.index_count;
+    dst->start_index           = lod.index_start;
+    dst->start_vertex          = lod.vertex_start;
+                                   
+    src->index_count           = dst->index_count;
+    src->start_index           = dst->start_index;
 
     src->needs_gpu_upload     = false;
+
+    return true;
+  };
+
+  auto fill_rt_obj_gpu = [](RtObjGpu* dst, SceneObj* src)
+  {
+    // This actually is a nice safeguard because we would never render a 0 index count object anyway even if we did make a draw call for it
+    dst->obj_to_world         = src->obj_to_world; 
+    dst->mat_id               = 0;
+    dst->index_count          = 0;
+    dst->start_index          = 0;
+    dst->start_vertex         = 0;
+    dst->blas_addr            = 0;
+
+    ModelHandle model         = src->model;
+    u32         subset_id     = src->subset_id;
+
+
+    if (subset_id < src->model->subset_rt_blases.size)
+    {
+      const ModelSubset* subset = &model->subsets[subset_id];
+      const ModelSubsetLod* lod = &subset->lods[subset->rt_blas_lod];
+                              
+      dst->mat_id               = subset->mat_gpu_id;
+      dst->index_count          = lod->index_count;
+      dst->start_index          = lod->index_start;
+      dst->start_vertex         = lod->vertex_start;
+      dst->blas_addr            = model->subset_rt_blases[subset_id].buffer.gpu_addr;
+
+      src->needs_rt_upload = false;
+    }
   };
 
   for (u32 iscene_obj = 0; iscene_obj < kMaxDynamicSceneObjs; iscene_obj++)
@@ -273,12 +354,25 @@ render_handler_scene_gpu_upload(RenderContext* ctx, const RenderSettings&, const
     if (obj->needs_gpu_upload)
     {
       SceneObjGpu obj_gpu;
-      fill_scene_obj_gpu(&obj_gpu, obj);
+      if (fill_scene_obj_gpu(&obj_gpu, obj))
+      {
+        ctx->write_cpu_upload_buffer(params->upload_buffer, &obj_gpu, sizeof(obj_gpu), offset);
+        ctx->copy_buffer(params->scene_obj_buffer, sizeof(SceneObjGpu) * obj->gpu_id, params->upload_buffer, offset, sizeof(obj_gpu));
+
+        offset += sizeof(SceneObjGpu);
+      }
+
+    }
+
+    if (obj->needs_rt_upload)
+    {
+      RtObjGpu obj_gpu;
+      fill_rt_obj_gpu(&obj_gpu, obj);
 
       ctx->write_cpu_upload_buffer(params->upload_buffer, &obj_gpu, sizeof(obj_gpu), offset);
-      ctx->copy_buffer(params->scene_obj_buffer, sizeof(SceneObjGpu) * obj->gpu_id, params->upload_buffer, offset, sizeof(obj_gpu));
+      ctx->copy_buffer(params->rt_obj_buffer, sizeof(RtObjGpu) * obj->gpu_id, params->upload_buffer, offset, sizeof(obj_gpu));
 
-      offset += sizeof(SceneObjGpu);
+      offset += sizeof(RtObjGpu);
     }
   }
 
@@ -295,16 +389,36 @@ render_handler_scene_gpu_upload(RenderContext* ctx, const RenderSettings&, const
       continue;
     }
 
+
     SceneObj* obj = g_Scene->static_scene_objs + iscene_obj;
-    if (obj->needs_gpu_upload)
+
+    const ViewCtx* view = &g_RenderHandlerState.main_view;
+    u32 best_lod_idx = pick_subset_lod(view->camera.world_pos, view->proj, &obj->model->subsets[obj->subset_id]);
+    if (best_lod_idx != obj->lod_idx)
+    {
+      obj->needs_gpu_upload     = true;
+    }
+
+    if (obj->needs_gpu_upload || obj->needs_instance_data_gpu_upload)
     {
       SceneObjGpu obj_gpu;
-      fill_scene_obj_gpu(&obj_gpu, obj);
+      if (fill_scene_obj_gpu(&obj_gpu, obj))
+      {
+        ctx->write_cpu_upload_buffer(params->upload_buffer, &obj_gpu, sizeof(obj_gpu), offset);
+        ctx->copy_buffer(params->scene_obj_buffer, sizeof(SceneObjGpu) * obj->gpu_id, params->upload_buffer, offset, sizeof(obj_gpu));
 
+        offset += sizeof(SceneObjGpu);
+      }
+    }
+
+    if (obj->needs_rt_upload)
+    {
+      RtObjGpu obj_gpu;
+      fill_rt_obj_gpu(&obj_gpu, obj);
       ctx->write_cpu_upload_buffer(params->upload_buffer, &obj_gpu, sizeof(obj_gpu), offset);
-      ctx->copy_buffer(params->scene_obj_buffer, sizeof(SceneObjGpu) * obj->gpu_id, params->upload_buffer, offset, sizeof(obj_gpu));
+      ctx->copy_buffer(params->rt_obj_buffer, sizeof(RtObjGpu) * obj->gpu_id, params->upload_buffer, offset, sizeof(obj_gpu));
 
-      offset += sizeof(SceneObjGpu);
+      offset += sizeof(RtObjGpu);
     }
   }
 }
@@ -363,6 +477,7 @@ init_scene_gpu_upload_pass(AllocHeap heap, RgBuilder* builder)
   ret.upload_buffer          = rg_create_upload_buffer(builder, "Upload Buffer",       kGpuHeapSysRAMCpuToGpu, kUploadBufferSize);
 
   ret.scene_obj_buffer       = rg_create_buffer(builder,        "Scene Object Buffer", sizeof(SceneObjGpu) * kMaxSceneObjs);
+  ret.rt_obj_buffer          = rg_create_buffer(builder,        "RT Object Buffer",    sizeof(RtObjGpu)    * kMaxSceneObjs);
 
   RgHandleCountedBuffer tlas_instances    = rg_create_counted_buffer(builder, "TLAS instance Buffer", sizeof(D3D12RaytracingInstanceDesc) * kMaxSceneObjs);
 
@@ -376,10 +491,12 @@ init_scene_gpu_upload_pass(AllocHeap heap, RgBuilder* builder)
     RgPassBuilder*        pass   = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "Gpu Scene Upload", params, &render_handler_scene_gpu_upload);
     params->upload_buffer        = RgCpuUploadBuffer(ret.upload_buffer);
     params->scene_obj_buffer     = RgCopyDst(pass, &ret.scene_obj_buffer);
+    params->rt_obj_buffer        = RgCopyDst(pass, &ret.rt_obj_buffer);
   }
 
   // Bind the GRVs now that we're done modifying them
   RgStructuredBuffer<SceneObjGpu>::bind_grv(heap, builder, kSceneObjBufferSlot, ret.scene_obj_buffer);
+  RgStructuredBuffer<RtObjGpu   >::bind_grv(heap, builder, kRtObjBufferSlot,    ret.rt_obj_buffer);
 
   // Fill TLAS instance data
   {

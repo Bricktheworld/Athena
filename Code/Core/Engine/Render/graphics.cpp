@@ -18,6 +18,8 @@
 #include "Core/Engine/Vendor/NVAftermath/GFSDK_Aftermath_GpuCrashDump.h"
 #include "Core/Engine/Vendor/NVAftermath/GFSDK_Aftermath_GpuCrashDumpDecoding.h"
 
+#include "Core/Engine/Vendor/NVAPI/nvapi.h"
+
 #include <d3dcompiler.h>
 #include <shellapi.h>
 
@@ -266,6 +268,15 @@ block_gpu_fence(GpuFence* fence, FenceValue value)
   fence->already_waiting = true;
 
   WaitForSingleObject(fence->cpu_event, (DWORD)-1);
+
+  if (g_GpuDevice->flags & kGpuFlagsEnableRtValidation)
+  {
+    ID3D12Device5* device5 = nullptr;
+    defer { COM_RELEASE(device5); };
+    g_GpuDevice->d3d12->QueryInterface(IID_PPV_ARGS(&device5));
+    NvAPI_D3D12_FlushRaytracingValidationMessages(device5);
+  }
+
   poll_gpu_fence_value(fence);
   fence->already_waiting = false;
 }
@@ -874,6 +885,50 @@ init_aftermath(GpuDevice* device)
   ASSERT_MSG_FATAL(GFSDK_Aftermath_SUCCEED(res), "Aftermath failed to initialize DX12");
 }
 
+static void __stdcall
+nvapi_validation_callback(void*, NVAPI_D3D12_RAYTRACING_VALIDATION_MESSAGE_SEVERITY severity, const char* message_code, const char* message, const char* message_details)
+{
+  const char* severity_string = "unknown";
+  switch (severity)
+  {
+    case NVAPI_D3D12_RAYTRACING_VALIDATION_MESSAGE_SEVERITY_ERROR:   
+    {
+      severity_string = "error";
+      ASSERT_MSG_FATAL(false, "Ray Tracing Validation message: %s: [%s] %s\n%s", severity_string, message_code, message, message_details);
+    } break;
+    case NVAPI_D3D12_RAYTRACING_VALIDATION_MESSAGE_SEVERITY_WARNING: severity_string = "warning"; break;
+  }
+  dbgln("Ray Tracing Validation message: %s: [%s] %s\n%s", severity_string, message_code, message, message_details);
+}
+
+static void
+init_nvapi()
+{
+  // Load NVAPI
+  NvAPI_Status res = NvAPI_Initialize();
+  if (res == NVAPI_NVIDIA_DEVICE_NOT_FOUND)
+  {
+    // We don't care if it's not NVIDIA
+    return;
+  }
+  else if (res != NVAPI_OK)
+  {
+    dbgln("Failed to initialize NvAPI: %d", res);
+  }
+
+  if (g_GpuDevice->flags & kGpuFlagsEnableRtValidation)
+  {
+    ID3D12Device5* device5 = nullptr;
+    defer { COM_RELEASE(device5); };
+    g_GpuDevice->d3d12->QueryInterface(IID_PPV_ARGS(&device5));
+    res = NvAPI_D3D12_EnableRaytracingValidation(device5, NVAPI_D3D12_RAYTRACING_VALIDATION_FLAG_NONE);
+    ASSERT_MSG_FATAL(res == NVAPI_OK, "Failed to enable raytracing validation flags! Error: %d", res);
+    void* handle = nullptr;
+    res = NvAPI_D3D12_RegisterRaytracingValidationMessageCallback(device5, &nvapi_validation_callback, nullptr, &handle);
+    ASSERT_MSG_FATAL(res == NVAPI_OK, "Failed to register raytracing message callback! Error: %d", res);
+  }
+}
+
 void
 init_gpu_device(HWND window, u32 flags)
 {
@@ -914,6 +969,7 @@ init_gpu_device(HWND window, u32 flags)
     }
 
     PIXLoadLatestWinPixGpuCapturerLibrary();
+
   }
 #endif
 
@@ -923,6 +979,8 @@ init_gpu_device(HWND window, u32 flags)
   IDXGIAdapter1* adapter; 
   init_d3d12_device(window, factory, &adapter, &g_GpuDevice->d3d12, g_GpuDevice->gpu_name);
   defer { COM_RELEASE(adapter); };
+
+  init_nvapi();
 
   HASSERT(adapter->QueryInterface(IID_PPV_ARGS(&g_GpuDevice->dxgi_adapter)));
 
@@ -2511,6 +2569,14 @@ swap_chain_submit(SwapChain* swap_chain, const GpuDevice* device, const GpuTextu
   HRESULT res = swap_chain->d3d12_swap_chain->Present(sync_interval, present_flags);
   if (res == DXGI_ERROR_DEVICE_REMOVED || res == DXGI_ERROR_DEVICE_RESET )
   {
+    if (g_GpuDevice->flags & kGpuFlagsEnableRtValidation)
+    {
+      ID3D12Device5* device5 = nullptr;
+      defer { COM_RELEASE(device5); };
+      g_GpuDevice->d3d12->QueryInterface(IID_PPV_ARGS(&device5));
+      NvAPI_D3D12_FlushRaytracingValidationMessages(device5);
+    }
+
     GFSDK_Aftermath_CrashDump_Status status;
     GFSDK_Aftermath_GetCrashDumpStatus(&status);
     dbgln("GPU Device removed!! Waiting for Aftermath to generate crash dump...");

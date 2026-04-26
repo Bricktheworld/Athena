@@ -51,10 +51,12 @@ DeferredPSOut PS_BasicNormalGloss(BasicVSOut ps_in)
     normal = normal_tex.Sample(g_BilinearSamplerWrap, ps_in.uv).xyz;
   }
 
+#if 0
   if (alpha < 0.01f)
   {
     discard;
   }
+#endif
 
 
   ret.material_id       = 1;

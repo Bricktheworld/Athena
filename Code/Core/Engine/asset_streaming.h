@@ -111,9 +111,10 @@ struct ModelSubsetLod
 struct ModelSubset
 {
   Array<ModelSubsetLod> lods;
-  u32  mat_gpu_id = 0;
-  Vec3 center     = {};
-  f32  radius     = 0.0f;
+  u32  mat_gpu_id  = 0;
+  u32  rt_blas_lod = 0;
+  Vec3 center      = {};
+  f32  radius      = 0.0f;
 };
 
 struct Model

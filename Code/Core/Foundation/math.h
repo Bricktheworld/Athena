@@ -391,6 +391,15 @@ length(Vec2T<T> v)
 }
 
 template <typename T>
+inline Vec2T<T>
+abs(Vec2T<T> a)
+{
+  a.x = fabs(a.x);
+  a.y = fabs(a.y);
+  return a;
+}
+
+template <typename T>
 inline Vec2f32
 normalize(Vec2T<T> v)
 {
@@ -582,6 +591,16 @@ dot(Vec3T<T> a, Vec3T<T> b)
   Vec3T<T> res = hadamard(a, b);
 
   return res.x + res.y + res.z;
+}
+
+template <typename T>
+inline Vec3T<T>
+abs(Vec3T<T> a)
+{
+  a.x = fabs(a.x);
+  a.y = fabs(a.y);
+  a.z = fabs(a.z);
+  return a;
 }
 
 template <typename T>
@@ -796,6 +815,17 @@ dot(Vec4T<T> a, Vec4T<T> b)
   Vec4T<T> res = hadamard(a, b);
 
   return res.x + res.y + res.z;
+}
+
+template <typename T>
+inline Vec4T<T>
+abs(Vec4T<T> a)
+{
+  a.x = fabs(a.x);
+  a.y = fabs(a.y);
+  a.z = fabs(a.z);
+  a.w = fabs(a.w);
+  return a;
 }
 
 template <typename T>

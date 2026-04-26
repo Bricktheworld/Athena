@@ -269,6 +269,7 @@ render_handler_imgui(RenderContext* ctx, const RenderSettings&, const void* data
   ImGui::Checkbox("Disable HDR", &g_Renderer.settings.disable_hdr);
   ImGui::Checkbox("Disable DoF", &g_Renderer.settings.disable_dof);
   ImGui::Checkbox("Disable Frustum Culling", &g_Renderer.settings.disable_frustum_culling);
+  ImGui::DragInt("Forced Model LoD", &g_Renderer.settings.forced_model_lod, 0.1, -1, 3);
   ImGui::Checkbox("Enable Debug Draw", &g_Renderer.settings.enabled_debug_draw);
   ImGui::Checkbox("Show Detailed Performance", &s_ShowDetailedPerformance);
 

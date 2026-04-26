@@ -37,6 +37,7 @@ Window*      g_MainWindow  = nullptr;
 static bool g_EnableFullscreen       = false;
 static bool g_EnableValidationLayers = false;
 static bool g_EnableGpuValidation    = false;
+static bool g_EnableRtValidation     = false;
 
 LRESULT CALLBACK
 window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM lparam) 
@@ -162,6 +163,11 @@ application_entry(HINSTANCE instance, int show_code)
   if (g_EnableGpuValidation)
   {
     gpu_flags |= kGpuFlagsEnableGpuValidation;
+  }
+
+  if (g_EnableRtValidation)
+  {
+    gpu_flags |= kGpuFlagsEnableRtValidation;
   }
 
   init_gpu_device(window, gpu_flags);
@@ -338,6 +344,7 @@ application_entry(HINSTANCE instance, int show_code)
     }
     d3d12_mouse.SetMode(mouse.rightButton ? DirectX::Mouse::MODE_RELATIVE : DirectX::Mouse::MODE_ABSOLUTE);
 
+
     Vec3 move;
     if (keyboard.W)
     {
@@ -367,6 +374,10 @@ application_entry(HINSTANCE instance, int show_code)
     Quat rot = quat_from_rotation_y(camera->yaw); // * quat_from_rotation_x(-scene.camera.pitch);  //quat_from_euler_yxz(scene.camera.yaw, 0, 0);
     move = rotate_vec3_by_quat(move, rot);
     move *= 2.0f / 60.0f;
+    if (keyboard.LeftShift)
+    {
+      move *= 5.0f;
+    }
 
     camera->world_pos += move;
 
@@ -406,6 +417,10 @@ WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, int show_code
     else if (_stricmp(argv[iopt], "-gpu_validation") == 0)
     {
       g_EnableGpuValidation = true;
+    }
+    else if (_stricmp(argv[iopt], "-rt_validation") == 0)
+    {
+      g_EnableRtValidation = true;
     }
   }
 

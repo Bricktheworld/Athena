@@ -11,6 +11,7 @@
 #define kSceneObjBufferSlot 0
 #define kMaterialBufferSlot 1
 #define kRaytracingAccelerationStructureSlot 2
+#define kRtObjBufferSlot 3
 
 #define kDebugArgsBufferSlot 32
 #define kDebugVertexBufferSlot 33
@@ -65,6 +66,7 @@ StructuredBuffer<Vertex>                  g_VertexBuffer          : register(t2)
 StructuredBuffer<SceneObjGpu>             g_SceneObjs             : register(t128);
 StructuredBuffer<MaterialGpu>             g_Materials             : register(t129);
 RaytracingAccelerationStructure           g_AccelerationStructure : register(t130);
+StructuredBuffer<RtObjGpu>                g_RtObjs                : register(t131);
 
 //////////// Temporal ////////////
 ConstantBuffer<ViewportGpu>               g_ViewportBuffer        : register(b112);

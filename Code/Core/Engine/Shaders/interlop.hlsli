@@ -2,6 +2,11 @@
 #define __INTERLOP_HLSLI__
 
 #if defined(__cplusplus)
+#pragma warning(push)
+#pragma warning(default: 4820)
+#endif
+
+#if defined(__cplusplus)
 typedef Mat4    float4x4;
 typedef Vec2    float2;
 typedef Vec3    float3;
@@ -300,13 +305,19 @@ struct SceneObjGpu
   u32  index_count;
   u32  start_vertex;
   u32  start_index;
+};
 
-  Vec3 bounding_sphere_center; // snorm16 position decompression: pos = center + n * radius
-  f32  bounding_sphere_radius;
+struct RtObjGpu
+{
+  Mat4 obj_to_world;
+
+  u32  mat_id;
+  u32  index_count;
+  u32  start_vertex;
+  u32  start_index;
 
   u64  blas_addr;
-  u32  __pad0__;
-  u32  __pad1__;
+  u64  __pad0__;
 };
 
 struct MaterialGpu
@@ -321,6 +332,8 @@ struct MaterialSrt
 {
   float4 diffuse_base;
   u32    gpu_id;
+
+  uint3  __pad0__; 
 };
 
 struct MaterialUploadCmd
@@ -356,10 +369,12 @@ struct ToneMappingSrt
 
 struct PointLight
 {
-  Vec4 position;
-  Vec4 color;
-  f32  radius;
-  f32  intensity;
+  Vec4  position;
+  Vec4  color;
+  f32   radius;
+  f32   intensity;
+
+  uint2 __pad0__;
 };
 
 #define kDoFResolutionScale 2
@@ -480,5 +495,9 @@ struct D3D12RaytracingInstanceDesc
 #undef SRV
 #undef CBV
 #undef UAV
+
+#if defined(__cplusplus)
+#pragma warning(pop)
+#endif
 
 #endif

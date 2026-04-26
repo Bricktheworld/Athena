@@ -71,7 +71,7 @@ struct RenderSettings
   u32   __pad0__;
 
   Vec2  mouse_pos                = Vec2(0.0f, 0.0f);
-  u32   __pad1__;
+  s32   forced_model_lod         = -1;
   u32   __pad2__;
 
   Vec3  diffuse_gi_probe_spacing = Vec3(1.0f, 1.8f, 1.0f);

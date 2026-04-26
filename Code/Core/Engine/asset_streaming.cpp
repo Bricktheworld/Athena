@@ -498,11 +498,10 @@ process_model_file_request(AssetStreamer* streamer, FileStreamingCmdHeader heade
           gpu_io_byte_count += lod_index_size_in_bytes;
         }
 
-        // TODO(bshihabi): This should be configurable at runtime
-        static constexpr u32 kRtBlasLod = 3;
         // TODO(bshihabi): We need to add proper debug names for the BLASes
+        runtime_subset->rt_blas_lod  = (u32)runtime_subset->lods.size - 1;
         GpuRtBlas* subset_rt_blas    = array_add(&model->subset_rt_blases);
-        const ModelSubsetLod* rt_lod = &runtime_subset->lods[MIN(kRtBlasLod, src_pkt.asset_header.lod_count - 1)];
+        const ModelSubsetLod* rt_lod = &runtime_subset->lods[runtime_subset->rt_blas_lod];
         *subset_rt_blas              = alloc_uber_blas(rt_lod->vertex_start, rt_lod->vertex_count, rt_lod->index_start, rt_lod->index_count, "Content subset RT BLAS");
 
         // Kick off the material loads
