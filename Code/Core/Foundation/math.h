@@ -1676,12 +1676,12 @@ frustum_cull(const Frustum& frustum, const BoundingSphere& sphere)
 {
   for (u32 iplane = 0; iplane < ARRAY_LENGTH(frustum.planes); iplane++)
   {
-    f32 signed_distance = dot(frustum.planes[iplane].normal, sphere.center) - frustum.planes[iplane].d;
-    if (signed_distance >= -sphere.radius)
+    f32 signed_distance = dot(frustum.planes[iplane].normal, sphere.center) + frustum.planes[iplane].d;
+    if (signed_distance < -sphere.radius)
     {
-      return false;
+      return true;
     }
   }
-  return true;
+  return false;
 }
 

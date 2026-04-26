@@ -362,6 +362,11 @@ render_handler_imgui(RenderContext* ctx, const RenderSettings&, const void* data
 
   ImGui::Text("VRAM: %s", gpu_memory_fmt);
 
+  if (g_GpuDevice->flags & kGpuFlagsEnableDevelopmentStablePower)
+  {
+    ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "Development GPU Stable Power");
+  }
+
 
   if (s_ShowDetailedPerformance)
   {

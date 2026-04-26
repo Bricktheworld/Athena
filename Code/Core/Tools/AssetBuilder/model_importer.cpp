@@ -238,11 +238,29 @@ asset_builder::import_model(
       // Simplify each LoD recursively based on the previous one
       if (ilod > 0)
       {
+        static constexpr f32 kVertexAttributeWeights[] = { 0.5f, 0.5f, 0.5f, 0.25f, 0.25f };
         // Bogus numbers I stole from the meshoptimizer demo. I'm sure we can improve these.
         f32 threshold          = powf(0.7, (f32)ilod);
         u32 target_index_count = (u32)(num_indices * threshold) / 3 * 3;
         f32 target_error       = 1e-2f;
-        simplified_num_indices = (u32)meshopt_simplify<u16>(simplified_indices, indices, num_indices, &uncompressed_vertices[0].position.x, num_vertices, sizeof(UncompressedVertex), target_index_count, target_error, 0, &simplified_error);
+        simplified_num_indices = (u32)meshopt_simplifyWithAttributes<u16>(
+          simplified_indices,
+          indices,
+          num_indices,
+          &uncompressed_vertices[0].position.x,
+          num_vertices,
+          sizeof(UncompressedVertex),
+          &uncompressed_vertices[0].normal.x,
+          sizeof(UncompressedVertex),
+          kVertexAttributeWeights,
+          3 + 2, // normal + uv
+          nullptr,
+          target_index_count,
+          nullptr,
+          target_error,
+          0,
+          &simplified_error
+        );
       }
       else
       {

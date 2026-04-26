@@ -729,9 +729,12 @@ struct GpuDevice
 
 enum GpuDeviceFlags : u32
 {
-  kGpuFlagsEnableValidationLayers = 0x1 << 0,
-  kGpuFlagsEnableGpuValidation    = 0x1 << 1,
-  kGpuFlagsEnableRtValidation     = 0x1 << 2,
+  kGpuFlagsEnableValidationLayers       = 0x1 << 0,
+  kGpuFlagsEnableGpuValidation          = 0x1 << 1,
+  kGpuFlagsEnableRtValidation           = 0x1 << 2,
+
+  // This only works in development mode
+  kGpuFlagsEnableDevelopmentStablePower = 0x1 << 3,
 };
 
 void init_gpu_device(HWND window, u32 flags);

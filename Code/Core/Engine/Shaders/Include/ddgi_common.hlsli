@@ -9,7 +9,7 @@
 #define kProbeCountPerClipmapY (4)
 #define kProbeCountPerClipmapZ (32)
 #define kProbeCountPerClipmap (SVec3(kProbeCountPerClipmapX, kProbeCountPerClipmapY, kProbeCountPerClipmapZ))
-#define kProbeClipmapCount (2)
+#define kProbeClipmapCount (3)
 #define kProbeMaxActiveCount (kProbeCountPerClipmapX * kProbeCountPerClipmapY * kProbeCountPerClipmapZ * kProbeClipmapCount)
 #define kProbeMaxRayCount (64 * kProbeMaxActiveCount) // 32768; // This is 8 rays per probe in a 16 x 16 x 16 grid, choose wisely!
 
@@ -62,7 +62,7 @@ struct RtDiffuseGiProbeBlendSrt
 #if !defined(__cplusplus)
 float3 get_probe_spacing(uint clipmap_idx)
 {
-  return g_RenderSettings.diffuse_gi_probe_spacing * pow(2.0f, clipmap_idx);
+  return g_RenderSettings.diffuse_gi_probe_spacing * pow(4.0f, clipmap_idx);
 }
 
 int3 get_clipmap_origin(uint clipmap_idx)

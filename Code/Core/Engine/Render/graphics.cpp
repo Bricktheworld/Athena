@@ -982,6 +982,12 @@ init_gpu_device(HWND window, u32 flags)
 
   init_nvapi();
 
+  // FOR DEVELOPMENT ONLY: Forces a stable power usage that way we can do profiling correctly
+  if (flags & kGpuFlagsEnableDevelopmentStablePower)
+  {
+    g_GpuDevice->d3d12->SetStablePowerState(true);
+  }
+
   HASSERT(adapter->QueryInterface(IID_PPV_ARGS(&g_GpuDevice->dxgi_adapter)));
 
   g_GpuDevice->graphics_queue = init_cmd_queue(g_GpuDevice, kCmdQueueTypeGraphics);

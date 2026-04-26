@@ -34,10 +34,11 @@ ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
 Window*      g_MainWindow  = nullptr;
 
 // TODO(bshihabi): Move these elsewhere or into a single struct
-static bool g_EnableFullscreen       = false;
-static bool g_EnableValidationLayers = false;
-static bool g_EnableGpuValidation    = false;
-static bool g_EnableRtValidation     = false;
+static bool g_EnableFullscreen             = false;
+static bool g_EnableValidationLayers       = false;
+static bool g_EnableGpuValidation          = false;
+static bool g_EnableRtValidation           = false;
+static bool g_EnableDevelopmentStablePower = false;
 
 LRESULT CALLBACK
 window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM lparam) 
@@ -170,6 +171,11 @@ application_entry(HINSTANCE instance, int show_code)
     gpu_flags |= kGpuFlagsEnableRtValidation;
   }
 
+  if (g_EnableDevelopmentStablePower)
+  {
+    gpu_flags |= kGpuFlagsEnableDevelopmentStablePower;
+  }
+
   init_gpu_device(window, gpu_flags);
   defer { destroy_gpu_device(); };
 
@@ -278,6 +284,7 @@ application_entry(HINSTANCE instance, int show_code)
       is_model_loaded = true;
       f64 sponza_load_time_ms = end_cpu_profiler_timestamp(sponza_load_start_timestamp);
       dbgln("Loaded sponza in %f ms!", sponza_load_time_ms);
+
 
       for (u32 isubset = 0; isubset < sponza_model->subsets.size; isubset++)
       {
@@ -421,6 +428,10 @@ WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmdline, int show_code
     else if (_stricmp(argv[iopt], "-rt_validation") == 0)
     {
       g_EnableRtValidation = true;
+    }
+    else if (_stricmp(argv[iopt], "-development_stable_power") == 0)
+    {
+      g_EnableDevelopmentStablePower = true;
     }
   }
 
