@@ -204,6 +204,7 @@ struct GpuTextureDesc
   u32                   width         = 0;
   u32                   height        = 0;
   u16                   array_size    = 1;
+  u8                    mip_levels    = 1;
 
   GpuFormat             format        = kGpuFormatRGBA8Unorm;
   D3D12_RESOURCE_FLAGS  flags         = D3D12_RESOURCE_FLAG_NONE;
@@ -535,11 +536,12 @@ struct GpuTextureSrvDesc
   GpuFormat format            = kGpuFormatUnknown;
 };
 
-void init_texture_srv(GpuDescriptor* descriptor, const GpuTexture* texture, const GpuTextureSrvDesc& desc);
+void init_texture_srv(GpuDescriptor* descriptor, const GpuTexture* texture, GpuTextureSrvDesc desc);
 
 struct GpuTextureUavDesc
 {
   u32       array_size        = 0;
+  u32       mip_slice         = 0;
   GpuFormat format            = kGpuFormatUnknown;
 };
 void init_texture_uav(GpuDescriptor* descriptor, const GpuTexture* texture, const GpuTextureUavDesc& desc);

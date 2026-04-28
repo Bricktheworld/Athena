@@ -120,7 +120,8 @@ init_rt_diffuse_gi(AllocHeap heap, RgBuilder* builder)
     kProbeCountPerClipmap.z,
     (u16)(kProbeCountPerClipmap.y * kProbeClipmapCount),
     kGpuFormatR32Uint,
-    1 // Need previous frame to copy to current frame
+    1, // Need previous frame to copy to current frame
+    1
   );
 
   RgHandle<GpuBuffer> probe_buffer           = rg_create_buffer(builder, "RT Diffuse GI - Luminance Probe Buffer", sizeof(DiffuseGiProbe) * kProbeMaxActiveCount);

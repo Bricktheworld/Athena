@@ -434,6 +434,7 @@ init_physical_resources(
       desc.height         = resource_desc->texture_desc.height;
       desc.array_size     = resource_desc->texture_desc.array_size;
       desc.format         = resource_desc->texture_desc.format;
+      desc.mip_levels     = resource_desc->texture_desc.mip_count;
       desc.flags          = *hash_table_find(&physical_flags, resource.id);
 
       if (is_depth_format(desc.format))
@@ -1383,7 +1384,18 @@ rg_create_texture(
   u32 height,
   GpuFormat format
 ) {
-  return rg_create_texture_ex(builder, name, width, height, format, 0);
+  return rg_create_texture_ex(builder, name, width, height, format, 0, 1);
+}
+
+RgHandle<GpuTexture> rg_create_texture_mipped(
+  RgBuilder* builder,
+  STRING_LITERAL const char* name,
+  u32 width,
+  u32 height,
+  GpuFormat format,
+  u8 mip_count
+) {
+  return rg_create_texture_array_ex(builder, name, width, height, 1, format, 0, mip_count);
 }
 
 RgHandle<GpuTexture>
@@ -1393,9 +1405,10 @@ rg_create_texture_ex(
   u32 width,
   u32 height,
   GpuFormat format,
-  u8 temporal_lifetime
+  u8 temporal_lifetime,
+  u8 mip_count
 ) {
-  return rg_create_texture_array_ex(builder, name, width, height, 1, format, temporal_lifetime);
+  return rg_create_texture_array_ex(builder, name, width, height, 1, format, temporal_lifetime, mip_count);
 }
 
 RgHandle<GpuTexture>
@@ -1407,7 +1420,7 @@ rg_create_texture_array(
   u16 array_size,
   GpuFormat format
 ) {
-  return rg_create_texture_array_ex(builder, name, width, height, array_size, format, 0);
+  return rg_create_texture_array_ex(builder, name, width, height, array_size, format, 0, 1);
 }
 
 RgHandle<GpuTexture>
@@ -1418,7 +1431,8 @@ rg_create_texture_array_ex(
   u32 height,
   u16 array_size,
   GpuFormat format,
-  u8 temporal_lifetime
+  u8 temporal_lifetime,
+  u8 mip_count
 ) {
   ASSERT(temporal_lifetime == kInfiniteLifetime || temporal_lifetime <= kMaxTemporalLifetime);
   ResourceHandle resource_handle      = {0};
@@ -1436,6 +1450,7 @@ rg_create_texture_array_ex(
   desc->texture_desc.height           = height;
   desc->texture_desc.array_size       = array_size;
   desc->texture_desc.format           = format;
+  desc->texture_desc.mip_count        = mip_count;
 
   // TODO(Brandon): We don't want to hard-code these values
   if (is_depth_format(format))
@@ -1609,10 +1624,32 @@ RgOpaqueDescriptor
 rg_write_texture(RgPassBuilder* builder, RgHandle<GpuTexture>* texture, const GpuTextureUavDesc& desc)
 {
   ASSERT(!array_find(&builder->read_resources,  it->handle.id == texture->id && it->temporal_frame == 0));
-  ASSERT(!array_find(&builder->write_resources, it->handle.id == texture->id));
   ASSERT(texture->id != kRgBackBufferId);
 
-  defer { texture->version++; };
+  // There is exactly one case where it is allowed to write to a texture multiple times in a single pass. It is when you
+  // are accessing different mips of the texture. Thus there is this ugly special case here I wish I could delete.
+  bool is_accessing_separate_mips = false;
+  for (const RgPassBuilder::ResourceAccessData& other : builder->write_resources)
+  {
+    if (other.handle.id != texture->id)
+    {
+      continue;
+    }
+
+    ASSERT_MSG_FATAL(other.access == kWriteTextureUav, "Writing to the same texture in the same pass with different accesses is not allowed!");
+    ASSERT_MSG_FATAL(other.texture_uav.mip_slice != desc.mip_slice, "Writing to the same texture with the same mip slice is not allowed!");
+    is_accessing_separate_mips = true;
+    ASSERT_MSG_FATAL(!builder->is_grv_barrier, "Writing to a texture in multiple passes in a GRV barrier doesn't make any sense.");
+  }
+
+  defer 
+  {
+    // Don't bump the version if we are just accessing different mip slices!
+    if (!is_accessing_separate_mips)
+    {
+      texture->version++;
+    }
+  };
 
   RgPassBuilder::ResourceAccessData* data = array_add(&builder->write_resources);
   data->handle          = *texture;
@@ -2081,6 +2118,48 @@ rg_read_indirect_args_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer> buffer)
   return ret;
 }
 
+RgOpaqueDescriptor
+rg_read_indirect_args_buffer(RgPassBuilder* builder, RgHandleCountedBuffer buffer, RgOpaqueDescriptor* out_counter_descriptor)
+{
+  ASSERT(!array_find(&builder->write_resources, it->handle.id == buffer.buffer.id));
+  ASSERT(!array_find(&builder->write_resources, it->handle.id == buffer.counter.id));
+  ASSERT_MSG_FATAL(!builder->is_grv_barrier, "Indirect args buffers are not supported as GRVs");
+
+  {
+    // Read the args buffer
+    RgPassBuilder::ResourceAccessData* data = array_add(&builder->read_resources);
+    data->handle          = buffer.buffer;
+    data->counter         = buffer.counter;
+    data->access          = (u32)kReadBufferIndirectArgs;
+    data->temporal_frame  = 0;
+    data->is_write        = false;
+    data->descriptor_type = kDescriptorTypeNull;
+    data->descriptor_idx  = builder->descriptor_idx;
+  }
+
+  {
+    // Read the counter buffer
+    RgPassBuilder::ResourceAccessData* data = array_add(&builder->read_resources);
+    data->handle          = buffer.counter;
+    data->counter         = {0};
+    data->access          = (u32)kReadBufferIndirectArgs;
+    data->temporal_frame  = 0;
+    data->is_write        = false;
+    data->descriptor_type = kDescriptorTypeNull;
+    data->descriptor_idx  = builder->descriptor_idx;
+
+    zero_memory(out_counter_descriptor, sizeof(RgOpaqueDescriptor));
+    out_counter_descriptor->pass_id     = builder->pass_id;
+    out_counter_descriptor->resource_id = buffer.counter.id;
+  }
+
+  RgOpaqueDescriptor ret   = {0};
+  ret.pass_id              = builder->pass_id;
+  ret.resource_id          = buffer.buffer.id;
+
+  return ret;
+}
+
 void
 RenderContext::clear_depth_stencil_view(
   RgDsv depth_stencil,
@@ -2159,6 +2238,7 @@ RenderContext::clear_uav_u32(const RgRWStructuredBuffer<u32>& uav, u32 clear_val
 void
 RenderContext::set_graphics_pso(const GraphicsPSO* pso)
 {
+  ASSERT_MSG_FATAL(pso->d3d12_pso != nullptr, "Binding uninitialized PSO!");
   // Hot reloads need to be handled carefully here...
   if (pso->desc.vertex_shader->generation != pso->vertex_shader_generation || pso->desc.pixel_shader->generation != pso->pixel_shader_generation)
   {
@@ -2173,6 +2253,7 @@ RenderContext::set_graphics_pso(const GraphicsPSO* pso)
 void
 RenderContext::set_compute_pso(const ComputePSO* pso)
 {
+  ASSERT_MSG_FATAL(pso->d3d12_pso != nullptr, "Binding uninitialized PSO!");
   // Hot reloads need to be handled carefully here...
   if (pso->compute_shader->generation != pso->compute_shader_generation)
   {
@@ -2226,13 +2307,14 @@ RenderContext::draw_instanced(
 void
 RenderContext::multi_draw_indirect(RgIndirectArgsBuffer args, u64 args_offset, u32 draw_count)
 {
-  const GpuBuffer* args_buffer = rg_deref_buffer(args);
+  const GpuBuffer* args_buffer    = rg_deref_buffer(args);
+  const GpuBuffer* counter_buffer = rg_deref_counter(args);
   m_CmdBuffer.d3d12_list->ExecuteIndirect(
     g_GpuDevice->d3d12_multi_draw_indirect_signature,
     draw_count,
     args_buffer->d3d12_buffer,
     args_offset,
-    nullptr,
+    counter_buffer ? counter_buffer->d3d12_buffer : nullptr,
     0
   );
 }
@@ -2240,13 +2322,14 @@ RenderContext::multi_draw_indirect(RgIndirectArgsBuffer args, u64 args_offset, u
 void
 RenderContext::multi_draw_indirect_indexed(RgIndirectArgsBuffer args, u64 args_offset, u32 draw_count)
 {
-  const GpuBuffer* args_buffer = rg_deref_buffer(args);
+  const GpuBuffer* args_buffer    = rg_deref_buffer(args);
+  const GpuBuffer* counter_buffer = rg_deref_counter(args);
   m_CmdBuffer.d3d12_list->ExecuteIndirect(
     g_GpuDevice->d3d12_multi_draw_indirect_indexed_signature,
     draw_count,
     args_buffer->d3d12_buffer,
     args_offset,
-    nullptr,
+    counter_buffer ? counter_buffer->d3d12_buffer : nullptr,
     0
   );
 }

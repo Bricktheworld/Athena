@@ -207,6 +207,8 @@ using Texture2DArrayPtr = uint;
 #define DEREF(ptr) ResourceDescriptorHeap[ptr]
 #endif
 
+#define kZNear 0.1f
+
 
 struct Vertex
 {
@@ -254,7 +256,8 @@ struct ViewportGpu
   Vec4 camera_world_pos;
   Vec4 prev_camera_world_pos;
   Vec2 taa_jitter;
-  Vec2 __pad__;
+  uint frame_id;
+  uint __pad__;
   DirectionalLight directional_light;
 };
 
@@ -276,16 +279,18 @@ struct RenderSettingsGpu
 
   Vec3   diffuse_gi_probe_spacing;
   // Flags
-  u32    disable_taa:              1;
-  u32    disable_diffuse_gi:       1;
-  u32    disable_hdr:              1;
-  u32    disable_dof:              1;
-  u32    debug_gi_probes:          1;
-  u32    debug_gi_sample_probes:   1;
-  u32    enabled_debug_draw:       1;
-  u32    freeze_gi_probe_rotation: 1;
-  u32    freeze_gi_probe_clipmap:  1;
-  u32    disable_frustum_culling:  1;
+  u32    disable_taa:               1;
+  u32    disable_diffuse_gi:        1;
+  u32    disable_hdr:               1;
+  u32    disable_dof:               1;
+  u32    debug_gi_probes:           1;
+  u32    debug_gi_sample_probes:    1;
+  u32    enabled_debug_draw:        1;
+  u32    freeze_gi_probe_rotation:  1;
+  u32    freeze_gi_probe_clipmap:   1;
+  u32    disable_frustum_culling:   1;
+  u32    disable_occlusion_culling: 1;
+  u32    freeze_occlusion_culling:  1;
 };
 
 struct Transform
@@ -330,10 +335,10 @@ struct MaterialGpu
 
 struct MaterialSrt
 {
-  float4 diffuse_base;
-  u32    gpu_id;
+  uint4 __pad1__;
 
-  uint3  __pad0__; 
+  uint   gpu_id;
+  uint3  __pad0__;
 };
 
 struct MaterialUploadCmd
@@ -487,6 +492,9 @@ struct D3D12RaytracingInstanceDesc
     float2 uv        : TEXCOORD0;
     float4 curr_pos  : POSITION0;
     float4 prev_pos  : POSITION1;
+
+    uint   obj_id    : SCENE_OBJ_GPU_ID;
+    uint   mat_id    : MATERIAL_GPU_ID;
 //    float4 tangent   : TANGENT0;
 //    float4 bitangent : BITANGENT0;
   };

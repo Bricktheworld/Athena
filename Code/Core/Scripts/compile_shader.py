@@ -7,7 +7,7 @@ kPixelShader = 1
 kComputeShader = 2
 kRayTracingShader = 3
 
-kDxcShaderTypeString = ['vs_6_6', 'ps_6_6', 'cs_6_6', 'lib_6_6']
+kDxcShaderTypeString = ['vs_6_8', 'ps_6_6', 'cs_6_6', 'lib_6_6']
 kEntryPointPrefix = ['VS_', 'PS_', 'CS_', 'RT_']
 kShaderDefines = ['SHADER_VERTEX', 'SHADER_PIXEL', 'SHADER_COMPUTE', 'SHADER_RAYTRACE']
 

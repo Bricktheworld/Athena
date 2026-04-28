@@ -3,15 +3,13 @@
 
 #include "../Include/math.hlsli"
 #include "../Include/vertex_common.hlsli"
+#include "../Include/gbuffer_common.hlsli"
 
-ConstantBuffer<MaterialSrt> g_Srt : register(b0);
-[RootSignature(BINDLESS_ROOT_SIGNATURE)]
-BasicVSOut VS_Basic(uint vert_id: SV_VertexID)
+BasicVSOut VSEntryCommon(uint gpu_id, uint vert_id)
 {
   BasicVSOut ret;
 
-  // ConstantBuffer<Transform> transform = DEREF(g_Srt.transform);
-  SceneObjGpu scene_obj = g_SceneObjs[g_Srt.gpu_id];
+  SceneObjGpu scene_obj = g_SceneObjs[gpu_id];
 
   Vertex compressed_vertex = g_VertexBuffer[scene_obj.start_vertex + vert_id];
   VertexUncompressed vertex = decompress_vertex(compressed_vertex);
@@ -43,5 +41,19 @@ BasicVSOut VS_Basic(uint vert_id: SV_VertexID)
 
   ret.normal    = normal;
   ret.uv        = vertex.uv;
+
+  ret.obj_id    = gpu_id;
+  ret.mat_id    = scene_obj.mat_id;
   return ret;
+}
+
+
+ConstantBuffer<GBufferIndirectSrt> g_GBufferIndirectSrt : register(b0);
+[RootSignature(BINDLESS_ROOT_SIGNATURE)]
+BasicVSOut VS_MultiDrawIndirectIndexed(uint vert_id: SV_VertexID)
+{
+  StructuredBuffer<u32> scene_obj_gpu_ids = DEREF(g_GBufferIndirectSrt.scene_obj_gpu_ids);
+  u32 gpu_id = scene_obj_gpu_ids[g_MultiDrawIndirect.draw_id];
+
+  return VSEntryCommon(gpu_id, vert_id);
 }

@@ -41,7 +41,7 @@ struct TransientResourceDesc
       u32         height;
       u16         array_size;
       GpuFormat   format;
-      u8          __pad__;
+      u8          mip_count;
 
       union
       {
@@ -322,6 +322,17 @@ rg_deref_buffer(T rg_descriptor)
 }
 
 template <typename T>
+const GpuBuffer*
+rg_deref_counter(T rg_descriptor)
+{
+  RgResourceKey key  = {0};
+  key.id             = rg_descriptor.m_CounterId;
+  key.temporal_frame = rg_get_temporal_frame(g_FrameId, rg_descriptor.m_TemporalLifetime, rg_descriptor.m_TemporalFrame);
+
+  return hash_table_find(&g_RenderGraph->buffer_map, key);
+}
+
+template <typename T>
 const GpuRtTlas*
 rg_deref_rt_tlas(T rg_descriptor)
 {
@@ -432,13 +443,23 @@ RgHandle<GpuTexture> rg_create_texture(
   GpuFormat format
 );
 
+RgHandle<GpuTexture> rg_create_texture_mipped(
+  RgBuilder* builder,
+  STRING_LITERAL const char* name,
+  u32 width,
+  u32 height,
+  GpuFormat format,
+  u8 mip_count
+);
+
 RgHandle<GpuTexture> rg_create_texture_ex(
   RgBuilder* builder,
   STRING_LITERAL const char* name,
   u32 width,
   u32 height,
   GpuFormat format,
-  u8 temporal_lifetime
+  u8 temporal_lifetime,
+  u8 mip_count
 );
 
 RgHandle<GpuTexture> rg_create_texture_array(
@@ -457,7 +478,8 @@ RgHandle<GpuTexture> rg_create_texture_array_ex(
   u32 height,
   u16 array_size,
   GpuFormat format,
-  u8 temporal_lifetime
+  u8 temporal_lifetime,
+  u8 mip_count
 );
 
 RgHandle<GpuBuffer> rg_create_buffer(
@@ -534,6 +556,7 @@ RgOpaqueDescriptor rg_copy_dst_texture(RgPassBuilder* builder, RgHandle<GpuTextu
 RgOpaqueDescriptor rg_read_index_buffer (RgPassBuilder* builder, RgHandle<GpuBuffer> buffer);
 RgOpaqueDescriptor rg_read_vertex_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer> buffer);
 RgOpaqueDescriptor rg_read_indirect_args_buffer(RgPassBuilder* builder, RgHandle<GpuBuffer> buffer);
+RgOpaqueDescriptor rg_read_indirect_args_buffer(RgPassBuilder* builder, RgHandleCountedBuffer buffer, RgOpaqueDescriptor* out_counter_descriptor);
 
 RgOpaqueDescriptor rg_write_tlas(RgPassBuilder* builder, RgHandle<GpuRtTlas>* tlas);
 RgOpaqueDescriptor rg_read_tlas (RgPassBuilder* builder, RgHandle<GpuRtTlas> tlas);
@@ -651,12 +674,13 @@ struct RgVertexBuffer
 struct RgIndirectArgsBuffer
 {
   u32  m_PassId           = 0;
-  u32  m_Pad0             = 0;
+  u32  m_CounterId        = 0;
   u32  m_ResourceId       = 0;
 
   u8   m_TemporalLifetime = 0;
   s8   m_TemporalFrame    = 0;
-  u16  m_Pad1             = 0;
+  u16  m_IsCounted: 1     = 0;
+  u16  m_Pad0:      15    = 0;
 
   RgIndirectArgsBuffer() = default;
   RgIndirectArgsBuffer(RgPassBuilder* builder, RgHandle<GpuBuffer> buffer)
@@ -665,8 +689,22 @@ struct RgIndirectArgsBuffer
 
     m_PassId           = opaque.pass_id;
     m_ResourceId       = opaque.resource_id;
+    m_CounterId        = 0;
     m_TemporalLifetime = opaque.temporal_lifetime;
     m_TemporalFrame    = opaque.temporal_frame;
+    m_IsCounted        = false;
+  }
+  RgIndirectArgsBuffer(RgPassBuilder* builder, RgHandleCountedBuffer buffer)
+  {
+    RgOpaqueDescriptor counter_opaque;
+    RgOpaqueDescriptor opaque = rg_read_indirect_args_buffer(builder, buffer, &counter_opaque);
+
+    m_PassId           = opaque.pass_id;
+    m_ResourceId       = opaque.resource_id;
+    m_CounterId        = counter_opaque.resource_id;
+    m_TemporalLifetime = opaque.temporal_lifetime;
+    m_TemporalFrame    = opaque.temporal_frame;
+    m_IsCounted        = true;
   }
 };
 
@@ -1364,9 +1402,6 @@ struct RgTexture2D
       TransientResourceDesc* resource_desc = hash_table_find(&builder->graph->resource_descs, texture.id);
       ASSERT(resource_desc->type == kResourceTypeTexture);
       GpuTextureSrvDesc srv = {0};
-      srv.mip_levels        = 1;
-      srv.most_detailed_mip = 1;
-      srv.array_size        = 1;
       // TODO(bshihabi): We should support casting within the family with gpu_format_from_type<T>();
       srv.format            = resource_desc->texture_desc.format; 
 

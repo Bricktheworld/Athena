@@ -150,6 +150,7 @@ render_handler_frame_init(RenderContext* ctx, const RenderSettings& settings, co
   memcpy(&g_Renderer.directional_light, get_scene_directional_light(), sizeof(g_Renderer.directional_light));
 
   memcpy(&g_RenderHandlerState.prev_main_view, &g_RenderHandlerState.main_view, sizeof(g_RenderHandlerState.prev_main_view));
+  g_RenderHandlerState.frame_id = g_FrameId;
 
   ViewCtx* view_ctx           = &g_RenderHandlerState.main_view;
   view_ctx->camera            = g_Renderer.camera;
@@ -168,6 +169,7 @@ render_handler_frame_init(RenderContext* ctx, const RenderSettings& settings, co
   viewport_gpu.inverse_view_proj     = view_ctx->inverse_view_proj;
   viewport_gpu.camera_world_pos      = view_ctx->camera.world_pos;
   viewport_gpu.prev_camera_world_pos = g_RenderHandlerState.prev_main_view.camera.world_pos;
+  viewport_gpu.frame_id              = g_RenderHandlerState.frame_id;
 
 
   // TODO(bshihabi): We should really do this somewhere else...
@@ -269,6 +271,8 @@ render_handler_imgui(RenderContext* ctx, const RenderSettings&, const void* data
   ImGui::Checkbox("Disable HDR", &g_Renderer.settings.disable_hdr);
   ImGui::Checkbox("Disable DoF", &g_Renderer.settings.disable_dof);
   ImGui::Checkbox("Disable Frustum Culling", &g_Renderer.settings.disable_frustum_culling);
+  ImGui::Checkbox("Disable Occlusion Culling", &g_Renderer.settings.disable_occlusion_culling);
+  ImGui::Checkbox("Freeze Occlusion Culling", &g_Renderer.settings.freeze_occlusion_culling);
   ImGui::DragInt("Forced Model LoD", &g_Renderer.settings.forced_model_lod, 0.1, -1, 3);
   ImGui::Checkbox("Enable Debug Draw", &g_Renderer.settings.enabled_debug_draw);
   ImGui::Checkbox("Show Detailed Performance", &s_ShowDetailedPerformance);

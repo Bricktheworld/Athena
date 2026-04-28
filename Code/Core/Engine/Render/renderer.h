@@ -12,8 +12,6 @@
 
 static constexpr DepthFunc kDepthComparison = kDepthFuncGreater;
 
-static constexpr f32 kZNear = 0.1f;
-
 struct ShaderManager;
 struct Scene;
 struct Window;
@@ -76,41 +74,45 @@ struct RenderSettings
 
   Vec3  diffuse_gi_probe_spacing = Vec3(1.0f, 1.8f, 1.0f);
 
-  bool  disable_taa              = false;
-  bool  disable_diffuse_gi       = false;
-  bool  disable_hdr              = false;
-  bool  disable_dof              = false;
+  bool  disable_taa               = false;
+  bool  disable_diffuse_gi        = false;
+  bool  disable_hdr               = false;
+  bool  disable_dof               = false;
 
-  bool  debug_gi_probes          = false;
-  bool  debug_gi_sample_probes   = false;
-  bool  enabled_debug_draw       = false;
-  bool  freeze_probe_rotation    = false;
-  bool  disable_frustum_culling  = false;
+  bool  debug_gi_probes           = false;
+  bool  debug_gi_sample_probes    = false;
+  bool  enabled_debug_draw        = false;
+  bool  freeze_probe_rotation     = false;
+  bool  disable_frustum_culling   = false;
+  bool  freeze_occlusion_culling  = false;
+  bool  disable_occlusion_culling = false;
 };
 
 inline RenderSettingsGpu to_gpu_render_settings(const RenderSettings& settings)
 {
   RenderSettingsGpu ret;
-  ret.focal_dist               = settings.focal_dist;
-  ret.focal_range              = settings.focal_range;
-  ret.dof_blur_radius          = settings.dof_blur_radius;
-  ret.dof_sample_count         = settings.dof_sample_count;
-  ret.aperture                 = settings.aperture;
-  ret.shutter_time             = settings.shutter_time;
-  ret.iso                      = settings.iso;
-  ret.diffuse_gi_probe_spacing = settings.diffuse_gi_probe_spacing;
+  ret.focal_dist                = settings.focal_dist;
+  ret.focal_range               = settings.focal_range;
+  ret.dof_blur_radius           = settings.dof_blur_radius;
+  ret.dof_sample_count          = settings.dof_sample_count;
+  ret.aperture                  = settings.aperture;
+  ret.shutter_time              = settings.shutter_time;
+  ret.iso                       = settings.iso;
+  ret.diffuse_gi_probe_spacing  = settings.diffuse_gi_probe_spacing;
 
-  ret.disable_taa              = settings.disable_taa;
-  ret.disable_diffuse_gi       = settings.disable_diffuse_gi;
-  ret.disable_hdr              = settings.disable_hdr;
-  ret.disable_dof              = settings.disable_dof;
+  ret.disable_taa               = settings.disable_taa;
+  ret.disable_diffuse_gi        = settings.disable_diffuse_gi;
+  ret.disable_hdr               = settings.disable_hdr;
+  ret.disable_dof               = settings.disable_dof;
 
-  ret.debug_gi_probes          = settings.debug_gi_probes;
-  ret.debug_gi_sample_probes   = settings.debug_gi_sample_probes;
-  ret.enabled_debug_draw       = settings.enabled_debug_draw;
-  ret.freeze_gi_probe_rotation = settings.freeze_probe_rotation;
-  ret.mouse_pos                = settings.mouse_pos;
-  ret.disable_frustum_culling  = settings.disable_frustum_culling;
+  ret.debug_gi_probes           = settings.debug_gi_probes;
+  ret.debug_gi_sample_probes    = settings.debug_gi_sample_probes;
+  ret.enabled_debug_draw        = settings.enabled_debug_draw;
+  ret.freeze_gi_probe_rotation  = settings.freeze_probe_rotation;
+  ret.mouse_pos                 = settings.mouse_pos;
+  ret.disable_frustum_culling   = settings.disable_frustum_culling;
+  ret.disable_occlusion_culling = settings.disable_occlusion_culling;
+  ret.freeze_occlusion_culling  = settings.freeze_occlusion_culling;
   return ret;
 }
 
@@ -147,6 +149,8 @@ struct RenderHandlerState
 {
   ViewCtx  main_view;
   ViewCtx  prev_main_view;
+
+  u32      frame_id;
 };
 
 extern RenderHandlerState g_RenderHandlerState;

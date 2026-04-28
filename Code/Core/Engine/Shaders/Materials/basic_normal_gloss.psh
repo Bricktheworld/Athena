@@ -9,8 +9,6 @@ struct DeferredPSOut
         float2 velocity          : SV_Target3;
 };
 
-ConstantBuffer<MaterialSrt> g_Srt : register(b0);
-
 float2 calculate_velocity(float4 old_pos, float4 new_pos)
 {
   old_pos /= old_pos.w;
@@ -29,13 +27,11 @@ DeferredPSOut PS_BasicNormalGloss(BasicVSOut ps_in)
 {
   DeferredPSOut ret;
 
-
-  SceneObjGpu scene_obj = g_SceneObjs[g_Srt.gpu_id];
-  MaterialGpu material  = g_Materials[scene_obj.mat_id];
+  MaterialGpu material  = g_Materials[ps_in.mat_id];
 
   // Default value
-  float3 diffuse = g_Srt.diffuse_base.rgb;
-  float  alpha   = g_Srt.diffuse_base.a;
+  float3 diffuse = 1.0f;
+  float  alpha   = 1.0f;
   if (material.diffuse != 0)
   {
     Texture2D<float4> diffuse_tex = DEREF(material.diffuse);

@@ -21,9 +21,6 @@ struct Scene
 
   Camera             camera;
   DirectionalLight   directional_light;
-
-  // Updated by the render handlers
-  u32                blas_instance_count;
 };
 
 static Scene* g_Scene = nullptr;
@@ -41,8 +38,6 @@ init_scene()
   g_Scene->dynamic_scene_obj_allocator = init_bit_allocator(g_InitHeap, kMaxDynamicSceneObjs);
   g_Scene->static_scene_obj_allocator  = init_bit_allocator(g_InitHeap, kMaxStaticSceneObjs);
   g_Scene->gpu_scene_obj_allocator     = init_bit_allocator(g_InitHeap, kMaxSceneObjs);
-
-  g_Scene->blas_instance_count         = 0;
 }
 
 SceneObjHandle
@@ -540,6 +535,11 @@ get_all_scene_objs()
   return g_Scene->scene_objs;
 }
 
+u32
+get_gpu_scene_obj_count()
+{
+  return g_Scene->gpu_scene_obj_allocator.allocated_count;
+}
 
 BoundingSphere
 get_bounding_sphere(const SceneObj* obj)

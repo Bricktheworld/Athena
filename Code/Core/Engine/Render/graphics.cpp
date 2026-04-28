@@ -8,6 +8,8 @@
 #include "Core/Engine/Render/graphics.h"
 #include "Core/Engine/Render/frame_time.h"
 
+#include "Core/Engine/Shaders/root_signature.hlsli"
+
 #include "Core/Vendor/D3D12/d3dx12.h"
 
 #include "Core/Engine/Vendor/imgui/imgui.h"
@@ -632,46 +634,55 @@ query_gpu_profiler_timestamp(const char* name)
 
 static ID3D12CommandSignature* g_MultiDrawIndirectSignature = nullptr;
 static ID3D12CommandSignature* g_DispatchIndirectSignature  = nullptr;
+static ID3D12RootSignature*    g_RootSignature              = nullptr;
 
 static void
-init_d3d12_indirect(GpuDevice* device)
+init_d3d12_indirect()
 {
   {
-    D3D12_INDIRECT_ARGUMENT_DESC arg_desc = {};
-    arg_desc.Type         = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW;
+    D3D12_INDIRECT_ARGUMENT_DESC arg_descs[2]                 = {};
+    arg_descs[0].Type                                         = D3D12_INDIRECT_ARGUMENT_TYPE_INCREMENTING_CONSTANT;
+    arg_descs[0].IncrementingConstant.RootParameterIndex      = kIndirectCommandIndexSlot;
+    arg_descs[0].IncrementingConstant.DestOffsetIn32BitValues = 0;
+
+    arg_descs[1].Type                                         = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW;
 
     D3D12_COMMAND_SIGNATURE_DESC desc = {};
     desc.ByteStride       = sizeof(MultiDrawIndirectArgs);
-    desc.NumArgumentDescs = 1;
-    desc.pArgumentDescs   = &arg_desc;
+    desc.NumArgumentDescs = ARRAY_LENGTH(arg_descs);
+    desc.pArgumentDescs   = arg_descs;
     desc.NodeMask         = 0;
     static_assert(sizeof(MultiDrawIndirectArgs) >= sizeof(D3D12_DRAW_ARGUMENTS));
 
     HASSERT(
       g_GpuDevice->d3d12->CreateCommandSignature(
         &desc,
-        nullptr,
-        IID_PPV_ARGS(&device->d3d12_multi_draw_indirect_signature)
+        g_RootSignature,
+        IID_PPV_ARGS(&g_GpuDevice->d3d12_multi_draw_indirect_signature)
       )
     );
   }
 
   {
-    D3D12_INDIRECT_ARGUMENT_DESC arg_desc = {};
-    arg_desc.Type         = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED;
+    D3D12_INDIRECT_ARGUMENT_DESC arg_descs[2]                 = {};
+    arg_descs[0].Type                                         = D3D12_INDIRECT_ARGUMENT_TYPE_INCREMENTING_CONSTANT;
+    arg_descs[0].IncrementingConstant.RootParameterIndex      = kIndirectCommandIndexSlot;
+    arg_descs[0].IncrementingConstant.DestOffsetIn32BitValues = 0;
+
+    arg_descs[1].Type                                         = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED;
 
     D3D12_COMMAND_SIGNATURE_DESC desc = {};
     desc.ByteStride       = sizeof(MultiDrawIndirectIndexedArgs);
-    desc.NumArgumentDescs = 1;
-    desc.pArgumentDescs   = &arg_desc;
+    desc.NumArgumentDescs = ARRAY_LENGTH(arg_descs);
+    desc.pArgumentDescs   = arg_descs;
     desc.NodeMask         = 0;
     static_assert(sizeof(MultiDrawIndirectIndexedArgs) >= sizeof(D3D12_DRAW_INDEXED_ARGUMENTS));
 
     HASSERT(
       g_GpuDevice->d3d12->CreateCommandSignature(
         &desc,
-        nullptr,
-        IID_PPV_ARGS(&device->d3d12_multi_draw_indirect_indexed_signature)
+        g_RootSignature,
+        IID_PPV_ARGS(&g_GpuDevice->d3d12_multi_draw_indirect_indexed_signature)
       )
     );
   }
@@ -691,11 +702,40 @@ init_d3d12_indirect(GpuDevice* device)
       g_GpuDevice->d3d12->CreateCommandSignature(
         &desc,
         nullptr,
-        IID_PPV_ARGS(&device->d3d12_dispatch_indirect_signature)
+        IID_PPV_ARGS(&g_GpuDevice->d3d12_dispatch_indirect_signature)
       )
     );
   }
 }
+
+static void
+init_root_signature(const GpuDevice* device, ID3DBlob* blob)
+{
+  if (g_RootSignature == nullptr)
+  {
+    ID3DBlob* root_signature_blob = nullptr;
+    defer { COM_RELEASE(root_signature_blob); };
+
+    HASSERT(
+      D3DGetBlobPart(
+        blob->GetBufferPointer(),
+        blob->GetBufferSize(),
+        D3D_BLOB_ROOT_SIGNATURE,
+        0,
+        &root_signature_blob
+      )
+    );
+    device->d3d12->CreateRootSignature(
+      0,
+      root_signature_blob->GetBufferPointer(),
+      root_signature_blob->GetBufferSize(),
+      IID_PPV_ARGS(&g_RootSignature)
+    );
+
+    init_d3d12_indirect();
+  }
+}
+
 
 struct AftermathManager
 {
@@ -929,6 +969,14 @@ init_nvapi()
   }
 }
 
+static void
+check_feature_support()
+{
+  D3D12_FEATURE_DATA_D3D12_OPTIONS21 features;
+  g_GpuDevice->d3d12->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS21, &features, sizeof(features));
+  ASSERT_MSG_FATAL(features.ExecuteIndirectTier == D3D12_EXECUTE_INDIRECT_TIER_1_1, "DrawID not supported on GPU!");
+}
+
 void
 init_gpu_device(HWND window, u32 flags)
 {
@@ -969,6 +1017,7 @@ init_gpu_device(HWND window, u32 flags)
     }
 
     PIXLoadLatestWinPixGpuCapturerLibrary();
+    PIXSetTargetWindow(window);
 
   }
 #endif
@@ -979,6 +1028,8 @@ init_gpu_device(HWND window, u32 flags)
   IDXGIAdapter1* adapter; 
   init_d3d12_device(window, factory, &adapter, &g_GpuDevice->d3d12, g_GpuDevice->gpu_name);
   defer { COM_RELEASE(adapter); };
+
+  check_feature_support();
 
   init_nvapi();
 
@@ -1012,8 +1063,6 @@ init_gpu_device(HWND window, u32 flags)
     &g_GpuDevice->copy_queue,
     kBackBufferCount * 8
   );
-
-  init_d3d12_indirect(g_GpuDevice);
 
   init_gpu_profiler();
 
@@ -1124,6 +1173,7 @@ gpu_texture_layout_to_d3d12(GpuTextureLayout layout)
 static D3D12_RESOURCE_DESC1
 d3d12_resource_desc(const GpuTextureDesc& desc)
 {
+  ASSERT_MSG_FATAL(desc.mip_levels > 0, "Must have at least 1 mip (the base mip)");
   D3D12_RESOURCE_DESC1 resource_desc;
   resource_desc.Dimension          = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
   resource_desc.Format             = gpu_format_to_d3d12(desc.format);
@@ -1131,7 +1181,7 @@ d3d12_resource_desc(const GpuTextureDesc& desc)
   resource_desc.Width              = desc.width;
   resource_desc.Height             = desc.height;
   resource_desc.DepthOrArraySize   = MAX(desc.array_size, 1);
-  resource_desc.MipLevels          = 1;
+  resource_desc.MipLevels          = desc.mip_levels;
   resource_desc.SampleDesc.Count   = 1;
   resource_desc.SampleDesc.Quality = 0;
   resource_desc.Layout             = D3D12_TEXTURE_LAYOUT_UNKNOWN;
@@ -1844,13 +1894,22 @@ init_buffer_counted_uav(
 }
 
 void
-init_texture_srv(GpuDescriptor* descriptor, const GpuTexture* texture, const GpuTextureSrvDesc& desc)
+init_texture_srv(GpuDescriptor* descriptor, const GpuTexture* texture, GpuTextureSrvDesc desc)
 {
   ASSERT(descriptor->type == kDescriptorHeapTypeCbvSrvUav);
   ASSERT(texture->desc.array_size >= 1);
 
+  // Reasonable default to just follow what the texture says
+  if (desc.mip_levels == 0)
+  {
+    desc.mip_levels        = texture->desc.mip_levels;
+    desc.most_detailed_mip = 0;
+  }
+
+  desc.most_detailed_mip = MIN(desc.most_detailed_mip, desc.mip_levels - 1);
+
   D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
-  srv.Texture2D.MipLevels             = desc.mip_levels;
+  srv.Texture2D.MipLevels = desc.mip_levels;
   if (is_depth_format(texture->desc.format))
   {
     srv.Format = (DXGI_FORMAT)((u32)desc.format + 1);
@@ -1864,7 +1923,7 @@ init_texture_srv(GpuDescriptor* descriptor, const GpuTexture* texture, const Gpu
   srv.Texture2DArray.ArraySize = 1;
   if (desc.array_size > 1)
   {
-    srv.Texture2DArray.MostDetailedMip = 0;
+    srv.Texture2DArray.MostDetailedMip = desc.most_detailed_mip;
     srv.Texture2DArray.MipLevels       = desc.mip_levels;
     srv.Texture2DArray.FirstArraySlice = 0;
     srv.Texture2DArray.ArraySize       = desc.array_size;
@@ -1877,16 +1936,22 @@ void
 init_texture_uav(GpuDescriptor* descriptor, const GpuTexture* texture, const GpuTextureUavDesc& desc)
 {
   ASSERT(descriptor->type == kDescriptorHeapTypeCbvSrvUav);
+  ASSERT_MSG_FATAL(desc.mip_slice < texture->desc.mip_levels, "Mip slice %u out of bounds for texture 0x%llx with %u mips!", desc.mip_slice, texture->d3d12_texture, texture->desc.mip_levels);
 
   D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {0};
   uav.Format        = gpu_format_to_d3d12(desc.format);
   uav.ViewDimension = desc.array_size > 1 ? D3D12_UAV_DIMENSION_TEXTURE2DARRAY : D3D12_UAV_DIMENSION_TEXTURE2D;
   if (texture->desc.array_size > 1)
   {
-    uav.Texture2DArray.MipSlice        = 0;
+    uav.Texture2DArray.MipSlice        = desc.mip_slice;
     uav.Texture2DArray.FirstArraySlice = 0;
     uav.Texture2DArray.ArraySize       = desc.array_size;
     uav.Texture2DArray.PlaneSlice      = 0;
+  }
+  else
+  {
+    uav.Texture2D.MipSlice             = desc.mip_slice;
+    uav.Texture2D.PlaneSlice           = 0;
   }
   g_GpuDevice->d3d12->CreateUnorderedAccessView(texture->d3d12_texture, nullptr, &uav, descriptor->cpu_handle);
 }
@@ -1917,33 +1982,6 @@ init_bvh_srv(GpuDescriptor* descriptor, const GpuRtTlas* tlas)
   g_GpuDevice->d3d12->CreateShaderResourceView(nullptr, &desc, descriptor->cpu_handle);
 }
 
-static ID3D12RootSignature*    g_RootSignature = nullptr;
-
-static void
-init_root_signature(const GpuDevice* device, ID3DBlob* blob)
-{
-  if (g_RootSignature == nullptr)
-  {
-    ID3DBlob* root_signature_blob = nullptr;
-    defer { COM_RELEASE(root_signature_blob); };
-
-    HASSERT(
-      D3DGetBlobPart(
-        blob->GetBufferPointer(),
-        blob->GetBufferSize(),
-        D3D_BLOB_ROOT_SIGNATURE,
-        0,
-        &root_signature_blob
-      )
-    );
-    device->d3d12->CreateRootSignature(
-      0,
-      root_signature_blob->GetBufferPointer(),
-      root_signature_blob->GetBufferSize(),
-      IID_PPV_ARGS(&g_RootSignature)
-    );
-  }
-}
 
 GpuShader
 load_shader_from_file(const GpuDevice* device, const wchar_t* path)
