@@ -26,11 +26,11 @@ struct GpuDevice;
 extern GpuDevice* g_GpuDevice;
 
 static const char* kTotalFrameGpuMarker = "GPU Total Frametime";
+static constexpr u8 kFramesInFlight     = 2 ;
 
 enum : u8
 {
-  kBackBufferCount       = 3,
-  kFramesInFlight        = 2,
+  kBackBufferCount       = 2,
   kMaxCommandListThreads = 8,
   kCommandAllocators     = kBackBufferCount * kMaxCommandListThreads,
 };
@@ -253,6 +253,13 @@ GpuTexture alloc_gpu_texture(
 
 bool is_depth_format(GpuFormat format);
 
+enum DepthStencilClearFlags
+{
+  kClearDepth        = 0x1 << 0,
+  kClearStencil      = 0x1 << 1,
+  kClearDepthStencil = kClearDepth | kClearStencil,
+};
+
 struct GpuBufferDesc
 {
   u32                   size      = 0;
@@ -283,6 +290,19 @@ GpuBuffer alloc_gpu_buffer(
   const char* name
 );
 
+inline GpuBuffer
+alloc_gpu_buffer(
+  GpuAllocHeap heap,
+  u32 size,
+  const char* name,
+  bool is_rt_bvh = false
+) {
+  GpuBufferDesc desc = {0};
+  desc.size      = size;
+  desc.is_rt_bvh = is_rt_bvh;
+  return alloc_gpu_buffer(g_GpuDevice, heap, desc, name);
+}
+
 struct GpuRingBuffer
 {
   GpuBuffer  buffer;
@@ -303,6 +323,7 @@ struct GpuRingBuffer
 };
 
 GpuRingBuffer alloc_gpu_ring_buffer_no_heap(AllocHeap heap, GpuBufferDesc desc, GpuHeapLocation location, const char* name);
+GpuRingBuffer alloc_gpu_ring_buffer(AllocHeap cpu_heap, GpuAllocHeap gpu_heap, u32 size, const char* name);
 
 struct GpuRingBufferAllocation
 {
@@ -323,13 +344,6 @@ void gpu_ring_buffer_commit(const GpuRingBuffer* buffer, CmdListAllocator* cmd_b
 
 void free_gpu_ring_buffer(GpuRingBuffer* buffer);
 
-
-struct GpuBvh
-{
-  GpuBuffer tlas;
-  GpuBuffer blas;
-  GpuBuffer instance_desc_buffer;
-};
 
 struct GpuRtBlasDesc
 {
@@ -466,7 +480,8 @@ struct GpuDescriptor
 {
   D3D12_CPU_DESCRIPTOR_HANDLE         cpu_handle = {0};
   Option<D3D12_GPU_DESCRIPTOR_HANDLE> gpu_handle = None;
-  DescriptorHeapType                  type       = kDescriptorHeapTypeCbvSrvUav;
+  DescriptorHeapType                  heap_type  = kDescriptorHeapTypeCbvSrvUav;
+  DescriptorType                      use_type   = kDescriptorTypeNull;
   u32                                 index      = 0;
 };
 
@@ -550,7 +565,6 @@ void init_rtv(GpuDescriptor* descriptor, const GpuTexture* texture);
 void init_dsv(GpuDescriptor* descriptor, const GpuTexture* texture);
 
 void init_bvh_srv(GpuDescriptor* descriptor, const GpuRtTlas* tlas);
-void init_bvh_srv(GpuDescriptor* descriptor, const GpuBvh* bvh);
 
 struct GpuShader
 {
@@ -592,19 +606,20 @@ enum DepthFunc : u8
 
   kDepthFuncCount,
 };
+static constexpr u32 kMaxRenderTargetCount = 8;
 
 struct GraphicsPipelineDesc
 {
-  const GpuShader*      vertex_shader           = nullptr;
-  const GpuShader*      pixel_shader            = nullptr;
-  Array<GpuFormat, 8>   rtv_formats;            
-  GpuFormat             dsv_format              = kGpuFormatUnknown;
-  DepthFunc             depth_func              = kDepthFuncGreater;
-  PrimitiveTopologyType topology                = kPrimitiveTopologyTriangle;
-  bool                  stencil_enable:  1      = false;
-  bool                  blend_enable:    1      = false;
-  bool                  depth_read_only: 1      = false;
-  u8                    __padding__[2]{0};
+  const GpuShader*                          vertex_shader           = nullptr;
+  const GpuShader*                          pixel_shader            = nullptr;
+  Array<GpuFormat, kMaxRenderTargetCount>   rtv_formats;            
+  GpuFormat                                 dsv_format              = kGpuFormatUnknown;
+  DepthFunc                                 depth_func              = kDepthFuncGreater;
+  PrimitiveTopologyType                     topology                = kPrimitiveTopologyTriangle;
+  bool                                      stencil_enable:  1      = false;
+  bool                                      blend_enable:    1      = false;
+  bool                                      depth_read_only: 1      = false;
+  u8                                        __padding__[2]{0};
 
   auto operator<=>(const GraphicsPipelineDesc& rhs) const = default;
 };
@@ -747,6 +762,7 @@ void wait_for_gpu_device_idle(GpuDevice* device);
 void begin_gpu_profiler_timestamp(CmdList* cmd_buffer, STRING_LITERAL const char* name);
 void end_gpu_profiler_timestamp(CmdList* cmd_buffer, STRING_LITERAL const char* name);
 f64  query_gpu_profiler_timestamp(STRING_LITERAL const char* name);
+bool has_gpu_profiler_timestamp(STRING_LITERAL const char* name);
 
 struct SwapChain
 {
@@ -772,7 +788,7 @@ struct SwapChain
 SwapChain init_swap_chain(HWND window, const GpuDevice* device);
 void destroy_swap_chain(SwapChain* swap_chain);
 
-const GpuTexture* swap_chain_acquire(SwapChain* swap_chain);
+GpuTexture* swap_chain_acquire(SwapChain* swap_chain);
 void swap_chain_wait_latency(SwapChain* swap_chain);
 void swap_chain_submit(SwapChain* swap_chain, const GpuDevice* device, const GpuTexture* rtv);
 void swap_chain_resize(SwapChain* swap_chain, HWND window, GpuDevice* device);
@@ -829,9 +845,52 @@ void gpu_copy_texture(
 );
 
 void gpu_memory_barrier(CmdList* cmd);
+
+enum GpuTextureLoadOp : u32
+{
+  kGpuTextureLoadOpLoad,
+  kGpuTextureLoadOpDiscard,
+};
 // NOTE(bshihabi): It is the caller's responsibility to not submit the CmdList's out of order here. 
 // Doing so would put the GpuTexture in a bad state since the layout is tracked within the GpuTexture struct
-void gpu_texture_layout_transition(CmdList* cmd, GpuTexture* texture, GpuTextureLayout layout);
+void gpu_texture_layout_transition(CmdList* cmd, GpuTexture* texture, GpuTextureLayout layout, GpuTextureLoadOp load_op = kGpuTextureLoadOpLoad);
+
+void gpu_bind_root_srv(CmdList* cmd, u32 idx, const GpuBuffer& buffer);
+
+void gpu_bind_root_constants(CmdList* cmd, u32 idx, const u32* constants, u32 count);
+
+void gpu_bind_graphics_pso(CmdList* cmd, const GraphicsPSO& pso);
+void gpu_bind_compute_pso(CmdList* cmd, const ComputePSO& pso);
+void gpu_dispatch(CmdList* cmd, u32 x, u32 y, u32 z);
+void gpu_draw_instanced(CmdList* cmd, u32 vertex_count_per_instance, u32 instance_count, u32 start_vertex_location, u32 start_instance_location);
+void gpu_draw_indexed_instanced(CmdList* cmd, u32 index_count_per_instance, u32 instance_count, u32 start_index_location, s32 base_vertex_location, u32 start_instance_location);
+
+// You must transition the textures before calling this
+void gpu_set_viewports           (CmdList* cmd, f32 left, f32 top, f32 width, f32 height);
+void gpu_set_scissor_rect        (CmdList* cmd, s32 left, s32 top, s32 right, s32 bottom);
+void gpu_clear_render_target     (CmdList* cmd, const GpuDescriptor* rtv, const Vec4& clear_color);
+void gpu_clear_depth_stencil     (CmdList* cmd, const GpuDescriptor* dsv, DepthStencilClearFlags flags, f32 depth, u8 stencil);
+void gpu_bind_render_targets     (CmdList* cmd, const GpuDescriptor* rtvs, u32 rtv_count, Option<GpuDescriptor> dsv);
+void gpu_bind_descriptor_heap    (CmdList* cmd, const DescriptorLinearAllocator* heap);
+
+void gpu_ia_set_primitive_topology(CmdList* cmd, D3D12_PRIMITIVE_TOPOLOGY topology);
+void gpu_ia_set_index_buffer      (CmdList* cmd, const GpuBuffer* buffer, u32 stride, u32 size = 0);
+
+void gpu_multi_draw_indirect_indexed(
+  CmdList*         cmd,
+  const GpuBuffer* args_buffer,
+  const GpuBuffer* count_buffer,
+  u64              args_offset,
+  u32              max_draw_count
+);
+
+void gpu_multi_draw_indirect(
+  CmdList*         cmd,
+  const GpuBuffer* args_buffer,
+  const GpuBuffer* count_buffer,
+  u64              args_offset,
+  u32              max_draw_count
+);
 
 void init_imgui_ctx(
   const GpuDevice* device,
@@ -845,7 +904,9 @@ void imgui_end_frame();
 void imgui_render(CmdList* cmd);
 
 #define U32_COLOR(r, g, b) (0xff000000u | ((u32)r << 16) | ((u32)g << 8) | (u32)b)
-#define GPU_SCOPED_EVENT(color, cmdlist, fmt, ...) PIXBeginEvent((cmdlist)->d3d12_list, color, fmt, ##__VA_ARGS__); begin_gpu_profiler_timestamp((cmdlist), fmt); defer { PIXEndEvent((cmdlist)->d3d12_list); end_gpu_profiler_timestamp((cmdlist), fmt); }
+#define GPU_BEGIN_EVENT(color, cmdlist, fmt, ...) PIXBeginEvent((cmdlist)->d3d12_list, color, fmt, ##__VA_ARGS__); begin_gpu_profiler_timestamp((cmdlist), fmt)
+#define GPU_END_EVENT(cmdlist, fmt, ...) PIXEndEvent((cmdlist)->d3d12_list); end_gpu_profiler_timestamp((cmdlist), fmt) 
+#define GPU_SCOPED_EVENT(color, cmdlist, fmt, ...) GPU_BEGIN_EVENT(color, cmdlist, fmt, __VA_ARGS__); defer { GPU_END_EVENT(cmdlist, fmt, __VA_ARGS__); }
 
 
 template <typename T>
@@ -865,6 +926,12 @@ inline GpuFormat gpu_format_from_type<float3>()   { return kGpuFormatRGB32Float;
 
 template <>
 inline GpuFormat gpu_format_from_type<float4>()   { return kGpuFormatRGBA32Float; }
+
+template <>
+inline GpuFormat gpu_format_from_type<Vec2f16>()   { return kGpuFormatRG16Float;   }
+
+template <>
+inline GpuFormat gpu_format_from_type<Vec4f16>()   { return kGpuFormatRGBA16Float; }
 
 template <>
 inline GpuFormat gpu_format_from_type<u8>()       { return kGpuFormatR8Uint;      }

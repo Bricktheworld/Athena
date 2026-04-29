@@ -106,14 +106,14 @@ struct RgHandle
   operator ResourceHandle() const { return { id, version, kResourceType<T>, temporal_lifetime, 0 }; }
 };
 
-typedef void (RenderHandler)(RenderContext* render_context, const RenderSettings& settings, const void* data);
+typedef void (RenderCallback)(RenderContext* render_context, const RenderSettings& settings, const void* data);
 
 struct RgPassBuilder
 {
   RenderPassId     pass_id            = 0;
   CmdQueueType     queue              = kCmdQueueTypeGraphics;
   const char*      name               = "Unnamed";
-  RenderHandler*   handler            = 0;
+  RenderCallback*   handler            = 0;
   void*            data               = nullptr;
   u32              descriptor_idx     = 0;
 
@@ -176,7 +176,7 @@ struct RgBuilder
 
 struct RenderPass
 {
-  RenderHandler*       handler                 = nullptr;
+  RenderCallback*       handler                 = nullptr;
   void*                data                    = nullptr;
   const char*          name                    = "Unknown";
   u32                  is_grv_barrier_pass:  1 = false;
@@ -349,7 +349,7 @@ RgPassBuilder* add_render_pass(
   CmdQueueType queue,
   STRING_LITERAL const char* name,
   void* data,
-  RenderHandler* handler
+  RenderCallback* handler
 );
 
 // Simplified version of a render pass that's only used to declare GRV bindings
@@ -1754,13 +1754,6 @@ rg_deref_buffer<RgCopyDst>(RgCopyDst rg_descriptor)
 
   return hash_table_find(&g_RenderGraph->buffer_map, key);
 }
-
-enum DepthStencilClearFlags
-{
-  kClearDepth        = 0x1 << 0,
-  kClearStencil      = 0x1 << 1,
-  kClearDepthStencil = kClearDepth | kClearStencil,
-};
 
 struct RenderGraph;
 struct RenderContext

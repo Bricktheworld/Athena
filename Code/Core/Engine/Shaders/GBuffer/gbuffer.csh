@@ -39,7 +39,6 @@ void CS_GBufferFillMultiDrawIndirectArgsPhaseOne(
   args.base_vertex_location     = 0;
   args.start_instance_location  = 0;
 
-  ;
   uint dst_idx = dst_args.IncrementCounter();
   dst_args   [dst_idx] = args;
   dst_gpu_ids[dst_idx] = gpu_id;

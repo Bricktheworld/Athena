@@ -1,39 +1,34 @@
 #include "Core/Engine/memory.h"
 
-#include "Core/Engine/Render/renderer.h"
 #include "Core/Engine/Render/blit.h"
 
 #include "Core/Engine/Shaders/interlop.hlsli"
 
-struct BlitParams
-{
-  RgTexture2D<float4> src;
-  RgRtv               dst;
-};
-
-static void
-render_handler_back_buffer_blit(RenderContext* ctx, const RenderSettings&, const void* data)
-{
-  BlitParams* params = (BlitParams*)data;
-
-  ctx->set_graphics_pso(&g_Renderer.back_buffer_blit_pso);
-
-  ctx->clear_render_target_view(params->dst, Vec4(0.0f, 0.0f, 0.0f, 0.0f));
-  ctx->om_set_render_targets({params->dst}, None);
-
-  ctx->graphics_bind_srt<FullscreenSrt>({.texture = params->src});
-  ctx->draw_instanced(3, 1, 0, 0);
-}
-
 void
-init_back_buffer_blit(AllocHeap heap, RgBuilder* builder, RgHandle<GpuTexture> src)
+render_handler_back_buffer_blit(const RenderEntry* entry, u32)
 {
-  BlitParams* params  = HEAP_ALLOC(BlitParams, g_InitHeap, 1);
-  zero_memory(params, sizeof(BlitParams));
+  BlitEntry* params = (BlitEntry*)entry->data;
 
-  RgPassBuilder* pass = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "Back Buffer Blit", params, &render_handler_back_buffer_blit);
+  GpuDescriptor* rtv = &g_RenderHandlerState.buffers.back_buffer_rtv;
+  const ViewCtx* view_ctx = &g_RenderHandlerState.main_view;
 
-  params->src         = RgTexture2D<float4>(pass, src);
-  params->dst         = RgRtv(pass, &builder->back_buffer);
+  // Transition the backbuffer back for present
+  gpu_texture_layout_transition(&g_RenderHandlerState.cmd_list, &params->src->texture, kGpuTextureLayoutGeneral);
+  gpu_texture_layout_transition(&g_RenderHandlerState.cmd_list, params->back_buffer,   kGpuTextureLayoutRenderTarget);
+
+  gpu_bind_render_targets(&g_RenderHandlerState.cmd_list, rtv, 1, None);
+  gpu_set_viewports(&g_RenderHandlerState.cmd_list, 0.0f, 0.0f, (f32)view_ctx->width, (f32)view_ctx->height);
+  gpu_clear_render_target(&g_RenderHandlerState.cmd_list, rtv, Vec4(0.0f, 0.0f, 0.0f, 1.0f));
+
+  gpu_bind_graphics_pso(&g_RenderHandlerState.cmd_list, g_Renderer.pso_library.back_buffer_blit);
+
+  FullscreenSrt srt;
+  srt.texture = { params->src->srv.index };
+  gpu_bind_srt(&g_RenderHandlerState.cmd_list, srt);
+
+  gpu_draw_instanced(&g_RenderHandlerState.cmd_list, 3, 1, 0, 0);
+
+  // Transition the backbuffer back for present
+  gpu_texture_layout_transition(&g_RenderHandlerState.cmd_list, params->back_buffer, kGpuTextureLayoutGeneral);
 }
 

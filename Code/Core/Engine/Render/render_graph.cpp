@@ -1334,7 +1334,7 @@ add_render_pass(
   CmdQueueType queue,
   const char* name,
   void* data,
-  RenderHandler* handler
+  RenderCallback* handler
 ) {
   RgPassBuilder* ret   = array_add(&graph->render_passes);
 

@@ -203,6 +203,13 @@ template <typename T>
 using Texture2DArrayPtr = uint;
 #endif
 
+#if defined(__cplusplus)
+struct RaytracingAccelerationStructurePtr
+{
+  u32 m_Index;
+};
+#endif
+
 #if !defined(__cplusplus)
 #define DEREF(ptr) ResourceDescriptorHeap[ptr]
 #endif
@@ -357,7 +364,7 @@ struct MaterialUploadSrt
 
 struct FullscreenSrt
 {
-  Texture2DPtr<float4> texture;
+  Texture2DPtr<half4> texture;
 };
 
 struct TextureCopySrt

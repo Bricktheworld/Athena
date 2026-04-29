@@ -1,15 +1,4 @@
 #pragma once
-#include "Core/Engine/Render/render_graph.h"
+#include "Core/Engine/Render/renderer.h"
 
-struct GBuffer;
-
-RgHandle<GpuTexture> init_hdr_buffer(RgBuilder* builder);
-
-void init_lighting(
-  AllocHeap heap,
-  RgBuilder* builder,
-  const GBuffer& gbuffer,
-  const DiffuseGiResources diffuse_gi,
-  RgHandle<GpuTexture>* hdr_buffer
-);
-
+void render_handler_lighting(const RenderEntry*, u32);

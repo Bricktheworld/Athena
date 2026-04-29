@@ -6,8 +6,11 @@
 #include "Core/Engine/job_system.h"
 
 #include "Core/Engine/Render/render_graph.h"
+#include "Core/Engine/Render/graphics.h"
 
 #include "Core/Engine/Shaders/interlop.hlsli"
+#include "Core/Engine/Shaders/Include/ddgi_common.hlsli"
+#include "Core/Engine/Shaders/Include/gbuffer_common.hlsli"
 #include "Core/Engine/Generated/shader_table.h"
 
 static constexpr DepthFunc kDepthComparison = kDepthFuncGreater;
@@ -53,6 +56,35 @@ static const GpuFormat kGBufferRenderTargetFormats[] =
   kGpuFormatRG32Float,   // RG -> Velocity
 };
 
+enum RenderDebugLayer : u32
+{
+  kRenderDebugDefault,
+  kRenderDebugDiffuse,
+  kRenderDebugNormal,
+
+  kRenderDebugDepth,
+  kRenderDebugHZB0,
+  kRenderDebugHZB1,
+  kRenderDebugHZB2,
+  kRenderDebugHZB3,
+
+  kRenderDebugLayerCount
+};
+
+static constexpr const char* kRenderDebugLayerNames[kRenderDebugLayerCount] =
+{
+  "Default",
+  "GBuffer Albedo",
+  "GBuffer Normals",
+
+  "GBuffer Depth",
+  "GBuffer HZB0",
+  "GBuffer HZB1",
+  "GBuffer HZB2",
+  "GBuffer HZB3",
+};
+static_assert(ARRAY_LENGTH(kRenderDebugLayerNames) == kRenderDebugLayerCount, "Mismatched render debug layer names! Double check you added it correctly here (in the right order)");
+
 // !!WARNING!! !!WARNING!! !!WARNING!!
 // MUST BE KEPT IN SYNC WITH GpuRenderSettings and to_gpu_render_settings
 struct RenderSettings
@@ -66,7 +98,7 @@ struct RenderSettings
   f32   aperture                 = 16.0f;
   f32   shutter_time             = 1.0 / 60.0f;
   f32   iso                      = 500.0f;
-  u32   __pad0__;
+  u32   debug_layer              = kRenderDebugDefault;
 
   Vec2  mouse_pos                = Vec2(0.0f, 0.0f);
   s32   forced_model_lod         = -1;
@@ -116,6 +148,16 @@ inline RenderSettingsGpu to_gpu_render_settings(const RenderSettings& settings)
   return ret;
 }
 
+struct EnginePSOLibrary
+{
+  ComputePSO  compute_psos[kEngineShaderCount];
+  GraphicsPSO back_buffer_blit;
+  GraphicsPSO debug_draw_line_pso;
+  GraphicsPSO debug_draw_sdf_pso;
+  GraphicsPSO gbuffer_static;
+  GraphicsPSO tonemapping;
+};
+
 struct Renderer
 {
   LinearAllocator graph_allocator;
@@ -128,8 +170,90 @@ struct Renderer
 
   DirectionalLight directional_light;
 
-  GraphicsPSO   back_buffer_blit_pso;
-  ComputePSO    texture_copy_pso;
+  EnginePSOLibrary pso_library;
+};
+
+enum RenderLayer : u32
+{
+  kRenderLayerInit,
+
+  kRenderLayerRtDiffuseGi,
+  kRenderLayerGBuffer,
+
+  kRenderLayerLighting,
+
+  kRenderLayerPost,
+
+  kRenderLayerDebug,
+  kRenderLayerDebugDraw,
+
+  kRenderLayerUI,
+
+  kRenderLayerSubmit,
+
+  kRenderLayerCount,
+};
+
+static constexpr const char* kRenderLayerNames[kRenderLayerCount] =
+{
+  "Init",
+  "RtDiffuseGi",
+  "GBuffer",
+  "Lighting",
+  "Post",
+  "Debug",
+  "DebugDraw",
+  "UI",
+  "Submit",
+};
+static_assert(ARRAY_LENGTH(kRenderLayerNames) == kRenderLayerCount, "Mismatched render layer names! Double check you added it correctly here (in the right order)");
+
+enum RenderHandlerId : u32
+{
+  kRenderHandlerFrameInit,
+  kRenderHandlerSceneUpload,
+  kRenderHandlerBuildTlas,
+  kRenderHandlerRtDiffuseGiInit,
+
+  kRenderHandlerGBufferGenerateMultiDrawArgs,
+  kRenderHandlerGBufferOpaque,
+  kRenderHandlerGenerateHZB,
+  kRenderHandlerRtDiffuseGiTraceRays,
+  kRenderHandlerRtDiffuseGiProbeBlend,
+
+  kRenderHandlerLighting,
+
+  kRenderHandlerDoFGenerateCoC,
+  kRenderHandlerDoFBokehBlur,
+  kRenderHandlerDoFComposite,
+
+  kRenderHandlerTemporalAA,
+
+  kRenderHandlerTonemapping,
+
+  kRenderHandlerDebugUi,
+
+  kRenderHandlerDebugBuffers,
+  kRenderHandlerIndirectDebugDraw,
+
+  kRenderHandlerBackBufferBlit,
+
+  kRenderHandlerCount
+};
+
+
+struct RenderEntry
+{
+  u32             sort_key = 0;
+  RenderHandlerId handler  = kRenderHandlerFrameInit;
+  void*           data     = nullptr;
+};
+
+struct RenderBatch
+{
+  RenderLayer  layer       = kRenderLayerInit;
+  u32          entry_count = 0;
+  RenderEntry* entries     = nullptr;
 };
 
 struct ViewCtx
@@ -139,23 +263,22 @@ struct ViewCtx
   Mat4    view_proj;
   Mat4    inverse_view_proj;
 
+  u32     width;
+  u32     height;
+
   Vec2    taa_jitter;
 
   Camera  camera;
+  DirectionalLight directional_light;
   Frustum frustum;
+
+  RenderBatch* render_batches     = nullptr;
+  u32          render_batch_count = 0;
 };
 
-struct RenderHandlerState
-{
-  ViewCtx  main_view;
-  ViewCtx  prev_main_view;
+void submit_render_entry  (ViewCtx* view_ctx, RenderLayer layer, RenderHandlerId handler, u32 sort_key, void* data);
+void submit_render_entries(ViewCtx* view_ctx, RenderLayer layer, RenderEntry* entries, u32 count);
 
-  u32      frame_id;
-};
-
-extern RenderHandlerState g_RenderHandlerState;
-
-extern Renderer g_Renderer;
 
 void init_renderer(
   const GpuDevice* device,
@@ -163,9 +286,208 @@ void init_renderer(
   HWND window
 );
 void renderer_on_resize(const SwapChain* swap_chain);
-void renderer_hot_reload(const GpuDevice* device, const SwapChain* swap_chain);
 void destroy_renderer();
 
+
+
+typedef void (RenderHandler)(const RenderEntry* entries, u32 entry_count);
+
+struct RenderTarget
+{
+  GpuTexture    texture;
+  GpuDescriptor rtv;
+
+  // These have the same format as the texture. 
+  // If you want a different format you'll need to alloc your own descriptor
+  GpuDescriptor srv;
+  GpuDescriptor uav;
+};
+
+struct DepthTarget
+{
+  GpuTexture    texture;
+  GpuDescriptor dsv;
+
+  // These have the same format as the texture
+  // If you want a different format you'll need to alloc your own descriptor
+  GpuDescriptor srv;
+
+  // You can't access depth stencil buffers in unordered access because of
+  // hardware limitations (compression of the depth buffer and stuff)
+};
+
+template <typename T, size_t BufferedFrameCount = kFramesInFlight>
+struct TemporalResource
+{
+  T m_Resource[BufferedFrameCount];
+
+  // idx: a number from (-BufferedFrameCount, 0] that represents how many frames
+  // ago you want to access, for example:
+  //   idx =  0 -> Current frame
+  //   idx = -1 -> Previous frame
+  //   idx = -2 -> Two frames ago
+  // etc...
+  T* get_temporal(s32 idx)
+  {
+    ASSERT_MSG_FATAL(idx <= 0, "get_temporal() specified idx %d but expected a number from (%d, 0]. \nThis idx represents how many frames ago you wanted to access. For example: \n  idx = 0 -> Current frame\n  idx = -1 -> Previous frame", idx, -(s32)BufferedFrameCount);
+    ASSERT_MSG_FATAL(-idx < BufferedFrameCount, "get_temporal() specified idx %d but expected a number from (%d, 0]. \nThis idx represents how many frames ago you wanted to access. For example: \n  idx = 0 -> Current frame\n  idx = -1 -> Previous frame", idx, -(s32)BufferedFrameCount);
+
+    s32 signed_frame_id = (u32)g_FrameId;
+    signed_frame_id    += idx;
+    s64 temporal_idx    = modulo(signed_frame_id, kFramesInFlight);
+    ASSERT_MSG_FATAL(temporal_idx < BufferedFrameCount, "%lld >= %llu. This is a bug with TemporalResource::get_temporal", temporal_idx, BufferedFrameCount);
+    return &m_Resource[temporal_idx];
+  }
+
+  // By default, pointer access goes to the current frame which is sensible
+  T* operator->()
+  {
+    return get_temporal(0);
+  }
+};
+
+template <typename T>
+struct Texture2D
+{
+  GpuTexture    texture;
+  GpuDescriptor srv;
+  GpuDescriptor uav;
+
+  operator Texture2DPtr<T>() const
+  {
+    return Texture2DPtr<T>{srv.index};
+  }
+
+  operator RWTexture2DPtr<T>() const
+  {
+    return RWTexture2DPtr<T>{uav.index};
+  }
+};
+
+template <typename T>
+struct Texture2DArray
+{
+  GpuTexture    texture;
+  GpuDescriptor srv;
+  GpuDescriptor uav;
+
+  operator Texture2DArrayPtr<T>() const
+  {
+    return Texture2DArrayPtr<T>{srv.index};
+  }
+
+  operator RWTexture2DArrayPtr<T>() const
+  {
+    return RWTexture2DArrayPtr<T>{uav.index};
+  }
+};
+
+template <typename T>
+struct StructuredBuffer
+{
+  GpuBuffer     buffer;
+  GpuDescriptor srv;
+  GpuDescriptor uav;
+
+  operator StructuredBufferPtr<T>() const
+  {
+    return StructuredBufferPtr<T>{srv.index};
+  }
+
+  operator RWStructuredBufferPtr<T>() const
+  {
+    return RWStructuredBufferPtr<T>{uav.index};
+  }
+};
+
+template <typename T>
+struct AppendStructuredBuffer
+{
+  GpuBuffer     buffer;
+  GpuBuffer     counter;
+  GpuDescriptor srv;
+  GpuDescriptor uav;
+  GpuDescriptor counter_uav;
+
+  operator StructuredBufferPtr<T>() const
+  {
+    return StructuredBufferPtr<T>{srv.index};
+  }
+
+  operator RWStructuredBufferPtr<T>() const
+  {
+    return RWStructuredBufferPtr<T>{uav.index};
+  }
+};
+
+struct RenderBuffers
+{
+  struct GBuffer
+  {
+    RenderTarget                   material_id;
+    RenderTarget                   diffuse_metallic;
+    RenderTarget                   normal_roughness;
+    TemporalResource<RenderTarget> velocity;
+    DepthTarget                    depth;
+    Texture2D<f32>                 hzb;
+    GpuDescriptor                  hzb_mip_uavs[kHZBMipCount];
+  } gbuffer;
+
+  // Frame / misc
+  TemporalResource<GpuBuffer> viewport_buffer;
+  TemporalResource<GpuBuffer> render_settings;
+  GpuBuffer debug_draw_args_buffer;
+  StructuredBuffer<DebugLinePoint> debug_line_vert_buffer;
+  StructuredBuffer<DebugSdf> debug_sdf_buffer;
+
+  // Scene
+  StructuredBuffer<SceneObjGpu> scene_obj_buffer;
+  StructuredBuffer<RtObjGpu>    rt_obj_buffer;
+  AppendStructuredBuffer<D3D12RaytracingInstanceDesc> rt_tlas_instances;
+  GpuRtTlas rt_tlas;
+  GpuBuffer tlas_scratch;
+
+  // GBuffer indirect
+  AppendStructuredBuffer<MultiDrawIndirectIndexedArgs> indirect_args;
+  StructuredBuffer<u32> scene_obj_gpu_ids;
+  StructuredBuffer<u64> occlusion_results;
+
+  // Lighting / post-process
+  Texture2D<Vec4f16>                 hdr;
+  TemporalResource<Texture2D<Vec4f16>> taa;
+  Texture2D<Vec4f16> coc_buffer;
+  Texture2D<Vec4f16> blur_buffer;
+  Texture2D<Vec4f16> depth_of_field;
+  RenderTarget tonemapped_buffer;
+
+  // DDGI
+  TemporalResource<Texture2DArray<u32>> probe_page_table;
+  StructuredBuffer<DiffuseGiProbe> probe_buffer;
+  StructuredBuffer<GiRayLuminance> ray_luminance;
+
+  GpuRingBuffer upload_buffer;
+
+  GpuDescriptor back_buffer_rtv;
+};
+
+struct RenderHandlerState
+{
+  ViewCtx        main_view;
+  ViewCtx        prev_main_view;
+  RenderSettings settings;
+  CmdList        cmd_list;
+
+  u32            frame_id;
+
+  RenderBuffers  buffers = {0};
+};
+
+extern RenderHandlerState g_RenderHandlerState;
+
+extern Renderer g_Renderer;
+
+ViewCtx* submit_scene(const SwapChain* swap_chain, GpuTexture* back_buffer);
+void     render_view_ctx(ViewCtx* view_ctx);
 
 struct UnifiedGeometryBuffer
 {
@@ -189,5 +511,126 @@ void destroy_unified_geometry_buffer();
 THREAD_SAFE u64       alloc_uber_vertex(u64 size);
 THREAD_SAFE u64       alloc_uber_index(u64 size);
 THREAD_SAFE GpuRtBlas alloc_uber_blas(u32 vertex_start, u32 vertex_count, u32 index_start, u32 index_count, const char* name);
+
+
+
+/////////// HELPER GPU FUNCTIONS /////////////
+inline void
+gpu_bind_compute_pso(CmdList* cmd, EngineShaderIndex index)
+{
+  gpu_bind_compute_pso(cmd, g_Renderer.pso_library.compute_psos[index]);
+}
+
+template <typename T>
+inline void
+gpu_bind_srt(CmdList* cmd, const T& srt)
+{
+  gpu_bind_root_constants(cmd, 0, (const u32*)&srt, UCEIL_DIV(sizeof(srt), sizeof(u32)));
+}
+
+void gpu_clear_render_target(CmdList* cmd, RenderTarget* rtv, const Vec4& clear_color);
+void gpu_clear_depth_target (CmdList* cmd, DepthTarget* target, DepthStencilClearFlags flags, f32 depth, u8 stencil);
+void gpu_bind_render_targets(CmdList* cmd, RenderTarget** rtvs, u32 rtv_count, DepthTarget* dsv = nullptr);
+inline void gpu_bind_render_target(CmdList* cmd, RenderTarget* rtv, DepthTarget* dsv = nullptr)
+{
+  gpu_bind_render_targets(cmd, &rtv, 1, dsv);
+}
+
+void gpu_clear_buffer_u32(CmdList* cmd, RWStructuredBufferPtr<u32> dst, u32 count, u32 offset, u32 value);
+
+FenceValue gpu_flush_cmds();
+struct GpuStagingAllocation
+{
+  u8* cpu_dst    = nullptr;
+  u64 gpu_offset = 0;
+};
+GpuStagingAllocation gpu_alloc_staging_bytes(CmdList* cmd, u32 size, u32 alignment = 1);
+
+template <typename T>
+struct GpuInitGrvHelper;
+
+template <typename T>
+struct GpuInitGrvHelper<ConstantBufferPtr<T>>
+{
+  static void init(u32 idx, const TemporalResource<GpuBuffer>& buffer)
+  {
+    for (u32 iframe = 0; iframe < kFramesInFlight; iframe++)
+    {
+      GpuDescriptor grv = alloc_table_descriptor(g_DescriptorCbvSrvUavPool, kGrvTemporalCount * iframe + idx);
+
+      GpuBufferCbvDesc desc = {0};
+      desc.buffer_offset    = 0;
+      desc.size             = sizeof(T);
+      init_buffer_cbv(&grv, &buffer.m_Resource[iframe], desc);
+    }
+  }
+};
+
+template <typename T>
+struct GpuInitGrvHelper<StructuredBufferPtr<T>>
+{
+  static void init(u32 idx, const GpuBuffer& buffer)
+  {
+    GpuDescriptor grv = alloc_table_descriptor(g_DescriptorCbvSrvUavPool, kGrvTemporalCount * kBackBufferCount + idx);
+
+    GpuBufferSrvDesc desc = {0};
+    desc.first_element    = 0;
+    desc.num_elements     = buffer.desc.size / sizeof(T);
+    desc.stride           = sizeof(T);
+    desc.format           = kGpuFormatUnknown;
+    desc.is_raw           = false;
+    init_buffer_srv(&grv, &buffer, desc);
+  }
+};
+
+template <typename T>
+struct GpuInitGrvHelper<RWStructuredBufferPtr<T>>
+{
+  static void init(u32 idx, const GpuBuffer& buffer)
+  {
+    GpuDescriptor grv = alloc_table_descriptor(g_DescriptorCbvSrvUavPool, kGrvTemporalCount * kBackBufferCount + idx);
+
+    GpuBufferUavDesc desc = {0};
+    desc.first_element    = 0;
+    desc.num_elements     = buffer.desc.size / sizeof(T);
+    desc.stride           = sizeof(T);
+    desc.format           = kGpuFormatUnknown;
+    desc.is_raw           = false;
+    desc.counter_offset   = 0;
+    init_buffer_uav(&grv, &buffer, desc);
+  }
+};
+
+template <>
+struct GpuInitGrvHelper<RaytracingAccelerationStructurePtr>
+{
+  static void init(u32 idx, const GpuRtTlas& tlas)
+  {
+    GpuDescriptor grv = alloc_table_descriptor(g_DescriptorCbvSrvUavPool, kGrvTemporalCount * kBackBufferCount + idx);
+    init_bvh_srv(&grv, &tlas);
+  }
+};
+
+template <typename T>
+inline void
+gpu_init_grv(u32 idx, const GpuBuffer& buffer)
+{
+  GpuInitGrvHelper<T>::init(idx, buffer);
+}
+
+template <typename T>
+inline void
+gpu_init_grv(u32 idx, const TemporalResource<GpuBuffer>& buffer)
+{
+  GpuInitGrvHelper<T>::init(idx, buffer);
+}
+
+template <typename T>
+inline void
+gpu_init_grv(u32 idx, const GpuRtTlas& tlas)
+{
+  GpuInitGrvHelper<T>::init(idx, tlas);
+}
+
 
 

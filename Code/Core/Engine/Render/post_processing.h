@@ -1,8 +1,4 @@
 #pragma once
-#include "Core/Engine/Render/render_graph.h"
+#include "Core/Engine/Render/renderer.h"
 
-RgHandle<GpuTexture> init_tonemapping(
-  AllocHeap heap,
-  RgBuilder* builder,
-  RgHandle<GpuTexture> hdr_buffer
-);
+void render_handler_tonemapping(const RenderEntry* entries, u32 entry_count);

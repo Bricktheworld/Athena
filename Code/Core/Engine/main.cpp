@@ -315,7 +315,7 @@ application_entry(HINSTANCE instance, int show_code)
 
     u64 effective_cpu_start_time = begin_cpu_profiler_timestamp();
 
-    const GpuTexture* back_buffer = swap_chain_acquire(&g_MainWindow->swap_chain);
+    GpuTexture* back_buffer = swap_chain_acquire(&g_MainWindow->swap_chain);
 
     MSG message;
     while (PeekMessageW(&message, 0, 0, 0, PM_REMOVE))
@@ -391,10 +391,13 @@ application_entry(HINSTANCE instance, int show_code)
     if (done)
       break;
 
-    execute_render_graph(back_buffer, g_Renderer.settings);
+    // execute_render_graph(back_buffer, g_Renderer.settings);
+    ViewCtx* main_view = submit_scene(&g_MainWindow->swap_chain, back_buffer);
+    render_view_ctx(main_view);
     g_CpuEffectiveTime = end_cpu_profiler_timestamp(effective_cpu_start_time);
 
     swap_chain_submit(&g_MainWindow->swap_chain, g_GpuDevice, back_buffer);
+    g_FrameId++;
   }
 
   lpp::LppDestroySynchronizedAgent(&lpp_agent);
