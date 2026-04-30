@@ -1,4 +1,4 @@
-// Copyright 2011-2023 Molecular Matters GmbH, all rights reserved.
+// Copyright 2011-2025 Molecular Matters GmbH, all rights reserved.
 
 #pragma once
 
@@ -8,11 +8,21 @@
 #ifndef _INC_WINDOWS
 	// <Windows.h> was not included, so we provide our own typedefs and function prototypes for the required APIs
 
+	// Clang does not like several of the typedefs, temporarily disable this warning
+#	if defined(__clang__)
+#		if __has_warning("-Wreserved-identifier")
+#			pragma clang diagnostic push
+#			pragma clang diagnostic ignored "-Wreserved-identifier"
+#		endif
+#	endif
+
 	// opaque types
 	struct HINSTANCE__;
 	typedef HINSTANCE__* HINSTANCE;
 	typedef HINSTANCE HMODULE;
-	struct IMAGE_DOS_HEADER;
+
+	struct _IMAGE_DOS_HEADER;
+	typedef _IMAGE_DOS_HEADER IMAGE_DOS_HEADER;
 
 	// standard types
 	typedef int BOOL;
@@ -41,6 +51,15 @@
 
 	// required .lib for the Win32 APIs
 #	pragma comment(lib, "Kernel32.lib")
+
+	// Restore Clang warnings
+#	if defined(__clang__)
+#		if __has_warning("-Wreserved-identifier")
+#			pragma clang diagnostic push
+#			pragma clang diagnostic ignored "-Wreserved-identifier"
+#		endif
+#	endif
+
 #endif
 
 
@@ -50,8 +69,14 @@
 
 #define LPP_PLATFORM_LIBRARY_PREFIX_ANSI	""
 #define LPP_PLATFORM_LIBRARY_PREFIX			L""
-#define LPP_PLATFORM_LIBRARY_NAME_ANSI		"\\Agent\\x64\\LPP_Agent_x64_CPP.dll"
-#define LPP_PLATFORM_LIBRARY_NAME			L"\\Agent\\x64\\LPP_Agent_x64_CPP.dll"
+
+#if defined(_WIN64)
+#	define LPP_PLATFORM_LIBRARY_NAME_ANSI		"\\Agent\\x64\\LPP_Agent_x64_CPP.dll"
+#	define LPP_PLATFORM_LIBRARY_NAME			L"\\Agent\\x64\\LPP_Agent_x64_CPP.dll"
+#else
+#	define LPP_PLATFORM_LIBRARY_NAME_ANSI		"\\Agent\\x64\\LPP_Agent_x86_CPP.dll"
+#	define LPP_PLATFORM_LIBRARY_NAME			L"\\Agent\\x64\\LPP_Agent_x86_CPP.dll"
+#endif
 
 LPP_NAMESPACE_BEGIN
 

@@ -16,7 +16,7 @@ render_handler_tonemapping(const RenderEntry*, u32)
   gpu_texture_layout_transition(cmd, &buffers->depth_of_field.texture, kGpuTextureLayoutShaderResource);
 
   gpu_bind_render_target(cmd, &buffers->tonemapped_buffer);
-  gpu_clear_render_target(cmd, &buffers->tonemapped_buffer, Vec4(0.0f));
+  gpu_clear_render_target(cmd, &buffers->tonemapped_buffer, Vec4(0.0f, 0.0f, 0.0f, 1.0f));
   gpu_set_viewports(cmd, 0.0f, 0.0f, (f32)view->width, (f32)view->height);
 
   ToneMappingSrt srt;

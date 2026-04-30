@@ -1,4 +1,4 @@
-// Copyright 2011-2023 Molecular Matters GmbH, all rights reserved.
+// Copyright 2011-2025 Molecular Matters GmbH, all rights reserved.
 
 #pragma once
 
@@ -37,6 +37,9 @@
 
 // Generates a unique identifier inside a translation unit.
 #define LPP_IDENTIFIER(_identifier)						LPP_CONCATENATE(_identifier, __LINE__)
+
+// Breaks into the debugger.
+#define LPP_DEBUG_BREAK									__debugbreak()
 
 
 LPP_NAMESPACE_BEGIN

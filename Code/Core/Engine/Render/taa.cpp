@@ -21,12 +21,13 @@ render_handler_temporal_aa(const RenderEntry*, u32)
 
   if (!settings->disable_taa)
   {
+
     TemporalAASrt srt;
-    srt.prev_hdr      = Texture2DPtr<Vec4> {buffers->taa.get_temporal(-1)->srv.index};
-    srt.curr_hdr      = Texture2DPtr<Vec4> {buffers->hdr.srv.index};
-    srt.prev_velocity = Texture2DPtr<Vec2> {buffers->gbuffer.velocity.get_temporal(-1)->srv.index};
-    srt.curr_velocity = Texture2DPtr<Vec2> {buffers->gbuffer.velocity.get_temporal( 0)->srv.index};
-    srt.gbuffer_depth = Texture2DPtr<f32>  {buffers->gbuffer.depth.srv.index};
+    srt.prev_hdr      = {buffers->taa.get_temporal(-1)->srv.index};
+    srt.curr_hdr      = {buffers->hdr.srv.index};
+    srt.prev_velocity = {buffers->gbuffer.velocity.get_temporal(-1)->srv.index};
+    srt.curr_velocity = {buffers->gbuffer.velocity.get_temporal( 0)->srv.index};
+    srt.gbuffer_depth = {buffers->gbuffer.depth.srv.index};
     srt.taa           = RWTexture2DPtr<Vec4>{buffers->taa.get_temporal(0)->uav.index};
     gpu_bind_compute_pso(cmd, kCS_TAA);
     gpu_bind_srt(cmd, srt);

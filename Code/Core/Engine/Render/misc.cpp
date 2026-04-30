@@ -169,6 +169,7 @@ render_handler_debug_ui(const RenderEntry*, u32)
   ImGui::Checkbox("Disable DoF", &g_Renderer.settings.disable_dof);
   ImGui::Checkbox("Disable Frustum Culling", &g_Renderer.settings.disable_frustum_culling);
   ImGui::Checkbox("Disable Occlusion Culling", &g_Renderer.settings.disable_occlusion_culling);
+  ImGui::Checkbox("Disable Ray Tracing", &g_Renderer.settings.disable_ray_tracing);
   ImGui::Checkbox("Freeze Occlusion Culling", &g_Renderer.settings.freeze_occlusion_culling);
   ImGui::DragInt("Forced Model LoD", &g_Renderer.settings.forced_model_lod, 0.1, -1, 3);
   ImGui::Checkbox("Enable Debug Draw", &g_Renderer.settings.enabled_debug_draw);

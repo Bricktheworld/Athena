@@ -118,6 +118,7 @@ struct RenderSettings
   bool  disable_frustum_culling   = false;
   bool  freeze_occlusion_culling  = false;
   bool  disable_occlusion_culling = false;
+  bool  disable_ray_tracing       = false;
 };
 
 inline RenderSettingsGpu to_gpu_render_settings(const RenderSettings& settings)
@@ -454,7 +455,7 @@ struct RenderBuffers
 
   // Lighting / post-process
   Texture2D<Vec4f16>                 hdr;
-  TemporalResource<Texture2D<Vec4f16>> taa;
+  TemporalResource<RenderTarget> taa;
   Texture2D<Vec4f16> coc_buffer;
   Texture2D<Vec4f16> blur_buffer;
   Texture2D<Vec4f16> depth_of_field;

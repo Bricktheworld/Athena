@@ -79,7 +79,7 @@ render_handler_gbuffer_opaque(const RenderEntry* entry, u32)
   {
     for (RenderTarget* target : render_targets)
     {
-      gpu_clear_render_target(&g_RenderHandlerState.cmd_list, target, Vec4(0.0f));
+      gpu_clear_render_target(&g_RenderHandlerState.cmd_list, target, Vec4(0.0f, 0.0f, 0.0f, 1.0f));
     }
     gpu_clear_depth_target(&g_RenderHandlerState.cmd_list, depth_target, kClearDepth, 0.0f, 0);
   }

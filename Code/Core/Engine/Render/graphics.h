@@ -139,16 +139,30 @@ enum GpuHeapType : u8
   kGpuFreeHeap,
 };
 
+struct GpuPhysicalMemory
+{
+  u64             size       = 0;
+  ID3D12Heap*     d3d12_heap = nullptr;
+  GpuHeapLocation location   = kGpuHeapGpuOnly;
+};
+
+GpuPhysicalMemory alloc_gpu_physical_memory(u64 size, GpuHeapLocation location);
+void free_gpu_physical_memory(GpuPhysicalMemory* memory);
+
 struct GpuAllocation
 {
-  u32             size       = 0;
-  u32             offset     = 0;
+  u64             size       = 0;
+  u64             offset     = 0;
   ID3D12Heap*     d3d12_heap = nullptr;
 
   // Optional metadata (usually an ID or offset of the allocation so that we can free)
   u32             metadata   = 0;
   GpuHeapLocation location   = kGpuHeapGpuOnly;
 };
+
+// Just creates the allocation struct for you, doesn't actually do any allocations
+// Use this if you're writing a bespoke allocator
+void fill_gpu_physical_allocation_struct(GpuAllocation* dst, const GpuPhysicalMemory& memory, u64 offset, u64 size, u32 metadata = 0);
 
 struct GpuAllocHeap
 {
@@ -170,10 +184,8 @@ struct GpuFreeHeap
 GpuAllocation gpu_linear_alloc(void* allocator, u32 size, u32 alignment);
 struct GpuLinearAllocator
 {
-  ID3D12Heap*     d3d12_heap = nullptr;
-  u32             size       = 0;
-  u32             pos        = 0;
-  GpuHeapLocation location   = kGpuHeapGpuOnly;
+  GpuPhysicalMemory physical_memory;
+  u32               pos = 0;
 
   operator GpuAllocHeap()
   {
@@ -183,7 +195,6 @@ struct GpuLinearAllocator
     return ret;
   }
 };
-
 
 GpuLinearAllocator init_gpu_linear_allocator(u32 size, GpuHeapLocation location);
 void destroy_gpu_linear_allocator(GpuLinearAllocator* allocator);
@@ -237,19 +248,15 @@ struct GpuTexture
   GpuTextureLayout      layout        = kGpuTextureLayoutGeneral;
 };
 
-GpuTexture alloc_gpu_texture_no_heap(
-  const GpuDevice* device,
-  GpuTextureDesc desc,
-  const char* name
-);
-void free_gpu_texture(GpuTexture* texture);
+u64 query_gpu_texture_size(GpuTextureDesc desc, u64* out_alignment = nullptr);
 
+GpuTexture init_gpu_texture(GpuAllocation allocation, GpuTextureDesc desc, const char* name);
 GpuTexture alloc_gpu_texture(
-  const GpuDevice* device,
   GpuAllocHeap heap,
   GpuTextureDesc desc,
   const char* name
 );
+void free_gpu_texture(GpuTexture* texture);
 
 bool is_depth_format(GpuFormat format);
 
@@ -282,6 +289,13 @@ GpuBuffer alloc_gpu_buffer_no_heap(
   const char* name
 );
 void free_gpu_buffer(GpuBuffer* buffer);
+
+GpuBuffer init_gpu_buffer(
+  GpuAllocation allocation,
+  u32 size,
+  const char* name,
+  bool is_rt_bvh = false
+);
 
 GpuBuffer alloc_gpu_buffer(
   const GpuDevice* device,

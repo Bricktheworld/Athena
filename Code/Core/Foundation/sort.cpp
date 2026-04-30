@@ -2,7 +2,7 @@
 #include "Core/Foundation/context.h"
 
 void
-radix_sort(void* data, u32 count, u32 stride, u32 key_offset)
+radix_sort(void* data, u32 count, u32 stride, u32 key_offset, SortOp op)
 {
   if (count <= 1)
   {
@@ -32,10 +32,21 @@ radix_sort(void* data, u32 count, u32 stride, u32 key_offset)
     }
 
     u32 offsets[kBuckets];
-    offsets[0] = 0;
-    for (u32 i = 1; i < kBuckets; i++)
+    if (op == kSortIncreasing)
     {
-      offsets[i] = offsets[i - 1] + counts[i - 1];
+      offsets[0] = 0;
+      for (u32 i = 1; i < kBuckets; i++)
+      {
+        offsets[i] = offsets[i - 1] + counts[i - 1];
+      }
+    }
+    else
+    {
+      offsets[kBuckets - 1] = 0;
+      for (u32 i = kBuckets - 1; i > 0; i--)
+      {
+        offsets[i - 1] = offsets[i] + counts[i];
+      }
     }
 
     for (u32 i = 0; i < count; i++)

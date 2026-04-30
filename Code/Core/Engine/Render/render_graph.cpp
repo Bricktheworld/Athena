@@ -455,7 +455,7 @@ init_physical_resources(
           key.temporal_frame = iframe;
           GpuTexture* dst    = hash_table_insert(&physical_textures, key);
     
-          *dst               = alloc_gpu_texture(device, temporal_heaps[iframe], desc, resource_desc->name);
+          *dst               = alloc_gpu_texture(temporal_heaps[iframe], desc, resource_desc->name);
         }
       }
       else
@@ -463,7 +463,7 @@ init_physical_resources(
         key.temporal_frame = 0;
         GpuTexture* dst    = hash_table_insert(&physical_textures, key);
   
-        *dst               = alloc_gpu_texture(device, *local_heap, desc, resource_desc->name);
+        *dst               = alloc_gpu_texture(*local_heap, desc, resource_desc->name);
       }
     }
     else if (resource.type == kResourceTypeRtTlas)

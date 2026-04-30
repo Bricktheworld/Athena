@@ -122,33 +122,84 @@ RenderBuffers
 init_render_buffers(
   const SwapChain* swap_chain
 ) {
-#if 0
   ScratchAllocator scratch_arena = alloc_scratch_arena();
   defer { free_scratch_arena(&scratch_arena); };
-#endif
 
   RenderBuffers ret = {0};
 
-
-  // This is a lot... we want to try to reduce this down as much as possible
-  static constexpr u32 kRenderBufferVramSize     = MiB(700);
   static constexpr u32 kRenderBufferReadbackSize = KiB(8);
   static constexpr u32 kRenderBufferUploadSize   = MiB(32);
 
-  GpuLinearAllocator vram_heap     = init_gpu_linear_allocator(kRenderBufferVramSize, kGpuHeapGpuOnly);
-  GpuLinearAllocator upload_heap   = init_gpu_linear_allocator(kRenderBufferVramSize, kGpuHeapSysRAMCpuToGpu);
-  GpuLinearAllocator readback_heap = init_gpu_linear_allocator(kRenderBufferVramSize, kGpuHeapSysRAMGpuToCpu);
+  GpuLinearAllocator upload_heap   = init_gpu_linear_allocator(kRenderBufferUploadSize,   kGpuHeapSysRAMCpuToGpu);
+  GpuLinearAllocator readback_heap = init_gpu_linear_allocator(kRenderBufferReadbackSize, kGpuHeapSysRAMGpuToCpu);
 
   DescriptorLinearAllocator rtv_descriptor_heap = init_descriptor_linear_allocator(g_GpuDevice, 64, kDescriptorHeapTypeRtv);
   DescriptorLinearAllocator dsv_descriptor_heap = init_descriptor_linear_allocator(g_GpuDevice, 16, kDescriptorHeapTypeDsv);
 
+  struct SizeAndLifetime
+  {
+    u32 size           = 0;
+    u32 offset         = 0;
+    u32 alignment      = 0;
+    u32 lifetime_start = 0;
+    u32 lifetime_end   = 0;
+    u32 buffer_idx     = 0;
+  };
+
+  struct BufferArgs
+  {
+    const char*      name            = nullptr;
+    u32              size            = 0;
+    GpuBuffer*       dst             = nullptr;
+    GpuBuffer*       dst_counter     = nullptr;
+    GpuBufferSrvDesc srv_desc;
+    GpuDescriptor*   dst_srv         = nullptr;
+    GpuBufferUavDesc uav_desc;
+    GpuDescriptor*   dst_uav         = nullptr;
+    GpuBufferUavDesc counter_uav_desc;
+    GpuDescriptor*   dst_counter_uav = nullptr;
+    RenderLayer      lifetime_start  = kRenderLayerInit;
+    RenderLayer      lifetime_end    = kRenderLayerInit;
+  };
+
+  struct TextureArgs
+  {
+    const char*       name           = nullptr;
+    GpuTextureDesc    desc;
+    GpuTexture*       dst            = nullptr;
+    GpuTextureSrvDesc srv_desc;
+    GpuDescriptor*    dst_srv        = nullptr;
+    GpuTextureUavDesc uav_desc;
+    GpuDescriptor*    dst_uav        = nullptr;
+    GpuDescriptor*    dst_rtv        = nullptr;
+    GpuDescriptor*    dst_dsv        = nullptr;
+    RenderLayer       lifetime_start = kRenderLayerInit;
+    RenderLayer       lifetime_end   = kRenderLayerInit;
+  };
+
+  struct RenderBufferCreateArgs
+  {
+    union
+    {
+      BufferArgs  buffer_args;
+      TextureArgs texture_args;
+    };
+
+    u64  offset = 0;
+    u64  size   = 0;
+    bool is_texture;
+  };
+
+  static constexpr u32 kMaxRenderBuffers = 1024;
+  auto* args_start = HEAP_ALLOC(RenderBufferCreateArgs, scratch_arena, kMaxRenderBuffers);
+  auto* dst_args   = args_start;
+
+
   // Lifetime is inclusive so [begin_lifetime, end_lifetime]
   //
-  auto alloc_render_target = [&vram_heap, &rtv_descriptor_heap](RenderTarget* dst, const char* name, u32 width, u32 height, GpuFormat format, RenderLayer begin_lifetime = kRenderLayerInit, RenderLayer end_lifetime = kRenderLayerSubmit)
+  auto alloc_render_target = [&](RenderTarget* dst, const char* name, u32 width, u32 height, GpuFormat format, RenderLayer begin_lifetime = kRenderLayerInit, RenderLayer end_lifetime = kRenderLayerSubmit)
   {
     // TODO(bshihabi): We should alias the textures using these, but that requires graph coloring which I'm not totally sure how we should do
-    UNREFERENCED_PARAMETER(begin_lifetime);
-    UNREFERENCED_PARAMETER(end_lifetime);
     GpuTextureDesc desc = {0};
     desc.width             = width;
     desc.height            = height;
@@ -156,29 +207,36 @@ init_render_buffers(
     desc.array_size        = 1;
     desc.mip_levels        = 1;
     desc.flags             = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-    desc.color_clear_value = 0.0f;
-    dst->texture = alloc_gpu_texture(g_GpuDevice, vram_heap, desc, name);
+    desc.color_clear_value = Vec4(0.0f, 0.0f, 0.0f, 1.0f);
 
-    dst->rtv     = alloc_descriptor(&rtv_descriptor_heap);
-    init_rtv(&dst->rtv, &dst->texture);
-
-    dst->srv     = alloc_descriptor(g_DescriptorCbvSrvUavPool);
     GpuTextureSrvDesc srv_desc = {0};
     srv_desc.format            = desc.format;
-    init_texture_srv(&dst->srv, &dst->texture, srv_desc);
 
-    dst->uav     = alloc_descriptor(g_DescriptorCbvSrvUavPool);
     GpuTextureUavDesc uav_desc = {0};
     uav_desc.format            = desc.format;
-    init_texture_uav(&dst->uav, &dst->texture, uav_desc);
+
+    auto* args = ALLOC_OFF(dst_args, sizeof(RenderBufferCreateArgs));
+    zero_struct(args);
+    args->is_texture            = true;
+    args->texture_args.name     = name;
+    args->texture_args.desc     = desc;
+    args->texture_args.dst      = &dst->texture;
+    args->texture_args.dst_rtv  = &dst->rtv;
+    args->texture_args.srv_desc = srv_desc;
+    args->texture_args.dst_srv  = &dst->srv;
+    args->texture_args.uav_desc = uav_desc;
+    args->texture_args.dst_uav  = &dst->uav;
+
+    args->texture_args.lifetime_start = begin_lifetime;
+    args->texture_args.lifetime_end   = end_lifetime;
   };
 
-  auto alloc_back_buffer_rtv = [&rtv_descriptor_heap, swap_chain](RenderTarget* dst, u32 idx)
+  auto alloc_back_buffer_rtv = [&](RenderTarget* dst, u32 idx)
   {
     dst->texture = *swap_chain->back_buffers[idx];
   };
 
-  auto alloc_temporal_render_target = [&vram_heap, &rtv_descriptor_heap, &alloc_render_target](TemporalResource<RenderTarget>* dst, const char* name, u32 width, u32 height, GpuFormat format)
+  auto alloc_temporal_render_target = [&](TemporalResource<RenderTarget>* dst, const char* name, u32 width, u32 height, GpuFormat format)
   {
     for (u32 iframe = 0; iframe < kFramesInFlight; iframe++)
     {
@@ -186,11 +244,8 @@ init_render_buffers(
     }
   };
 
-  auto alloc_depth_target = [&vram_heap, &dsv_descriptor_heap](DepthTarget* dst, const char* name, u32 width, u32 height, GpuFormat format, RenderLayer begin_lifetime = kRenderLayerInit, RenderLayer end_lifetime = kRenderLayerSubmit)
+  auto alloc_depth_target = [&](DepthTarget* dst, const char* name, u32 width, u32 height, GpuFormat format, RenderLayer begin_lifetime = kRenderLayerInit, RenderLayer end_lifetime = kRenderLayerSubmit)
   {
-    // TODO(bshihabi): We should alias the textures using these, but that requires graph coloring which I'm not totally sure how we should do
-    UNREFERENCED_PARAMETER(begin_lifetime);
-    UNREFERENCED_PARAMETER(end_lifetime);
     GpuTextureDesc desc = {0};
     desc.width             = width;
     desc.height            = height;
@@ -201,22 +256,26 @@ init_render_buffers(
     // TODO(bshihabi): If there ever becomes a need, there's no reason that this can't be set by the caller. I'm just putting this
     // as a reasonable default because I can't imagine that we're ever going to use a non reverse-z depth buffer
     desc.depth_clear_value = 0;
-    dst->texture = alloc_gpu_texture(g_GpuDevice, vram_heap, desc, name);
 
-    dst->dsv     = alloc_descriptor(&dsv_descriptor_heap);
-    init_dsv(&dst->dsv, &dst->texture);
-
-    dst->srv     = alloc_descriptor(g_DescriptorCbvSrvUavPool);
     GpuTextureSrvDesc srv_desc = {0};
     srv_desc.format            = desc.format;
-    init_texture_srv(&dst->srv, &dst->texture, srv_desc);
+
+    auto* args = ALLOC_OFF(dst_args, sizeof(RenderBufferCreateArgs));
+    zero_struct(args);
+    args->is_texture            = true;
+    args->texture_args.name     = name;
+    args->texture_args.desc     = desc;
+    args->texture_args.dst      = &dst->texture;
+    args->texture_args.dst_dsv  = &dst->dsv;
+    args->texture_args.srv_desc = srv_desc;
+    args->texture_args.dst_srv  = &dst->srv;
+
+    args->texture_args.lifetime_start = begin_lifetime;
+    args->texture_args.lifetime_end   = end_lifetime;
   };
 
-  auto alloc_scratch_texture = [&vram_heap]<typename T>(Texture2D<T>* dst, const char* name, u32 width, u32 height, RenderLayer begin_lifetime = kRenderLayerInit, RenderLayer end_lifetime = kRenderLayerSubmit, u8 mipmap_count = 1)
+  auto alloc_scratch_texture = [&]<typename T>(Texture2D<T>* dst, const char* name, u32 width, u32 height, RenderLayer begin_lifetime = kRenderLayerInit, RenderLayer end_lifetime = kRenderLayerSubmit, u8 mipmap_count = 1)
   {
-    // TODO(bshihabi): We should alias the textures using these, but that requires graph coloring which I'm not totally sure how we should do
-    UNREFERENCED_PARAMETER(begin_lifetime);
-    UNREFERENCED_PARAMETER(end_lifetime);
     GpuTextureDesc desc = {0};
     desc.width          = width;
     desc.height         = height;
@@ -224,20 +283,28 @@ init_render_buffers(
     desc.array_size     = 1;
     desc.mip_levels     = mipmap_count;
     desc.flags          = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-    dst->texture        = alloc_gpu_texture(g_GpuDevice, vram_heap, desc, name);
 
-    dst->srv            = alloc_descriptor(g_DescriptorCbvSrvUavPool);
     GpuTextureSrvDesc srv_desc = {0};
     srv_desc.format            = desc.format;
-    init_texture_srv(&dst->srv, &dst->texture, srv_desc);
-
-    dst->uav            = alloc_descriptor(g_DescriptorCbvSrvUavPool);
     GpuTextureUavDesc uav_desc = {0};
     uav_desc.format            = desc.format;
-    init_texture_uav(&dst->uav, &dst->texture, uav_desc);
+
+    auto* args = ALLOC_OFF(dst_args, sizeof(RenderBufferCreateArgs));
+    zero_struct(args);
+    args->is_texture            = true;
+    args->texture_args.name     = name;
+    args->texture_args.desc     = desc;
+    args->texture_args.dst      = &dst->texture;
+    args->texture_args.srv_desc = srv_desc;
+    args->texture_args.dst_srv  = &dst->srv;
+    args->texture_args.uav_desc = uav_desc;
+    args->texture_args.dst_uav  = &dst->uav;
+
+    args->texture_args.lifetime_start = begin_lifetime;
+    args->texture_args.lifetime_end   = end_lifetime;
   };
 
-  auto alloc_temporal_scratch_texture = [&vram_heap, &alloc_scratch_texture]<typename T>(TemporalResource<Texture2D<T>>* dst, const char* name, u32 width, u32 height, u8 mipmap_count = 1)
+  auto alloc_temporal_scratch_texture = [&]<typename T>(TemporalResource<Texture2D<T>>* dst, const char* name, u32 width, u32 height, u8 mipmap_count = 1)
   {
     for (u32 iframe = 0; iframe < kFramesInFlight; iframe++)
     {
@@ -245,7 +312,7 @@ init_render_buffers(
     }
   };
 
-  auto alloc_scratch_texture_array = [&vram_heap]<typename T>(Texture2DArray<T>* dst, const char* name, u32 width, u32 height, u32 array_size)
+  auto alloc_scratch_texture_array = [&]<typename T>(Texture2DArray<T>* dst, const char* name, u32 width, u32 height, u32 array_size, RenderLayer begin_lifetime = kRenderLayerInit, RenderLayer end_lifetime = kRenderLayerSubmit)
   {
     GpuTextureDesc desc = {0};
     desc.width          = width;
@@ -254,19 +321,28 @@ init_render_buffers(
     desc.array_size     = (u16)array_size;
     desc.mip_levels     = 1;
     desc.flags          = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-    dst->texture        = alloc_gpu_texture(g_GpuDevice, vram_heap, desc, name);
 
-    dst->srv            = alloc_descriptor(g_DescriptorCbvSrvUavPool);
     GpuTextureSrvDesc srv_desc = {0};
     srv_desc.format            = desc.format;
     srv_desc.array_size        = array_size;
-    init_texture_srv(&dst->srv, &dst->texture, srv_desc);
 
-    dst->uav            = alloc_descriptor(g_DescriptorCbvSrvUavPool);
     GpuTextureUavDesc uav_desc = {0};
     uav_desc.format            = desc.format;
     uav_desc.array_size        = array_size;
-    init_texture_uav(&dst->uav, &dst->texture, uav_desc);
+
+    auto* args = ALLOC_OFF(dst_args, sizeof(RenderBufferCreateArgs));
+    zero_struct(args);
+    args->is_texture            = true;
+    args->texture_args.name     = name;
+    args->texture_args.desc     = desc;
+    args->texture_args.dst      = &dst->texture;
+    args->texture_args.srv_desc = srv_desc;
+    args->texture_args.dst_srv  = &dst->srv;
+    args->texture_args.uav_desc = uav_desc;
+    args->texture_args.dst_uav  = &dst->uav;
+
+    args->texture_args.lifetime_start = begin_lifetime;
+    args->texture_args.lifetime_end   = end_lifetime;
   };
 
   auto alloc_temporal_scratch_texture_array = [&alloc_scratch_texture_array]<typename T>(TemporalResource<Texture2DArray<T>>* dst, const char* name, u32 width, u32 height, u32 array_size)
@@ -277,31 +353,27 @@ init_render_buffers(
     }
   };
 
-  auto alloc_scratch_buffer = [&vram_heap](GpuBuffer* dst, const char* name, u32 size, RenderLayer begin_lifetime = kRenderLayerInit, RenderLayer end_lifetime = kRenderLayerSubmit)
+  auto alloc_scratch_buffer = [&](GpuBuffer* dst, const char* name, u32 size, RenderLayer begin_lifetime = kRenderLayerInit, RenderLayer end_lifetime = kRenderLayerSubmit)
   {
-    // TODO(bshihabi): We should alias the textures using these, but that requires graph coloring which I'm not totally sure how we should do
-    UNREFERENCED_PARAMETER(begin_lifetime);
-    UNREFERENCED_PARAMETER(end_lifetime);
-    *dst = alloc_gpu_buffer(vram_heap, size, name);
+    auto* args = ALLOC_OFF(dst_args, sizeof(RenderBufferCreateArgs));
+    zero_struct(args);
+    args->is_texture                 = false;
+    args->buffer_args.name           = name;
+    args->buffer_args.size           = size;
+    args->buffer_args.dst            = dst;
+
+    args->buffer_args.lifetime_start = begin_lifetime;
+    args->buffer_args.lifetime_end   = end_lifetime;
   };
 
-  auto alloc_structured_buffer = [&vram_heap]<typename T>(StructuredBuffer<T>* dst, const char* name, u32 size, RenderLayer begin_lifetime = kRenderLayerInit, RenderLayer end_lifetime = kRenderLayerSubmit)
+  auto alloc_structured_buffer = [&]<typename T>(StructuredBuffer<T>* dst, const char* name, u32 size, RenderLayer begin_lifetime = kRenderLayerInit, RenderLayer end_lifetime = kRenderLayerSubmit)
   {
-    // TODO(bshihabi): We should alias the textures using these, but that requires graph coloring which I'm not totally sure how we should do
-    UNREFERENCED_PARAMETER(begin_lifetime);
-    UNREFERENCED_PARAMETER(end_lifetime);
-    dst->buffer = alloc_gpu_buffer(vram_heap, size, name);
-    dst->srv    = alloc_descriptor(g_DescriptorCbvSrvUavPool);
-
     GpuBufferSrvDesc srv_desc = {0};
     srv_desc.first_element    = 0;
     srv_desc.num_elements     = size / sizeof(T);
     srv_desc.stride           = sizeof(T);
     srv_desc.format           = kGpuFormatUnknown;
     srv_desc.is_raw           = false;
-    init_buffer_srv(&dst->srv, &dst->buffer, srv_desc);
-
-    dst->uav    = alloc_descriptor(g_DescriptorCbvSrvUavPool);
 
     GpuBufferUavDesc uav_desc = {0};
     uav_desc.first_element    = 0;
@@ -310,27 +382,30 @@ init_render_buffers(
     uav_desc.format           = kGpuFormatUnknown;
     uav_desc.counter_offset   = 0;
     uav_desc.is_raw           = false;
-    init_buffer_uav(&dst->uav, &dst->buffer, uav_desc);
+
+    auto* args = ALLOC_OFF(dst_args, sizeof(RenderBufferCreateArgs));
+    zero_struct(args);
+    args->is_texture                 = false;
+    args->buffer_args.name           = name;
+    args->buffer_args.size           = size;
+    args->buffer_args.dst            = &dst->buffer;
+    args->buffer_args.dst_srv        = &dst->srv;
+    args->buffer_args.srv_desc       = srv_desc;
+    args->buffer_args.dst_uav        = &dst->uav;
+    args->buffer_args.uav_desc       = uav_desc;
+
+    args->buffer_args.lifetime_start = begin_lifetime;
+    args->buffer_args.lifetime_end   = end_lifetime;
   };
 
-  auto alloc_append_structured_buffer = [&vram_heap]<typename T>(AppendStructuredBuffer<T>* dst, const char* name, u32 size, RenderLayer begin_lifetime = kRenderLayerInit, RenderLayer end_lifetime = kRenderLayerSubmit)
+  auto alloc_append_structured_buffer = [&]<typename T>(AppendStructuredBuffer<T>* dst, const char* name, u32 size, RenderLayer begin_lifetime = kRenderLayerInit, RenderLayer end_lifetime = kRenderLayerSubmit)
   {
-    // TODO(bshihabi): We should alias the textures using these, but that requires graph coloring which I'm not totally sure how we should do
-    UNREFERENCED_PARAMETER(begin_lifetime);
-    UNREFERENCED_PARAMETER(end_lifetime);
-    dst->buffer = alloc_gpu_buffer(vram_heap, size, name);
-    dst->counter = alloc_gpu_buffer(vram_heap, sizeof(u32), name);
-    dst->srv    = alloc_descriptor(g_DescriptorCbvSrvUavPool);
-
     GpuBufferSrvDesc srv_desc = {0};
     srv_desc.first_element    = 0;
     srv_desc.num_elements     = size / sizeof(T);
     srv_desc.stride           = sizeof(T);
     srv_desc.format           = kGpuFormatUnknown;
     srv_desc.is_raw           = false;
-    init_buffer_srv(&dst->srv, &dst->buffer, srv_desc);
-
-    dst->uav    = alloc_descriptor(g_DescriptorCbvSrvUavPool);
 
     GpuBufferUavDesc uav_desc = {0};
     uav_desc.first_element    = 0;
@@ -339,9 +414,6 @@ init_render_buffers(
     uav_desc.format           = kGpuFormatUnknown;
     uav_desc.counter_offset   = 0;
     uav_desc.is_raw           = false;
-    init_buffer_counted_uav(&dst->uav, &dst->buffer, &dst->counter, uav_desc);
-
-    dst->counter_uav    = alloc_descriptor(g_DescriptorCbvSrvUavPool);
 
     GpuBufferUavDesc counter_uav_desc = {0};
     counter_uav_desc.first_element    = 0;
@@ -350,36 +422,385 @@ init_render_buffers(
     counter_uav_desc.format           = kGpuFormatUnknown;
     counter_uav_desc.counter_offset   = 0;
     counter_uav_desc.is_raw           = false;
-    init_buffer_uav(&dst->counter_uav, &dst->counter, counter_uav_desc);
+
+    auto* args = ALLOC_OFF(dst_args, sizeof(RenderBufferCreateArgs));
+    zero_struct(args);
+    args->is_texture                   = false;
+    args->buffer_args.name             = name;
+    args->buffer_args.size             = size;
+    args->buffer_args.dst              = &dst->buffer;
+    args->buffer_args.dst_counter      = &dst->counter;
+    args->buffer_args.dst_srv          = &dst->srv;
+    args->buffer_args.srv_desc         = srv_desc;
+    args->buffer_args.dst_uav          = &dst->uav;
+    args->buffer_args.uav_desc         = uav_desc;
+    args->buffer_args.dst_counter_uav  = &dst->counter_uav;
+    args->buffer_args.counter_uav_desc = counter_uav_desc;
+
+    args->buffer_args.lifetime_start = begin_lifetime;
+    args->buffer_args.lifetime_end   = end_lifetime;
   };
 
   auto alloc_upload_buffer   = [&upload_heap](TemporalResource<GpuBuffer>* dst, const char* name, u32 size)
   {
-    // TODO(bshihabi): We should alias the textures using these, but that requires graph coloring which I'm not totally sure how we should do
     for (u32 iframe = 0; iframe < kFramesInFlight; iframe++)
     {
       dst->m_Resource[iframe] = alloc_gpu_buffer(upload_heap, size, name);
     }
   };
 
-  auto alloc_readback_buffer = [&readback_heap](GpuBuffer* dst, const char* name, u32 size, RenderLayer begin_lifetime = kRenderLayerInit, RenderLayer end_lifetime = kRenderLayerSubmit)
+  auto alloc_readback_buffer = [&readback_heap](GpuBuffer* dst, const char* name, u32 size)
   {
-    // TODO(bshihabi): We should alias the textures using these, but that requires graph coloring which I'm not totally sure how we should do
-    UNREFERENCED_PARAMETER(begin_lifetime);
-    UNREFERENCED_PARAMETER(end_lifetime);
     *dst = alloc_gpu_buffer(readback_heap, size, name);
   };
 
   u32 w = swap_chain->width;
   u32 h = swap_chain->height;
 
-  alloc_render_target  (&ret.gbuffer.material_id,      "GBuffer Material ID",                w,               h,     kGpuFormatR32Uint,     kRenderLayerGBuffer, kRenderLayerLighting);
-  alloc_render_target  (&ret.gbuffer.diffuse_metallic, "GBuffer Diffuse Metallic",           w,               h,     kGpuFormatRGBA8Unorm,  kRenderLayerGBuffer, kRenderLayerLighting);
-  alloc_render_target  (&ret.gbuffer.normal_roughness, "GBuffer Normal Roughness",           w,               h,     kGpuFormatRGBA16Float, kRenderLayerGBuffer, kRenderLayerLighting);
-  alloc_temporal_render_target(&ret.gbuffer.velocity,   "GBuffer Velocity",                   w,               h,     kGpuFormatRG32Float);
-  alloc_depth_target   (&ret.gbuffer.depth,            "GBuffer Depth",                      w,               h,     kGpuFormatD32Float,    kRenderLayerGBuffer, kRenderLayerPost);
-  alloc_scratch_texture(&ret.gbuffer.hzb,              "HZB",                      UCEIL_DIV(w, 4), UCEIL_DIV(h, 4),    kRenderLayerGBuffer, kRenderLayerPost, kHZBMipCount);
+  alloc_render_target                 (&ret.gbuffer.material_id,      "GBuffer Material ID",                w,               h,     kGpuFormatR32Uint,     kRenderLayerGBuffer, kRenderLayerLighting);
+  alloc_render_target                 (&ret.gbuffer.diffuse_metallic, "GBuffer Diffuse Metallic",           w,               h,     kGpuFormatRGBA8Unorm,  kRenderLayerGBuffer, kRenderLayerLighting);
+  alloc_render_target                 (&ret.gbuffer.normal_roughness, "GBuffer Normal Roughness",           w,               h,     kGpuFormatRGBA16Float, kRenderLayerGBuffer, kRenderLayerLighting);
+  alloc_temporal_render_target        (&ret.gbuffer.velocity,         "GBuffer Velocity",                   w,               h,     kGpuFormatRG32Float);
+  alloc_depth_target                  (&ret.gbuffer.depth,            "GBuffer Depth",                      w,               h,     kGpuFormatD32Float,    kRenderLayerGBuffer, kRenderLayerPost);
+  alloc_scratch_texture               (&ret.gbuffer.hzb,              "HZB",                      UCEIL_DIV(w, 4), UCEIL_DIV(h, 4),                        kRenderLayerGBuffer, kRenderLayerPost, kHZBMipCount);
 
+
+  // Frame / misc
+  // All of these must last the entire frame, however they are small.
+  alloc_upload_buffer                 (&ret.viewport_buffer,          "Viewport Buffer",                    sizeof(ViewportGpu));
+  alloc_upload_buffer                 (&ret.render_settings,          "Render Settings",                    sizeof(RenderSettingsGpu));
+  alloc_scratch_buffer                (&ret.debug_draw_args_buffer,   "Debug Draw Args Buffer",             sizeof(MultiDrawIndirectArgs) * 2);
+  alloc_structured_buffer             (&ret.debug_line_vert_buffer,   "Debug Lines Vertices Buffer",        sizeof(DebugLinePoint) * kDebugMaxVertices);
+  alloc_structured_buffer             (&ret.debug_sdf_buffer,         "Debug SDF Buffer",                   sizeof(DebugSdf)       * kDebugMaxSdfs);
+
+  // Scene                            
+  alloc_structured_buffer             (&ret.scene_obj_buffer,         "Scene Object Buffer",                sizeof(SceneObjGpu) * kMaxSceneObjs);
+  alloc_structured_buffer             (&ret.rt_obj_buffer,            "RT Object Buffer",                   sizeof(RtObjGpu)    * kMaxSceneObjs);
+  alloc_append_structured_buffer      (&ret.rt_tlas_instances,        "TLAS Instance Buffer",               sizeof(D3D12RaytracingInstanceDesc) * kMaxSceneObjs, kRenderLayerInit, kRenderLayerSubmit);
+
+  GpuRtTlasSizeInfo rt_tlas_size_info = query_gpu_rt_tlas_size_info(kMaxSceneObjs);
+  alloc_scratch_buffer                (&ret.tlas_scratch,             "TLAS Scratch Buffer",                rt_tlas_size_info.scratch_size);
+
+  // GBuffer indirect
+  alloc_append_structured_buffer      (&ret.indirect_args,            "GBuffer Indirect Args",              sizeof(MultiDrawIndirectIndexedArgs) * kMaxSceneObjs);
+  alloc_structured_buffer             (&ret.scene_obj_gpu_ids,        "GBuffer Indirect Scene Obj GPU IDs", sizeof(u32) * kMaxSceneObjs);
+  alloc_structured_buffer             (&ret.occlusion_results,        "GBuffer Occlusion Results",          sizeof(u64) * UCEIL_DIV(kMaxSceneObjs, 64));
+
+  // Lighting / post-process          
+  alloc_scratch_texture               (&ret.hdr,                      "HDR Buffer",  w,                       h,                        kRenderLayerLighting, kRenderLayerPost);
+  alloc_temporal_render_target        (&ret.taa,                      "TAA Buffer",  w,                       h, kGpuFormatRGBA16Float);
+  alloc_scratch_texture               (&ret.coc_buffer,     "CoC Buffer",            w / kDoFResolutionScale, h / kDoFResolutionScale,  kRenderLayerPost,     kRenderLayerPost);
+  alloc_scratch_texture               (&ret.blur_buffer,    "Bokeh Blur Buffer",     w / kDoFResolutionScale, h / kDoFResolutionScale,  kRenderLayerPost,     kRenderLayerPost);
+  alloc_scratch_texture               (&ret.depth_of_field, "Depth Of Field Buffer", w,                       h,                        kRenderLayerPost,     kRenderLayerPost);
+  alloc_render_target                 (&ret.tonemapped_buffer, "Tone Mapping Buffer", w, h, kGpuFormatRGBA16Float, kRenderLayerPost,     kRenderLayerSubmit);
+
+  // DDGI
+  alloc_temporal_scratch_texture_array(&ret.probe_page_table, "RT Diffuse GI - Probe Page Table", kProbeCountPerClipmap.x, kProbeCountPerClipmap.z, kProbeCountPerClipmap.y * kProbeClipmapCount);
+  alloc_structured_buffer             (&ret.probe_buffer,     "RT Diffuse GI - Luminance Probe Buffer", sizeof(DiffuseGiProbe) * kProbeMaxActiveCount);
+  alloc_structured_buffer             (&ret.ray_luminance,    "RT Diffuse GI - Ray Luminance Data",     sizeof(GiRayLuminance) * kProbeMaxRayCount, kRenderLayerRtDiffuseGi, kRenderLayerRtDiffuseGi);
+
+
+  u32 render_buffer_count = (u32)(dst_args - args_start);
+  ASSERT_MSG_FATAL(render_buffer_count <= kMaxRenderBuffers, "Please bump kMaxRenderBuffers to something larger than %u", render_buffer_count);
+
+  SizeAndLifetime* unallocated_resources  = HEAP_ALLOC(SizeAndLifetime, scratch_arena, render_buffer_count);
+  SizeAndLifetime* allocated_resources    = HEAP_ALLOC(SizeAndLifetime, scratch_arena, render_buffer_count);
+  u32              allocated_count        = 0;
+  for (u32 ibuffer = 0; ibuffer < render_buffer_count; ibuffer++)
+  {
+    auto* args = args_start + ibuffer;
+    unallocated_resources[ibuffer].buffer_idx       = ibuffer;
+    if (args->is_texture)
+    {
+      u64 alignment = 0;
+      unallocated_resources[ibuffer].size           = (u32)query_gpu_texture_size(args->texture_args.desc, &alignment);
+      unallocated_resources[ibuffer].alignment      = (u32)alignment;
+      unallocated_resources[ibuffer].lifetime_start = args->texture_args.lifetime_start;
+      unallocated_resources[ibuffer].lifetime_end   = args->texture_args.lifetime_end;
+    }
+    else
+    {
+      unallocated_resources[ibuffer].size           = args->buffer_args.size;
+      // For some reason _every_ resource has to be aligned to 64 KiB
+      unallocated_resources[ibuffer].alignment      = KiB(64);
+      unallocated_resources[ibuffer].lifetime_start = args->buffer_args.lifetime_start;
+      unallocated_resources[ibuffer].lifetime_end   = args->buffer_args.lifetime_end;
+    }
+  }
+
+  struct MemoryRegion
+  {
+    enum : u32
+    {
+      kStart = 0,
+      kEnd   = 1,
+    };
+    u32 offset         = 0;
+    u32 buffer_idx: 31 = 0;
+    u32 type:        1 = kStart;
+  };
+  u32           total_size     = 0;
+  MemoryRegion* memory_regions = HEAP_ALLOC(MemoryRegion, scratch_arena, render_buffer_count + 2);
+
+  while (allocated_count < render_buffer_count)
+  {
+    // Sort all of the unallocated resources biggest to largest (already allocated resources get zeroed out and put at the end of the list on the next time around)
+    radix_sort(unallocated_resources, render_buffer_count, sizeof(SizeAndLifetime), offsetof(SizeAndLifetime, size), kSortDecreasing);
+
+    // Create a new bucket with the largest resource and mark it as allocated
+    memcpy(allocated_resources + allocated_count, unallocated_resources + 0, sizeof(SizeAndLifetime));
+    // Mark the bucket resource as allocated
+    zero_struct(unallocated_resources + 0);
+
+    // Initialize data about new bucket
+    SizeAndLifetime* bucket_resource = allocated_resources + allocated_count;
+    bucket_resource->offset          = ALIGN_UP(total_size, bucket_resource->alignment);
+    total_size                       = bucket_resource->offset + bucket_resource->size;
+
+    // Since we allocated the bucket resource increment the allocated count
+    allocated_count++;
+
+    // This is how many more resources we need to allocate
+    u32 unallocated_count = render_buffer_count - allocated_count;
+
+    for (u32 inext_resource = 1; inext_resource <= unallocated_count; inext_resource++)
+    {
+      // Get the next unallocated resource (largest)
+      SizeAndLifetime* next_resource = unallocated_resources + inext_resource;
+
+      auto lifetimes_intersect = [&](const SizeAndLifetime* a, const SizeAndLifetime* b) -> bool
+      {
+        return !(a->lifetime_end < b->lifetime_start || b->lifetime_end < a->lifetime_start);
+      };
+
+      // If the unallocated resource intersects with the lifetime of the bucket, then we obviously can't fit it in this bucket
+      if (lifetimes_intersect(bucket_resource, next_resource))
+      {
+        continue;
+      }
+      
+      // Go through every resource and add markers if the lifetimes intersect
+      u32 bucket_resource_count = allocated_count - (u32)(bucket_resource - allocated_resources);
+      // Initialize the memory region markers for the bucket
+      memory_regions[0].offset     = bucket_resource->offset;
+      memory_regions[0].buffer_idx = 0;
+      memory_regions[0].type       = MemoryRegion::kEnd;
+      memory_regions[1].offset     = bucket_resource->offset + bucket_resource->size;
+      memory_regions[1].buffer_idx = 0;
+      memory_regions[1].type       = MemoryRegion::kStart;
+      MemoryRegion* dst_memory_regions = memory_regions + 2 /* 2 reserved for the bucket memory markers */;
+      for (u32 iother = 1; iother < bucket_resource_count; iother++)
+      {
+        // Get the other resource
+        SizeAndLifetime* other_resource = bucket_resource + iother;
+        if (lifetimes_intersect(other_resource, next_resource))
+        {
+          MemoryRegion* start = ALLOC_OFF(dst_memory_regions, sizeof(MemoryRegion));
+          start->offset       = other_resource->offset;
+          start->type         = MemoryRegion::kStart;
+          start->buffer_idx   = other_resource->buffer_idx;
+
+          MemoryRegion* end   = ALLOC_OFF(dst_memory_regions, sizeof(MemoryRegion));
+          end->offset         = other_resource->offset + other_resource->size;
+          end->type           = MemoryRegion::kEnd;
+          end->buffer_idx     = other_resource->buffer_idx;
+        }
+      }
+
+      u32 memory_region_count = (u32)(dst_memory_regions - memory_regions);
+      // Sort the memory regions
+      radix_sort(memory_regions, memory_region_count, sizeof(MemoryRegion), offsetof(MemoryRegion, offset), kSortIncreasing);
+
+      // Loop through the memory regions to find the best fit
+      s32         overlap_count  = 0;
+      u32         optimal_offset = 0;
+      Option<u32> optimal_size   = None;
+      for (u32 imemory_region = 0; imemory_region < memory_region_count - 1; imemory_region++)
+      {
+        MemoryRegion* curr = memory_regions + imemory_region;
+        MemoryRegion* next = curr + 1;
+        // Overlap count keeps track of how many start/end are encountered. When overlap_count = 0, that means that no resource
+        // currently overlaps the region
+        overlap_count += curr->type == MemoryRegion::kStart ? 1 : -1;
+        overlap_count  = MAX(overlap_count, 0);
+
+        bool can_alias = overlap_count == 0 && curr->type == MemoryRegion::kEnd && next->type == MemoryRegion::kStart;
+        if (!can_alias)
+        {
+          continue;
+        }
+
+        u32 aliasable_size = next->offset - curr->offset;
+        u32 base_offset    = curr->offset;
+        u32 aligned_offset = ALIGN_UP(curr->offset, next_resource->alignment);
+        u32 padding        = aligned_offset - base_offset;
+        u32 padded_size    = next_resource->size + padding;
+        // If the resource can't fit, skip it
+        if (padded_size > aliasable_size)
+        {
+          continue;
+        }
+
+        // If the new region is bigger than one we found before, we should use the smaller one.
+        if (aliasable_size >= unwrap_or(optimal_size, U32_MAX))
+        {
+          continue;
+        }
+
+        optimal_offset = aligned_offset;
+        optimal_size   = aliasable_size;
+      }
+
+      // If we didn't find any aliasable regions, then we have to skip the resource and try again in another bucket
+      if (!optimal_size)
+      {
+        continue;
+      }
+
+      // Update the offset
+      next_resource->offset = optimal_offset;
+
+      // Copy the resource to the allocated resources
+      memcpy(allocated_resources + allocated_count, next_resource, sizeof(SizeAndLifetime));
+
+      // Mark the resource as allocated
+      zero_struct(next_resource);
+
+      allocated_count++;
+    }
+  }
+
+  total_size = ALIGN_POW2(total_size, KiB(64));
+  
+  u32 non_aliasable_size = rt_tlas_size_info.max_size + MiB(1);
+  char fmt_total_size[512];
+  bytes_to_readable_str(fmt_total_size, sizeof(fmt_total_size), total_size + non_aliasable_size);
+  dbgln("Total memory for render buffers: %s", fmt_total_size);
+
+  GpuPhysicalMemory  vram_memory           = alloc_gpu_physical_memory(total_size, kGpuHeapGpuOnly);
+  GpuLinearAllocator vram_non_aliased_heap = init_gpu_linear_allocator(non_aliasable_size, kGpuHeapGpuOnly);
+
+  // Flush all of the offsets to the arguments
+  for (u32 ibuffer = 0; ibuffer < render_buffer_count; ibuffer++)
+  {
+    SizeAndLifetime*        info = allocated_resources + ibuffer;
+    RenderBufferCreateArgs* args = args_start + info->buffer_idx;
+    args->offset                 = info->offset;
+    args->size                   = info->size;
+  }
+
+  // Debug: visual memory layout for aliasing inspection
+  {
+    radix_sort(allocated_resources, render_buffer_count, sizeof(SizeAndLifetime), offsetof(SizeAndLifetime, offset));
+
+    static constexpr u32 kBarWidth = 64;
+    char bar[kBarWidth + 3];
+
+    dbgln("Render Buffer Memory Map");
+    dbgln("%-44s  %-10s  %-12s  %-30s  Map", "Name", "Offset", "Size", "Lifetime");
+    for (u32 ibuffer = 0; ibuffer < render_buffer_count; ibuffer++)
+    {
+      SizeAndLifetime*        info = allocated_resources + ibuffer;
+      RenderBufferCreateArgs* args = args_start + info->buffer_idx;
+      const char*             name = args->is_texture ? args->texture_args.name : args->buffer_args.name;
+
+      u32 bar_start = (u32)((u64)info->offset * kBarWidth / total_size);
+      u32 bar_end   = (u32)((u64)(info->offset + info->size) * kBarWidth / total_size);
+      if (bar_end == bar_start) bar_end = bar_start + 1;
+
+      bar[0] = '|';
+      for (u32 i = 0; i < kBarWidth; i++)
+        bar[1 + i] = (i >= bar_start && i < bar_end) ? '=' : ' ';
+      bar[kBarWidth + 1] = '|';
+      bar[kBarWidth + 2] = '\0';
+
+      char fmt_size[64];
+      bytes_to_readable_str(fmt_size, sizeof(fmt_size), info->size);
+
+      dbgln("%-44s  0x%08X  %-12s  [%-12s -> %-12s]  %s",
+        name,
+        info->offset,
+        fmt_size,
+        kRenderLayerNames[info->lifetime_start],
+        kRenderLayerNames[info->lifetime_end],
+        bar);
+    }
+  }
+
+  // Defer initialize all of the render buffers
+  for (u32 ibuffer = 0; ibuffer < render_buffer_count; ibuffer++)
+  {
+    auto* args = args_start + ibuffer;
+    GpuAllocation allocation;
+    fill_gpu_physical_allocation_struct(&allocation, vram_memory, args->offset, args->size);
+    if (args->is_texture)
+    {
+      auto* texture_args = &args->texture_args;
+
+      *texture_args->dst      = init_gpu_texture(allocation, texture_args->desc, texture_args->name);
+      if (texture_args->dst_rtv)
+      {
+        *texture_args->dst_rtv = alloc_descriptor(&rtv_descriptor_heap);
+        init_rtv(texture_args->dst_rtv, texture_args->dst);
+      }
+      
+      if (texture_args->dst_dsv)
+      {
+        *texture_args->dst_dsv = alloc_descriptor(&dsv_descriptor_heap);
+        init_dsv(texture_args->dst_dsv, texture_args->dst);
+      }
+
+      if (texture_args->dst_srv)
+      {
+        *texture_args->dst_srv = alloc_descriptor(g_DescriptorCbvSrvUavPool);
+        init_texture_srv(texture_args->dst_srv, texture_args->dst, texture_args->srv_desc);
+      }
+
+      if (texture_args->dst_uav)
+      {
+        *texture_args->dst_uav = alloc_descriptor(g_DescriptorCbvSrvUavPool);
+        init_texture_uav(texture_args->dst_uav, texture_args->dst, texture_args->uav_desc);
+      }
+    }
+    else
+    {
+      auto* buffer_args = &args->buffer_args;
+
+      *buffer_args->dst = init_gpu_buffer(allocation, buffer_args->size, buffer_args->name);
+      if (buffer_args->dst_counter)
+      {
+        // TODO(bshihabi): We should really group all of these counters into a single buffer
+        *buffer_args->dst_counter = alloc_gpu_buffer(vram_non_aliased_heap, sizeof(u32), buffer_args->name);
+      }
+      if (buffer_args->dst_srv)
+      {
+        *buffer_args->dst_srv = alloc_descriptor(g_DescriptorCbvSrvUavPool);
+        init_buffer_srv(buffer_args->dst_srv, buffer_args->dst, buffer_args->srv_desc);
+      }
+
+      if (buffer_args->dst_uav)
+      {
+        *buffer_args->dst_uav = alloc_descriptor(g_DescriptorCbvSrvUavPool);
+        if (buffer_args->dst_counter)
+        {
+          init_buffer_counted_uav(buffer_args->dst_uav, buffer_args->dst, buffer_args->dst_counter, buffer_args->uav_desc);
+        }
+        else
+        {
+          init_buffer_uav(buffer_args->dst_uav, buffer_args->dst, buffer_args->uav_desc);
+        }
+      }
+
+      if (buffer_args->dst_counter_uav)
+      {
+        *buffer_args->dst_counter_uav = alloc_descriptor(g_DescriptorCbvSrvUavPool);
+        init_buffer_uav(buffer_args->dst_counter_uav, buffer_args->dst_counter, buffer_args->counter_uav_desc);
+      }
+    }
+  }
+
+
+  // Initialize HZB mip UAVs
   for (u32 imip = 0; imip < kHZBMipCount; imip++)
   {
     ret.gbuffer.hzb_mip_uavs[imip] = alloc_descriptor(g_DescriptorCbvSrvUavPool);
@@ -389,40 +810,8 @@ init_render_buffers(
     init_texture_uav(&ret.gbuffer.hzb_mip_uavs[imip], &ret.gbuffer.hzb.texture, mip_uav_desc);
   }
 
-  // Frame / misc
-  // All of these must last the entire frame, however they are small.
-  alloc_upload_buffer    (&ret.viewport_buffer,        "Viewport Buffer",                    sizeof(ViewportGpu));
-  alloc_upload_buffer    (&ret.render_settings,        "Render Settings",                    sizeof(RenderSettingsGpu));
-  alloc_scratch_buffer(&ret.debug_draw_args_buffer, "Debug Draw Args Buffer",             sizeof(MultiDrawIndirectArgs) * 2);
-  alloc_structured_buffer(&ret.debug_line_vert_buffer, "Debug Lines Vertices Buffer",        sizeof(DebugLinePoint) * kDebugMaxVertices);
-  alloc_structured_buffer(&ret.debug_sdf_buffer,       "Debug SDF Buffer",                   sizeof(DebugSdf)       * kDebugMaxSdfs);
-
-  // Scene
-  alloc_structured_buffer(&ret.scene_obj_buffer,       "Scene Object Buffer",                sizeof(SceneObjGpu) * kMaxSceneObjs);
-  alloc_structured_buffer(&ret.rt_obj_buffer,          "RT Object Buffer",                   sizeof(RtObjGpu)    * kMaxSceneObjs);
-  alloc_append_structured_buffer(&ret.rt_tlas_instances,      "TLAS Instance Buffer",               sizeof(D3D12RaytracingInstanceDesc) * kMaxSceneObjs, kRenderLayerInit, kRenderLayerInit);
-  ret.rt_tlas = alloc_gpu_rt_tlas(vram_heap, kMaxSceneObjs, "RT TLAS");
-  alloc_scratch_buffer(&ret.tlas_scratch,           "TLAS Scratch Buffer",                ret.rt_tlas.scratch_size);
-
-  // GBuffer indirect
-  alloc_append_structured_buffer(&ret.indirect_args,         "GBuffer Indirect Args",              sizeof(MultiDrawIndirectIndexedArgs) * kMaxSceneObjs);
-  alloc_structured_buffer(&ret.scene_obj_gpu_ids,     "GBuffer Indirect Scene Obj GPU IDs", sizeof(u32) * kMaxSceneObjs);
-  alloc_structured_buffer(&ret.occlusion_results,     "GBuffer Occlusion Results",          sizeof(u64) * UCEIL_DIV(kMaxSceneObjs, 64));
-
-  // Lighting / post-process
-  alloc_scratch_texture(&ret.hdr,            "HDR Buffer",            w,                       h,                        kRenderLayerLighting, kRenderLayerPost);
-  alloc_temporal_scratch_texture(&ret.taa,   "TAA Buffer",            w,                       h);
-  alloc_scratch_texture(&ret.coc_buffer,     "CoC Buffer",            w / kDoFResolutionScale, h / kDoFResolutionScale,  kRenderLayerPost,     kRenderLayerPost);
-  alloc_scratch_texture(&ret.blur_buffer,    "Bokeh Blur Buffer",     w / kDoFResolutionScale, h / kDoFResolutionScale,  kRenderLayerPost,     kRenderLayerPost);
-  alloc_scratch_texture(&ret.depth_of_field, "Depth Of Field Buffer", w,                       h,                        kRenderLayerPost,     kRenderLayerPost);
-  alloc_render_target(&ret.tonemapped_buffer, "Tone Mapping Buffer", w, h, kGpuFormatRGBA16Float, kRenderLayerPost,     kRenderLayerSubmit);
-
-  // DDGI
-  alloc_temporal_scratch_texture_array(&ret.probe_page_table, "RT Diffuse GI - Probe Page Table", kProbeCountPerClipmap.x, kProbeCountPerClipmap.z, kProbeCountPerClipmap.y * kProbeClipmapCount);
-  alloc_structured_buffer(&ret.probe_buffer,     "RT Diffuse GI - Luminance Probe Buffer", sizeof(DiffuseGiProbe) * kProbeMaxActiveCount);
-  alloc_structured_buffer(&ret.ray_luminance,    "RT Diffuse GI - Ray Luminance Data",     sizeof(GiRayLuminance) * kProbeMaxRayCount, kRenderLayerRtDiffuseGi, kRenderLayerRtDiffuseGi);
-
   ret.upload_buffer = alloc_gpu_ring_buffer(g_InitHeap, upload_heap, MiB(30), "Upload Ring Buffer");
+  ret.rt_tlas       = alloc_gpu_rt_tlas(vram_non_aliased_heap, kMaxSceneObjs, "RT TLAS");
 
 
   // Initialize all of the GRVs

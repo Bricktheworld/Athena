@@ -1,4 +1,4 @@
-// Copyright 2011-2023 Molecular Matters GmbH, all rights reserved.
+// Copyright 2011-2025 Molecular Matters GmbH, all rights reserved.
 
 #pragma once
 
@@ -71,6 +71,8 @@ typedef struct LppProjectPreferences
 	{
 		const char* objectFileExtensions;
 		const char* libraryFileExtensions;
+		const char* sourcePathFilters;
+		const char* pathRemapping;
 		int captureToolchainEnvironmentTimeout;
 
 		struct PreBuild
@@ -89,6 +91,7 @@ typedef struct LppProjectPreferences
 	struct Compiler
 	{
 		const wchar_t* overrideLocation;			// isOverridden must be set to true
+		const wchar_t* workingDirectory;			// isOverridden must be set to true
 		const char* commandLineOptions;
 		bool captureEnvironment;
 		bool isOverridden;
@@ -101,6 +104,7 @@ typedef struct LppProjectPreferences
 	struct Linker
 	{
 		const wchar_t* overrideLocation;			// isOverridden must be set to true
+		const wchar_t* workingDirectory;			// isOverridden must be set to true
 		const char* commandLineOptions;
 		bool captureEnvironment;
 		bool isOverridden;
@@ -148,6 +152,8 @@ LPP_API LppProjectPreferences LppCreateDefaultProjectPreferences(void)
 
 	prefs.hotReload.objectFileExtensions = ".obj;.o";
 	prefs.hotReload.libraryFileExtensions = ".lib;.a";
+	prefs.hotReload.sourcePathFilters = "";
+	prefs.hotReload.pathRemapping = "";
 	prefs.hotReload.captureToolchainEnvironmentTimeout = 10000;
 	prefs.hotReload.preBuild.isEnabled = false;
 	prefs.hotReload.preBuild.executable = L"";
@@ -158,6 +164,7 @@ LPP_API LppProjectPreferences LppCreateDefaultProjectPreferences(void)
 	prefs.hotReload.callHotReloadHooksForHaltedProcesses = false;
 
 	prefs.compiler.overrideLocation = L"";
+	prefs.compiler.workingDirectory = L"";
 	prefs.compiler.commandLineOptions = "";
 	prefs.compiler.captureEnvironment = true;
 	prefs.compiler.isOverridden = false;
@@ -167,6 +174,7 @@ LPP_API LppProjectPreferences LppCreateDefaultProjectPreferences(void)
 	prefs.compiler.removeSourceDependencies = false;
 
 	prefs.linker.overrideLocation = L"";
+	prefs.linker.workingDirectory = L"";
 	prefs.linker.commandLineOptions = "";
 	prefs.linker.captureEnvironment = true;
 	prefs.linker.isOverridden = false;
@@ -245,7 +253,8 @@ typedef enum LppStringPreferences
 typedef enum LppShortcutPreferences
 {
 	LPP_SHORTCUT_PREF_HOT_RELOAD,								// shortcut for scheduling a hot-reload
-	LPP_SHORTCUT_PREF_VISUAL_STUDIO_TOGGLE_OPTIMIZATIONS		// shortcut for toggling optimizations for the current file in Visual Studio
+	LPP_SHORTCUT_PREF_HOT_RESTART,								// shortcut for scheduling a hot-restart
+	LPP_SHORTCUT_PREF_IDE_TOGGLE_OPTIMIZATIONS					// shortcut for toggling optimizations for the current file in the IDE
 } LppShortcutPreferences;
 
 LPP_NAMESPACE_END

@@ -448,7 +448,7 @@ struct BuildTlasParams
 void
 render_handler_build_tlas(const RenderEntry*, u32)
 {
-  u32 instance_count = g_Scene->gpu_scene_obj_allocator.allocated_count;
+  u32 instance_count = g_RenderHandlerState.settings.disable_ray_tracing ? 0 : g_Scene->gpu_scene_obj_allocator.allocated_count;
 
   // TODO(bshihabi): We really should have a nicer way of handling this
   static u32 s_PrevInstanceCount = UINT32_MAX;

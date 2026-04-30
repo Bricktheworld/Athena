@@ -250,12 +250,12 @@ application_entry(HINSTANCE instance, int show_code)
   {
     if (lpp_is_valid)
     {
-      if (lpp_agent.WantsReload())
+      if (lpp_agent.WantsReload(lpp::LPP_RELOAD_OPTION_SYNCHRONIZE_WITH_COMPILATION_AND_RELOAD))
       {
         dbgln("Live++ Hot Reloading...");
         wait_for_gpu_device_idle(g_GpuDevice);
 
-        lpp_agent.CompileAndReloadChanges(lpp::LPP_RELOAD_BEHAVIOUR_WAIT_UNTIL_CHANGES_ARE_APPLIED);
+        lpp_agent.Reload(lpp::LPP_RELOAD_BEHAVIOUR_WAIT_UNTIL_CHANGES_ARE_APPLIED);
 
         renderer_on_resize(&g_MainWindow->swap_chain);
 
@@ -266,7 +266,7 @@ application_entry(HINSTANCE instance, int show_code)
       if (lpp_agent.WantsRestart())
       {
         dbgln("Live++ Requested Restart, Terminating...");
-        lpp_agent.Restart(lpp::LPP_RESTART_BEHAVIOUR_INSTANT_TERMINATION, 0u);
+        lpp_agent.Restart(lpp::LPP_RESTART_BEHAVIOUR_INSTANT_TERMINATION, 0u, nullptr);
       }
     }
 
