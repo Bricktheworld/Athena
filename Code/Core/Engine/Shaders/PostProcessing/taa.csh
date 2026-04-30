@@ -194,7 +194,9 @@ void CS_TAA( uint3 thread_id : SV_DispatchThreadID )
 
   float3 resolve               = lerp(accumulation, curr_color, velocity_disocclusion);
 
-  taa_buffer[thread_id.xy]     = float4(inverse_luma_weight_color_rec709(resolve), 1.0f);
+  float4 result                = float4(inverse_luma_weight_color_rec709(resolve), 1.0f);
+
+  taa_buffer[thread_id.xy]     = any(isnan(result)) ? 0.0f : result;
 
 
   

@@ -1,5 +1,10 @@
 #pragma once
-#include "Core/Engine/Render/render_graph.h"
+#include "Core/Engine/Render/renderer.h"
 
-void init_back_buffer_blit(AllocHeap heap, RgBuilder* builder, RgHandle<GpuTexture> src);
+struct BlitEntry
+{
+  RenderTarget* src         = nullptr;
+  GpuTexture*   back_buffer = nullptr;
+};
 
+void render_handler_back_buffer_blit(const RenderEntry* entry, u32);

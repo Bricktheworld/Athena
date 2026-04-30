@@ -1344,7 +1344,7 @@ process_texture_file_request(AssetStreamer* streamer, FileStreamingCmdHeader hea
       gpu_texture_desc.array_size        = 1;
       gpu_texture_desc.format            = src_pkt.asset_header.gpu_format;
       gpu_texture_desc.color_clear_value = Vec4(0.0f, 0.0f, 0.0f, 0.0f);
-      texture->gpu_texture               = alloc_gpu_texture(g_GpuDevice, streamer->gpu_texture_allocator, gpu_texture_desc, "Content Gpu Texture");
+      texture->gpu_texture               = alloc_gpu_texture(streamer->gpu_texture_allocator, gpu_texture_desc, "Content Gpu Texture");
 
       gpu_copy_texture(
         &streamer->gpu_cmd_buffer,

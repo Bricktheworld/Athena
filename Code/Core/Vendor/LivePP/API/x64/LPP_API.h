@@ -1,4 +1,4 @@
-// Copyright 2011-2023 Molecular Matters GmbH, all rights reserved.
+// Copyright 2011-2025 Molecular Matters GmbH, all rights reserved.
 
 #pragma once
 
@@ -57,13 +57,13 @@ typedef void LppDisableModuleFunction(const wchar_t* const relativeOrFullPath, L
 typedef void LppDisableModulesFunctionANSI(const char* const* const arrayOfRelativeOrFullPaths, size_t count, LppModulesOption options, void* callbackContext, LppFilterFunctionANSI* callback);
 typedef void LppDisableModulesFunction(const wchar_t* const* const arrayOfRelativeOrFullPaths, size_t count, LppModulesOption options, void* callbackContext, LppFilterFunction* callback);
 
-typedef bool LppWantsReloadFunction(void);
+typedef bool LppWantsReloadFunction(LppReloadOption option);
 typedef void LppScheduleReloadFunction(void);
-typedef void LppCompileAndReloadChangesFunction(LppReloadBehaviour behaviour);
+typedef void LppReloadFunction(LppReloadBehaviour behaviour);
 
 typedef bool LppWantsRestartFunction(void);
 typedef void LppScheduleRestartFunction(LppRestartOption option);
-typedef void LppRestartFunction(LppRestartBehaviour behaviour, unsigned int exitCode);
+typedef void LppRestartFunction(LppRestartBehaviour behaviour, unsigned int exitCode, const wchar_t* const commandLineArguments);
 
 typedef void LppSetBoolPreferencesFunction(LppBoolPreferences preferences, bool value);
 typedef void LppSetIntPreferencesFunction(LppIntPreferences preferences, int value);
@@ -173,8 +173,8 @@ typedef struct LppSynchronizedAgent
 	// Schedules a hot-reload operation, making WantsReload() return true as soon as possible.
 	LppScheduleReloadFunction* ScheduleReload;
 
-	// Instructs Live++ to compile and reload all changes, respecting the given behaviour.
-	LppCompileAndReloadChangesFunction* CompileAndReloadChanges;
+	// Instructs Live++ to reload all changes, respecting the given behaviour.
+	LppReloadFunction* Reload;
 
 	// Returns whether Live++ wants to hot-restart the process.
 	// Returns true once the process has been selected for hot-restart in the Live++ UI, or a manual restart was scheduled.
@@ -245,7 +245,7 @@ LPP_API void LppInternalCheckVersion(LppAgentModule lppModule)
 		(void)apiVersion;
 		(void)agentLibraryVersion;
 
-		__debugbreak();
+		LPP_DEBUG_BREAK;
 	}
 }
 

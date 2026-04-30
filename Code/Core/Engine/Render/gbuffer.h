@@ -1,29 +1,17 @@
 #pragma once
-#include "Core/Engine/Render/render_graph.h"
+#include "Core/Engine/Render/renderer.h"
+#include "Core/Engine/Shaders/Include/gbuffer_common.hlsli"
 
-struct GBuffer
+struct GBufferGenerateMultiDrawArgsEntry
 {
-  RgHandle<GpuTexture> material_id;
-  RgHandle<GpuTexture> diffuse_metallic;
-  RgHandle<GpuTexture> normal_roughness;
-  RgHandle<GpuTexture> velocity;
-  RgHandle<GpuTexture> depth;
-  RgHandle<GpuTexture> hzb;
+  u32 phase = 0;
 };
 
-struct ReadGBuffer
+struct GBufferOpaqueEntry
 {
-  RgTexture2D<uint>   material_id;
-  RgTexture2D<float4> diffuse_metallic;
-  RgTexture2D<float4> normal_roughness;
-  RgTexture2D<float2> velocity;
-  RgTexture2D<float>  depth;
+  bool should_clear_targets = false;
 };
 
-static constexpr u32 kGBufferReadCount = 6;
-
-GBuffer     init_gbuffer(RgBuilder* builder);
-void        init_gbuffer_static(AllocHeap heap, RgBuilder* builder, GBuffer* gbuffer);
-
-ReadGBuffer read_gbuffer(RgPassBuilder* pass_builder, const GBuffer& gbuffer);
-
+void render_handler_gbuffer_generate_multidraw_args(const RenderEntry* entries, u32 entry_count);
+void render_handler_gbuffer_opaque(const RenderEntry* entries, u32 entry_count);
+void render_handler_generate_hzb  (const RenderEntry* entries, u32 entry_count);

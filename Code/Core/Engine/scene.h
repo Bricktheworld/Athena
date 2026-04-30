@@ -1,6 +1,5 @@
 #pragma once
 #include "Core/Foundation/assets.h"
-#include "Core/Engine/Render/render_graph.h"
 #include "Core/Engine/asset_streaming.h"
 
 struct Camera
@@ -8,17 +7,6 @@ struct Camera
   Vec3 world_pos = Vec3(0, 0, -1);
   f32  pitch     = 0;
   f32  yaw       = 0;
-};
-
-struct SceneGpuResources
-{
-  // Uploaded data to GPU Buffers
-  RgHandle<GpuBuffer> scene_obj_buffer;
-
-  RgHandle<GpuBuffer> rt_obj_buffer;
-
-  // TODO(bshihabi): Make this a ring-buffer type structure
-  RgHandle<GpuBuffer> upload_buffer;
 };
 
 enum SceneObjFlags : u32
@@ -63,7 +51,6 @@ struct alignas(u32x4) SceneObjHandle
 static constexpr SceneObjHandle kNullSceneObj = { 0xFFFFFFFF, 0xFFFFFFFF, 0x0 };
 
 void                    init_scene();
-SceneGpuResources       init_scene_gpu_upload_pass(AllocHeap heap, RgBuilder* builder);
 
 SceneObjHandle          alloc_scene_obj(u32 flags);
 SceneObjHandle          init_render_scene_obj(ModelHandle model, u32 subset, u32 flags = 0);
@@ -82,3 +69,6 @@ const SceneObj*         get_all_scene_objs();
 u32                     get_gpu_scene_obj_count();
 BoundingSphere          get_bounding_sphere(const SceneObj* obj);
 
+struct RenderEntry;
+void                    render_handler_scene_upload(const RenderEntry* entries, u32 count);
+void                    render_handler_build_tlas(const RenderEntry* entries, u32);

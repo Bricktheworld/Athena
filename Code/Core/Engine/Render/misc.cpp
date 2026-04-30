@@ -13,40 +13,6 @@
 
 #include "Core/Engine/Vendor/imgui/implot.h"
 
-struct FrameInitParams
-{
-  RgHandle<GpuBuffer>                         viewport_buffer;
-  RgHandle<GpuBuffer>                         render_settings;
-  RgRWStructuredBuffer<MultiDrawIndirectArgs> debug_draw_args_buffer;
-  RgRWStructuredBuffer<DebugLinePoint>        debug_line_vert_buffer;
-  RgRWStructuredBuffer<DebugSdf>              debug_sdf_buffer;
-
-  ComputePSO                                  init_debug_draw_buffers_pso;
-};
-
-static
-Mat4 view_from_camera(Camera* camera)
-{
-  constexpr float kPitchLimit = kPI / 2.0f - 0.05f;
-  camera->pitch = MIN(kPitchLimit, MAX(-kPitchLimit, camera->pitch));
-  if (camera->yaw > kPI)
-  {
-    camera->yaw -= kPI * 2.0f;
-  }
-  else if (camera->yaw < -kPI)
-  {
-    camera->yaw += kPI * 2.0f;
-  }
-
-  f32 y = sinf(camera->pitch);
-  f32 r = cosf(camera->pitch);
-  f32 z = r * cosf(camera->yaw);
-  f32 x = r * sinf(camera->yaw);
-
-  Vec3 lookat = Vec3(x, y, z);
-  return look_at_lh(camera->world_pos, lookat, Vec3(0.0f, 1.0f, 0.0f));
-}
-
 static f32
 camera_params_to_ev100(f32 aperture, f32 shutter_time, f32 iso)
 {
@@ -109,148 +75,61 @@ diffuse_from_temperature(f32 temperature)
   return ret / 255.0f;
 }
 
-static Vec2
-get_taa_jitter()
+void
+render_handler_frame_init(const RenderEntry*, u32)
 {
-  static const Vec2 kHaltonSequence[] =
-  {
-    Vec2(0.500000f, 0.333333f),
-    Vec2(0.250000f, 0.666667f),
-    Vec2(0.750000f, 0.111111f),
-    Vec2(0.125000f, 0.444444f),
-    Vec2(0.625000f, 0.777778f),
-    Vec2(0.375000f, 0.222222f),
-    Vec2(0.875000f, 0.555556f),
-    Vec2(0.062500f, 0.888889f),
-    Vec2(0.562500f, 0.037037f),
-    Vec2(0.312500f, 0.370370f),
-    Vec2(0.812500f, 0.703704f),
-    Vec2(0.187500f, 0.148148f),
-    Vec2(0.687500f, 0.481481f),
-    Vec2(0.437500f, 0.814815f),
-    Vec2(0.937500f, 0.259259f),
-    Vec2(0.031250f, 0.592593f),
-  };
-
-  u32  idx = g_FrameId % ARRAY_LENGTH(kHaltonSequence);
-  Vec2 ret = kHaltonSequence[idx] - Vec2(0.5f, 0.5f);
-  ret.x   /= (f32)g_RenderGraph->width;
-  ret.y   /= (f32)g_RenderGraph->height;
-
-  ret     *= 2.0f;
-  return ret;
-}
-
-static void
-render_handler_frame_init(RenderContext* ctx, const RenderSettings& settings, const void* data)
-{
-  FrameInitParams* params = (FrameInitParams*)data;
-
-  memcpy(&g_Renderer.camera,            get_scene_camera(),            sizeof(g_Renderer.camera));
-  memcpy(&g_Renderer.directional_light, get_scene_directional_light(), sizeof(g_Renderer.directional_light));
-
-  memcpy(&g_RenderHandlerState.prev_main_view, &g_RenderHandlerState.main_view, sizeof(g_RenderHandlerState.prev_main_view));
-  g_RenderHandlerState.frame_id = g_FrameId;
-
-  ViewCtx* view_ctx           = &g_RenderHandlerState.main_view;
-  view_ctx->camera            = g_Renderer.camera;
-  view_ctx->proj              = perspective_infinite_reverse_lh(kPI / 4.0f, (f32)ctx->m_Width / (f32)ctx->m_Height, kZNear);
-  view_ctx->view              = view_from_camera(&view_ctx->camera);
-  view_ctx->view_proj         = view_ctx->proj * view_ctx->view;
-  view_ctx->inverse_view_proj = inverse_mat4(view_ctx->view_proj);
-  view_ctx->taa_jitter        = get_taa_jitter();
-  view_ctx->frustum           = frustum_from_view_projection(view_ctx->view_proj);
+  const ViewCtx*        view_ctx      = &g_RenderHandlerState.main_view;
+  const ViewCtx*        prev_view_ctx = &g_RenderHandlerState.prev_main_view;
+  const RenderSettings* settings      = &g_RenderHandlerState.settings;
 
   ViewportGpu viewport_gpu;
   viewport_gpu.proj                  = view_ctx->proj;
   viewport_gpu.view                  = view_ctx->view;
   viewport_gpu.view_proj             = view_ctx->view_proj;
-  viewport_gpu.prev_view_proj        = g_RenderHandlerState.prev_main_view.view_proj;
+  viewport_gpu.prev_view_proj        = prev_view_ctx->view_proj;
   viewport_gpu.inverse_view_proj     = view_ctx->inverse_view_proj;
   viewport_gpu.camera_world_pos      = view_ctx->camera.world_pos;
-  viewport_gpu.prev_camera_world_pos = g_RenderHandlerState.prev_main_view.camera.world_pos;
+  viewport_gpu.prev_camera_world_pos = prev_view_ctx->camera.world_pos;
   viewport_gpu.frame_id              = g_RenderHandlerState.frame_id;
 
 
   // TODO(bshihabi): We should really do this somewhere else...
   // Pre-expose light values
-  f32 ev100         = camera_params_to_ev100(settings.aperture, settings.shutter_time, settings.iso);
+  f32 ev100         = camera_params_to_ev100(settings->aperture, settings->shutter_time, settings->iso);
   f32 max_luminance = ev100_to_max_luminance(ev100);
 
+  DirectionalLight directional_light = view_ctx->directional_light;
   // This just happens to work out even though the units are completely wrong, they fix themselves later
   // in the math. TODO(bshihabi): There should be a nicer way of doing this
-  g_Renderer.directional_light.illuminance     /= max_luminance;
-  g_Renderer.directional_light.sky_illuminance /= max_luminance;
-  g_Renderer.directional_light.diffuse          = diffuse_from_temperature((f32)g_Renderer.directional_light.temperature);
-  viewport_gpu.directional_light               = g_Renderer.directional_light;
+  directional_light.illuminance     /= max_luminance;
+  directional_light.sky_illuminance /= max_luminance;
+  directional_light.diffuse          = diffuse_from_temperature((f32)directional_light.temperature);
+  viewport_gpu.directional_light     = directional_light;
 
-  viewport_gpu.taa_jitter                      = !settings.disable_taa ? view_ctx->taa_jitter : Vec2(0.0f, 0.0f);
-
-  ctx->write_cpu_upload_buffer(params->viewport_buffer, &viewport_gpu, sizeof(viewport_gpu));
-
-  RenderSettingsGpu render_settings_gpu = to_gpu_render_settings(settings);
-  ctx->write_cpu_upload_buffer(params->render_settings, &render_settings_gpu, sizeof(render_settings_gpu));
+  viewport_gpu.taa_jitter            = !settings->disable_taa ? view_ctx->taa_jitter : Vec2(0.0f, 0.0f);
 
 
-  ctx->set_graphics_root_shader_resource_view(kIndexBufferSlot ,           &g_UnifiedGeometryBuffer.index_buffer);
-  ctx->set_graphics_root_shader_resource_view(kVertexBufferSlot,           &g_UnifiedGeometryBuffer.vertex_buffer);
+  {
+    void* dst = unwrap(g_RenderHandlerState.buffers.viewport_buffer->mapped);
+    memcpy(dst, &viewport_gpu, sizeof(viewport_gpu));
+  }
 
-  ctx->set_compute_root_shader_resource_view(kIndexBufferSlot ,           &g_UnifiedGeometryBuffer.index_buffer);
-  ctx->set_compute_root_shader_resource_view(kVertexBufferSlot,           &g_UnifiedGeometryBuffer.vertex_buffer);
+  {
+    RenderSettingsGpu render_settings_gpu = to_gpu_render_settings(*settings);
+    void* dst = unwrap(g_RenderHandlerState.buffers.render_settings->mapped);
+    memcpy(dst, &render_settings_gpu, sizeof(render_settings_gpu));
+  }
 
-  // Clear/initialize the multi draw indirect args
-  ctx->memory_barrier();
-  ctx->set_compute_pso(&params->init_debug_draw_buffers_pso);
-  ctx->dispatch(UCEIL_DIV(MAX(kDebugMaxVertices, kDebugMaxSdfs), 64), 1, 1);
-  ctx->memory_barrier();
+  gpu_bind_compute_pso(&g_RenderHandlerState.cmd_list, kCS_DebugDrawInitMultiDrawIndirectArgs);
+  gpu_dispatch(&g_RenderHandlerState.cmd_list, UCEIL_DIV(MAX(kDebugMaxVertices, kDebugMaxSdfs), 64), 1, 1);
+  gpu_memory_barrier(&g_RenderHandlerState.cmd_list);
 }
-
-FrameResources
-init_frame_init_pass(AllocHeap heap, RgBuilder* builder)
-{
-  FrameInitParams* params = HEAP_ALLOC(FrameInitParams, g_InitHeap, 1);
-  zero_memory(params, sizeof(FrameInitParams));
-
-  FrameResources ret;
-
-  ret.viewport_buffer        = rg_create_upload_buffer(builder, "Viewport Buffer",     kGpuHeapSysRAMCpuToGpu, sizeof(ViewportGpu));
-  ret.render_settings        = rg_create_upload_buffer(builder, "Render Settings",     kGpuHeapSysRAMCpuToGpu, sizeof(RenderSettingsGpu));
-
-  ret.debug_draw_args_buffer = rg_create_buffer(builder, "Debug Draw Args Buffer",      sizeof(MultiDrawIndirectArgs) * 2);
-  ret.debug_line_vert_buffer = rg_create_buffer(builder, "Debug Lines Vertices Buffer", sizeof(DebugLinePoint) * kDebugMaxVertices);
-  ret.debug_sdf_buffer       = rg_create_buffer(builder, "Debug SDF Buffer",            sizeof(DebugSdf)       * kDebugMaxSdfs);
-
-  RgPassBuilder*      pass       = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "Frame Init", params, &render_handler_frame_init);
-  params->viewport_buffer        = ret.viewport_buffer;
-  params->render_settings        = ret.render_settings;
-  params->debug_draw_args_buffer = RgRWStructuredBuffer<MultiDrawIndirectArgs>(pass, &ret.debug_draw_args_buffer);
-  params->debug_line_vert_buffer = RgRWStructuredBuffer<DebugLinePoint>(pass, &ret.debug_line_vert_buffer);
-  params->debug_sdf_buffer       = RgRWStructuredBuffer<DebugSdf>(pass, &ret.debug_sdf_buffer);
-
-  params->init_debug_draw_buffers_pso = init_compute_pipeline(g_GpuDevice, get_engine_shader(kCS_DebugDrawInitMultiDrawIndirectArgs), "Debug Draw Init MultiDrawIndirect Args");
-
-  // Bind globals
-  RgConstantBuffer<ViewportGpu>::                 bind_grv(heap, builder, kViewportBufferSlot,     ret.viewport_buffer);
-  RgConstantBuffer<RenderSettingsGpu>::        bind_grv(heap, builder, kRenderSettingsSlot,     ret.render_settings);
-  RgRWStructuredBuffer<MultiDrawIndirectArgs>::bind_grv(heap, builder, kDebugArgsBufferSlot,   &ret.debug_draw_args_buffer);
-  RgRWStructuredBuffer<DebugLinePoint>::       bind_grv(heap, builder, kDebugVertexBufferSlot, &ret.debug_line_vert_buffer);
-  RgRWStructuredBuffer<DebugSdf>::             bind_grv(heap, builder, kDebugSdfBufferSlot,    &ret.debug_sdf_buffer);
-
-  return ret;
-}
-
-struct ImGuiParams
-{
-  RgRtv dst;
-};
 
 f64 g_CpuEffectiveTime = 0.0;
 
 void
-render_handler_imgui(RenderContext* ctx, const RenderSettings&, const void* data)
+render_handler_debug_ui(const RenderEntry*, u32)
 {
-  ImGuiParams* params = (ImGuiParams*)data;
-
   ImGui::Begin("Rendering");
   static bool s_ShowDetailedPerformance = false;
 
@@ -266,12 +145,15 @@ render_handler_imgui(RenderContext* ctx, const RenderSettings&, const void* data
 
   ImGui::InputFloat3("Camera Position", (f32*)&camera->world_pos);
 
+  ImGui::Combo("Debug Layer", (s32*)&g_Renderer.settings.debug_layer, kRenderDebugLayerNames, kRenderDebugLayerCount);
+
   ImGui::Checkbox("Disable TAA", &g_Renderer.settings.disable_taa);
   ImGui::Checkbox("Disable Diffuse GI", &g_Renderer.settings.disable_diffuse_gi);
   ImGui::Checkbox("Disable HDR", &g_Renderer.settings.disable_hdr);
   ImGui::Checkbox("Disable DoF", &g_Renderer.settings.disable_dof);
   ImGui::Checkbox("Disable Frustum Culling", &g_Renderer.settings.disable_frustum_culling);
   ImGui::Checkbox("Disable Occlusion Culling", &g_Renderer.settings.disable_occlusion_culling);
+  ImGui::Checkbox("Disable Ray Tracing", &g_Renderer.settings.disable_ray_tracing);
   ImGui::Checkbox("Freeze Occlusion Culling", &g_Renderer.settings.freeze_occlusion_culling);
   ImGui::DragInt("Forced Model LoD", &g_Renderer.settings.forced_model_lod, 0.1, -1, 3);
   ImGui::Checkbox("Enable Debug Draw", &g_Renderer.settings.enabled_debug_draw);
@@ -375,14 +257,26 @@ render_handler_imgui(RenderContext* ctx, const RenderSettings&, const void* data
   if (s_ShowDetailedPerformance)
   {
     ImGui::Indent();
-    for (const RenderPass& pass : g_RenderGraph->render_passes)
+    const ViewCtx* view_ctx = &g_RenderHandlerState.main_view;
+
+    u32 layer = kRenderLayerCount;
+    for (u32 ibatch = 0; ibatch < view_ctx->render_batch_count; ibatch++)
     {
-      if (pass.is_grv_barrier_pass)
+      const RenderBatch* batch = view_ctx->render_batches + ibatch;
+      if (layer == batch->layer)
       {
         continue;
       }
-      f64 dt = query_gpu_profiler_timestamp(pass.name);
-      ImGui::Text("%s: %f ms", pass.name, dt);
+      layer = batch->layer;
+
+      const char* name = kRenderLayerNames[layer];
+      if (!has_gpu_profiler_timestamp(name))
+      {
+        continue;
+      }
+
+      f64 dt = query_gpu_profiler_timestamp(name);
+      ImGui::Text("%s: %f ms", name, dt);
     }
   }
 
@@ -390,102 +284,36 @@ render_handler_imgui(RenderContext* ctx, const RenderSettings&, const void* data
 
   ImGui::Render();
 
-  ctx->rs_set_viewport(0.0f, 0.0f, (f32)ctx->m_Width, (f32)ctx->m_Height);
-  ctx->rs_set_scissor_rect(0, 0, S32_MAX, S32_MAX);
+  RenderTarget* tonemapping = &g_RenderHandlerState.buffers.tonemapped_buffer;
 
-  ctx->om_set_render_targets({params->dst}, None);
+  gpu_bind_render_target(&g_RenderHandlerState.cmd_list, tonemapping);
+  gpu_bind_descriptor_heap(&g_RenderHandlerState.cmd_list, &g_Renderer.imgui_descriptor_heap);
 
-  ctx->set_descriptor_heaps({&g_Renderer.imgui_descriptor_heap});
-
-  ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), ctx->m_CmdBuffer.d3d12_list);
-
-  ctx->rs_set_viewport(0.0f, 0.0f, (f32)ctx->m_Width, (f32)ctx->m_Height);
-  ctx->rs_set_scissor_rect(0, 0, S32_MAX, S32_MAX);
+  ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), g_RenderHandlerState.cmd_list.d3d12_list);
 }
 
 void
-init_imgui_pass(AllocHeap heap, RgBuilder* builder, RgHandle<GpuTexture>* dst)
+render_handler_indirect_debug_draw(const RenderEntry*, u32)
 {
-  ImGuiParams* params = HEAP_ALLOC(ImGuiParams, g_InitHeap, 1);
+  RenderBuffers* buffers       = &g_RenderHandlerState.buffers;
+  RenderTarget*  render_target = &buffers->tonemapped_buffer;
+  DepthTarget*   depth_target  = &buffers->gbuffer.depth;
+  CmdList*       cmd           = &g_RenderHandlerState.cmd_list;
 
-  RgPassBuilder* pass = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "ImGui Pass" , params, &render_handler_imgui);
-  params->dst         = RgRtv(pass, dst);
+  gpu_memory_barrier(cmd);
 
-  ImPlot::CreateContext();
-}
+  gpu_bind_render_target(cmd, render_target, depth_target);
+  gpu_bind_graphics_pso(cmd, g_Renderer.pso_library.debug_draw_line_pso);
+  DebugLineDrawSrt line_srt;
+  line_srt.debug_line_vert_buffer = {buffers->debug_line_vert_buffer.srv.index};
+  gpu_bind_srt(cmd, line_srt);
+  gpu_ia_set_primitive_topology(cmd, D3D_PRIMITIVE_TOPOLOGY_LINELIST);
+  gpu_multi_draw_indirect(cmd, &buffers->debug_draw_args_buffer, nullptr, 0, 1);
 
-struct DebugDrawParams
-{
-  RgRtv dst;
-  RgDsv depth;
-  RgIndirectArgsBuffer               debug_draw_args_buffer;
-  RgStructuredBuffer<DebugLinePoint> debug_line_vert_buffer;
-  RgStructuredBuffer<DebugSdf>       debug_sdf_buffer;
-  
-  GraphicsPSO debug_draw_line_pso;
-  GraphicsPSO debug_draw_sdf_pso;
-};
-
-static void
-render_handler_debug_draw(RenderContext* ctx, const RenderSettings& settings, const void* data)
-{
-  DebugDrawParams* params = (DebugDrawParams*)data;
-  if (!settings.enabled_debug_draw)
-  {
-    return;
-  }
-
-  ctx->om_set_render_targets({params->dst}, params->depth);
-
-  ctx->set_graphics_pso(&params->debug_draw_line_pso);
-  ctx->graphics_bind_srt(DebugLineDrawSrt{ params->debug_line_vert_buffer });
-  ctx->ia_set_primitive_topology(D3D_PRIMITIVE_TOPOLOGY_LINELIST);
-  ctx->multi_draw_indirect(params->debug_draw_args_buffer, 0, 1);
-
-  ctx->set_graphics_pso(&params->debug_draw_sdf_pso);
-  ctx->graphics_bind_srt(DebugSdfDrawSrt{ params->debug_sdf_buffer });
-  ctx->ia_set_primitive_topology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-  ctx->multi_draw_indirect(params->debug_draw_args_buffer, sizeof(MultiDrawIndirectArgs), 1);
-}
-
-void
-init_debug_draw_pass(AllocHeap heap, RgBuilder* builder, const FrameResources& frame_resources, GBuffer* gbuffer, RgHandle<GpuTexture>* dst)
-{
-  DebugDrawParams* params        = HEAP_ALLOC(DebugDrawParams, g_InitHeap, 1);
-
-  RgPassBuilder*   pass          = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "Debug Line Draw Pass", params, &render_handler_debug_draw);
-  params->dst                    = RgRtv(pass, dst);
-  params->depth                  = RgDsv(pass, &gbuffer->depth);
-
-  params->debug_draw_args_buffer = RgIndirectArgsBuffer(pass, frame_resources.debug_draw_args_buffer);
-
-  params->debug_line_vert_buffer = RgStructuredBuffer<DebugLinePoint>(pass, frame_resources.debug_line_vert_buffer);
-  params->debug_sdf_buffer       = RgStructuredBuffer<DebugSdf>(pass, frame_resources.debug_sdf_buffer);
-
-
-  {
-    GraphicsPipelineDesc desc = 
-    {
-      .vertex_shader = get_engine_shader(kVS_DebugDrawLine),
-      .pixel_shader  = get_engine_shader(kPS_DebugDrawLine),
-      .rtv_formats   = Span{kGpuFormatRGBA16Float},
-      .dsv_format    = kGpuFormatD32Float,
-      .depth_func    = kDepthComparison,
-      .topology      = kPrimitiveTopologyLine,
-      .blend_enable  = true,
-    };
-    params->debug_draw_line_pso = init_graphics_pipeline(g_GpuDevice, desc, "Debug Line Draw");
-  }
-  {
-    GraphicsPipelineDesc desc = 
-    {
-      .vertex_shader = get_engine_shader(kVS_DebugDrawSdf),
-      .pixel_shader  = get_engine_shader(kPS_DebugDrawSdf),
-      .rtv_formats   = Span{kGpuFormatRGBA16Float},
-      .dsv_format    = kGpuFormatD32Float,
-      .depth_func    = kDepthComparison,
-      .blend_enable  = true,
-    };
-    params->debug_draw_sdf_pso  = init_graphics_pipeline(g_GpuDevice, desc, "Debug SDF Draw");
-  }
+  gpu_bind_graphics_pso(cmd, g_Renderer.pso_library.debug_draw_sdf_pso);
+  DebugSdfDrawSrt sdf_srt;
+  sdf_srt.debug_sdf_buffer = {buffers->debug_sdf_buffer.srv.index};
+  gpu_bind_srt(cmd, sdf_srt);
+  gpu_ia_set_primitive_topology(cmd, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+  gpu_multi_draw_indirect(cmd, &buffers->debug_draw_args_buffer, nullptr, sizeof(MultiDrawIndirectArgs), 1);
 }

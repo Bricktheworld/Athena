@@ -16,6 +16,8 @@
 #include "Core/Engine/Vendor/imgui/imgui_impl_win32.h"
 #include "Core/Engine/Vendor/imgui/imgui_impl_dx12.h"
 
+#include "Core/Engine/Vendor/imgui/implot.h"
+
 #include "Core/Engine/Vendor/NVAftermath/GFSDK_Aftermath.h"
 #include "Core/Engine/Vendor/NVAftermath/GFSDK_Aftermath_GpuCrashDump.h"
 #include "Core/Engine/Vendor/NVAftermath/GFSDK_Aftermath_GpuCrashDumpDecoding.h"
@@ -461,11 +463,11 @@ get_d3d12_heap_location(GpuHeapLocation type)
   }
 }
 
-GpuLinearAllocator
-init_gpu_linear_allocator(u32 size, GpuHeapLocation location)
+GpuPhysicalMemory
+alloc_gpu_physical_memory(u64 size, GpuHeapLocation location)
 {
-  GpuLinearAllocator ret = {0};
-  ret.pos = 0;
+  GpuPhysicalMemory ret = {0};
+
   D3D12_HEAP_DESC desc = {0};
   desc.SizeInBytes = size;
   desc.Properties  = CD3DX12_HEAP_PROPERTIES(get_d3d12_heap_location(location));
@@ -478,6 +480,32 @@ init_gpu_linear_allocator(u32 size, GpuHeapLocation location)
   ret.location   = location;
 
   HASSERT(g_GpuDevice->d3d12->CreateHeap(&desc, IID_PPV_ARGS(&ret.d3d12_heap)));
+  return ret;
+}
+
+void
+free_gpu_physical_memory(GpuPhysicalMemory* memory)
+{
+  COM_RELEASE(memory->d3d12_heap);
+  zero_memory(memory, sizeof(GpuPhysicalMemory));
+}
+
+void
+fill_gpu_physical_allocation_struct(GpuAllocation* dst, const GpuPhysicalMemory& memory, u64 offset, u64 size, u32 metadata)
+{
+  dst->size       = size;
+  dst->offset     = offset;
+  dst->d3d12_heap = memory.d3d12_heap;
+  dst->metadata   = metadata;
+  dst->location   = memory.location;
+}
+
+GpuLinearAllocator
+init_gpu_linear_allocator(u32 size, GpuHeapLocation location)
+{
+  GpuLinearAllocator ret = {0};
+  ret.pos                = 0;
+  ret.physical_memory    = alloc_gpu_physical_memory(size, location);
 
   return ret;
 }
@@ -485,7 +513,7 @@ init_gpu_linear_allocator(u32 size, GpuHeapLocation location)
 void
 destroy_gpu_linear_allocator(GpuLinearAllocator* allocator)
 {
-  COM_RELEASE(allocator->d3d12_heap);
+  free_gpu_physical_memory(&allocator->physical_memory);
   zero_memory(allocator, sizeof(GpuLinearAllocator));
 }
 
@@ -496,17 +524,14 @@ gpu_linear_alloc(void* allocator, u32 size, u32 alignment)
   u32                 offset  = ALIGN_POW2(self->pos, alignment);
   u32                 new_pos = offset + size;
 
-  ASSERT_MSG_FATAL(new_pos <= self->size, "GPU linear allocator ran out of memory! Attempted to allocate 0x%x bytes, 0x%x bytes available", size, self->size - self->pos);
+  ASSERT_MSG_FATAL(new_pos <= self->physical_memory.size, "GPU linear allocator ran out of memory! Attempted to allocate 0x%x bytes, 0x%x bytes available", size, self->physical_memory.size - self->pos);
 
   self->pos = new_pos;
 
 
+
   GpuAllocation ret = {0};
-  ret.size          = size;
-  ret.offset        = offset;
-  ret.d3d12_heap    = self->d3d12_heap;
-  ret.metadata      = 0;
-  ret.location      = self->location;
+  fill_gpu_physical_allocation_struct(&ret, self->physical_memory, offset, size);
 
   return ret;
 }
@@ -597,6 +622,14 @@ end_gpu_profiler_timestamp(CmdList* cmd_buffer, const char* name)
 
   ASSERT_MSG_FATAL(timestamp->in_flight, "GPU profiler timestamp name '%s' was never started! Did you forget to call begin_gpu_profiler_timestamp?", name);
   timestamp->in_flight = false;
+}
+
+bool
+has_gpu_profiler_timestamp(const char* name)
+{
+  GpuProfiler* profiler = &g_GpuDevice->profiler;
+  u32* ptr = hash_table_find(&profiler->name_to_timestamp, name);
+  return ptr != nullptr;
 }
 
 f64
@@ -1194,56 +1227,6 @@ d3d12_resource_desc(const GpuTextureDesc& desc)
   return resource_desc;
 }
 
-GpuTexture
-alloc_gpu_texture_no_heap(const GpuDevice* device, GpuTextureDesc desc, const char* name)
-{
-  GpuTexture ret = {0};
-  ret.desc = desc;
-  ret.layout = kGpuTextureLayoutGeneral;
-
-  D3D12_RESOURCE_DESC1  resource_desc = d3d12_resource_desc(desc);
-  D3D12_HEAP_PROPERTIES heap_props    = CD3DX12_HEAP_PROPERTIES(get_d3d12_heap_location(kGpuHeapGpuOnly));
-
-  D3D12_CLEAR_VALUE  clear_value;
-  D3D12_CLEAR_VALUE* p_clear_value = nullptr;
-  clear_value.Format = gpu_format_to_d3d12(desc.format);
-  if (is_depth_format(desc.format))
-  {
-    resource_desc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
-    clear_value.DepthStencil.Depth   = desc.depth_clear_value;
-    clear_value.DepthStencil.Stencil = desc.stencil_clear_value;
-    p_clear_value = &clear_value;
-  }
-  else if (desc.flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET)
-  {
-    clear_value.Color[0] = desc.color_clear_value.x;
-    clear_value.Color[1] = desc.color_clear_value.y;
-    clear_value.Color[2] = desc.color_clear_value.z;
-    clear_value.Color[3] = desc.color_clear_value.w;
-    p_clear_value = &clear_value;
-  }
-
-  HASSERT(
-    device->d3d12->CreateCommittedResource3(
-      &heap_props,
-      D3D12_HEAP_FLAG_NONE,
-      &resource_desc,
-      gpu_texture_layout_to_d3d12(ret.layout),
-      p_clear_value,
-      nullptr,
-      0,
-      nullptr,
-      IID_PPV_ARGS(&ret.d3d12_texture)
-    )
-  );
-
-  wchar_t wname[1024];
-  mbstowcs_s(nullptr, wname, name, 1024);
-  ret.d3d12_texture->SetName(wname);
-
-  return ret;
-}
-
 void
 free_gpu_texture(GpuTexture* texture)
 {
@@ -1252,22 +1235,33 @@ free_gpu_texture(GpuTexture* texture)
 }
 
 
+u64
+query_gpu_texture_size(GpuTextureDesc desc, u64* out_alignment)
+{
+  D3D12_RESOURCE_DESC1 resource_desc  = d3d12_resource_desc(desc);
+
+  D3D12_RESOURCE_ALLOCATION_INFO info = g_GpuDevice->d3d12->GetResourceAllocationInfo2(0, 1, &resource_desc, nullptr);
+
+  if (out_alignment != nullptr)
+  {
+    *out_alignment = info.Alignment;
+  }
+
+  return info.SizeInBytes;
+}
+
 GpuTexture
-alloc_gpu_texture(
-  const GpuDevice* device,
-  GpuAllocHeap heap,
-  GpuTextureDesc desc,
-  const char* name
-) {
+init_gpu_texture(GpuAllocation allocation, GpuTextureDesc desc, const char* name)
+{
   GpuTexture ret = {0};
   ret.desc       = desc;
   ret.layout     = kGpuTextureLayoutGeneral;
 
-  D3D12_RESOURCE_DESC1 resource_desc   = d3d12_resource_desc(desc);
+  u64 alignment = 1;
+  u64 size      = query_gpu_texture_size(desc, &alignment);
+  ASSERT_MSG_FATAL(size <= allocation.size, "GpuAllocation passed to init_gpu_texture is not large enough!");
 
-  D3D12_RESOURCE_ALLOCATION_INFO info = device->d3d12->GetResourceAllocationInfo2(0, 1, &resource_desc, nullptr);
-
-  GpuAllocation allocation = GPU_HEAP_ALLOC(heap, (u32)info.SizeInBytes, (u32)info.Alignment);
+  D3D12_RESOURCE_DESC1 resource_desc = d3d12_resource_desc(desc);
 
   D3D12_CLEAR_VALUE clear_value;
   D3D12_CLEAR_VALUE* p_clear_value   = nullptr;
@@ -1289,7 +1283,7 @@ alloc_gpu_texture(
   }
 
   HASSERT(
-    device->d3d12->CreatePlacedResource2(
+    g_GpuDevice->d3d12->CreatePlacedResource2(
       allocation.d3d12_heap,
       allocation.offset,
       &resource_desc,
@@ -1306,6 +1300,18 @@ alloc_gpu_texture(
   ret.d3d12_texture->SetName(wname);
 
   return ret;
+}
+
+GpuTexture
+alloc_gpu_texture(
+  GpuAllocHeap heap,
+  GpuTextureDesc desc,
+  const char* name
+) {
+  u64 alignment = 1;
+  u64 size      = query_gpu_texture_size(desc, &alignment);
+  GpuAllocation allocation = GPU_HEAP_ALLOC(heap, (u32)size, (u32)alignment);
+  return init_gpu_texture(allocation, desc, name);
 }
 
 GpuBuffer
@@ -1367,20 +1373,15 @@ free_gpu_buffer(GpuBuffer* buffer)
   zero_memory(buffer, sizeof(GpuBuffer));
 }
 
-GpuBuffer
-alloc_gpu_buffer(
-  const GpuDevice* device,
-  GpuAllocHeap heap,
-  GpuBufferDesc desc,
-  const char* name
+GpuBuffer init_gpu_buffer(
+  GpuAllocation allocation,
+  u32 size,
+  const char* name,
+  bool is_rt_bvh
 ) {
-  // NOTE(Brandon): For simplicity's sake of CBVs, I just align all the sizes to 256.
-  desc.size = ALIGN_POW2(desc.size, 256);
-
-  GpuAllocation allocation = GPU_HEAP_ALLOC(heap, desc.size, (u32)KiB(64));
-
-  GpuBuffer ret = {0};
-  ret.desc = desc;
+  GpuBuffer ret      = {0};
+  ret.desc.size      = size;
+  ret.desc.is_rt_bvh = is_rt_bvh;
 
   D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE;
   if (allocation.location != kGpuHeapSysRAMCpuToGpu && allocation.location != kGpuHeapSysRAMGpuToCpu)
@@ -1388,14 +1389,16 @@ alloc_gpu_buffer(
     flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
   }
 
-  if (desc.is_rt_bvh)
+  if (ret.desc.is_rt_bvh)
   {
     flags |= D3D12_RESOURCE_FLAG_RAYTRACING_ACCELERATION_STRUCTURE;
   }
-  auto resource_desc = CD3DX12_RESOURCE_DESC1::Buffer(desc.size, flags);
+
+  ret.desc.flags     = flags;
+  auto resource_desc = CD3DX12_RESOURCE_DESC1::Buffer(ret.desc.size, flags);
 
   HASSERT(
-    device->d3d12->CreatePlacedResource2(
+    g_GpuDevice->d3d12->CreatePlacedResource2(
       allocation.d3d12_heap,
       allocation.offset,
       &resource_desc,
@@ -1423,6 +1426,22 @@ alloc_gpu_buffer(
   return ret;
 }
 
+GpuBuffer
+alloc_gpu_buffer(
+  const GpuDevice* device,
+  GpuAllocHeap heap,
+  GpuBufferDesc desc,
+  const char* name
+) {
+  // TODO(bshihabi): Just delete this
+  UNREFERENCED_PARAMETER(device);
+  // NOTE(Brandon): For simplicity's sake of CBVs, I just align all the sizes to 256.
+  desc.size = ALIGN_POW2(desc.size, 256);
+
+  GpuAllocation allocation = GPU_HEAP_ALLOC(heap, desc.size, (u32)KiB(64));
+  return init_gpu_buffer(allocation, desc.size, name, desc.is_rt_bvh);
+}
+
 GpuRingBuffer
 alloc_gpu_ring_buffer_no_heap(AllocHeap heap, GpuBufferDesc desc, GpuHeapLocation location, const char* name)
 {
@@ -1432,6 +1451,22 @@ alloc_gpu_ring_buffer_no_heap(AllocHeap heap, GpuBufferDesc desc, GpuHeapLocatio
   ret.buffer        = alloc_gpu_buffer_no_heap(g_GpuDevice, desc, location, name);
   ret.fence         = init_gpu_fence();
   ret.queued_fences = init_ring_queue<GpuRingBuffer::GpuAllocationFence>(heap, desc.size / kMinimumAllocationSize);
+  ret.write         = 0;
+  ret.read          = 0;
+  ret.used          = 0;
+
+  return ret;
+}
+
+GpuRingBuffer
+alloc_gpu_ring_buffer(AllocHeap cpu_heap, GpuAllocHeap gpu_heap, u32 size, const char* name)
+{
+  static constexpr u32 kMinimumAllocationSize = 256;
+
+  GpuRingBuffer ret = {};
+  ret.buffer        = alloc_gpu_buffer(gpu_heap, size, name);
+  ret.fence         = init_gpu_fence();
+  ret.queued_fences = init_ring_queue<GpuRingBuffer::GpuAllocationFence>(cpu_heap, size / kMinimumAllocationSize);
   ret.write         = 0;
   ret.read          = 0;
   ret.used          = 0;
@@ -1717,7 +1752,7 @@ alloc_descriptor(DescriptorPool* pool)
   ret.cpu_handle.ptr = pool->cpu_start.ptr + offset;
   ret.gpu_handle     = None;
   ret.index          = index;
-  ret.type           = pool->type;
+  ret.heap_type           = pool->type;
 
   if (pool->gpu_start)
   {
@@ -1736,7 +1771,7 @@ alloc_table_descriptor(DescriptorPool* pool, u32 idx)
   ret.cpu_handle.ptr = pool->cpu_start.ptr + offset;
   ret.gpu_handle     = None;
   ret.index          = idx;
-  ret.type           = pool->type;
+  ret.heap_type           = pool->type;
 
   if (pool->gpu_start)
   {
@@ -1771,7 +1806,8 @@ alloc_descriptor(DescriptorLinearAllocator* allocator)
     ret.gpu_handle = D3D12_GPU_DESCRIPTOR_HANDLE{unwrap(allocator->gpu_start).ptr + offset};
   }
 
-  ret.type = allocator->type;
+  ret.heap_type = allocator->type;
+  ret.use_type  = kDescriptorTypeNull;
 
   return ret;
 }
@@ -1780,7 +1816,7 @@ alloc_descriptor(DescriptorLinearAllocator* allocator)
 void
 init_rtv(GpuDescriptor* descriptor, const GpuTexture* texture)
 {
-  ASSERT(descriptor->type == kDescriptorHeapTypeRtv);
+  ASSERT(descriptor->heap_type == kDescriptorHeapTypeRtv);
 
   g_GpuDevice->d3d12->CreateRenderTargetView(
     texture->d3d12_texture,
@@ -1788,13 +1824,15 @@ init_rtv(GpuDescriptor* descriptor, const GpuTexture* texture)
     descriptor->cpu_handle
   );
 
+  descriptor->use_type = kDescriptorTypeRtv;
+
 }
 
 void
 init_dsv(GpuDescriptor* descriptor, const GpuTexture* texture)
 {
   ASSERT(is_depth_format(texture->desc.format));
-  ASSERT(descriptor->type == kDescriptorHeapTypeDsv);
+  ASSERT(descriptor->heap_type == kDescriptorHeapTypeDsv);
 
   D3D12_DEPTH_STENCIL_VIEW_DESC desc;
   desc.Texture2D.MipSlice = 0;
@@ -1806,6 +1844,8 @@ init_dsv(GpuDescriptor* descriptor, const GpuTexture* texture)
     &desc,
     descriptor->cpu_handle
   );
+
+  descriptor->use_type = kDescriptorTypeDsv;
 }
 
 void
@@ -1814,7 +1854,7 @@ init_buffer_srv(
   const GpuBuffer* buffer,
   const GpuBufferSrvDesc& desc
 ) {
-  ASSERT(descriptor->type == kDescriptorHeapTypeCbvSrvUav);
+  ASSERT(descriptor->heap_type == kDescriptorHeapTypeCbvSrvUav);
   D3D12_SHADER_RESOURCE_VIEW_DESC srv = {0};
   srv.Buffer.FirstElement        = desc.first_element;
   srv.Buffer.NumElements         = desc.num_elements;
@@ -1825,6 +1865,8 @@ init_buffer_srv(
   srv.Shader4ComponentMapping    = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 
   g_GpuDevice->d3d12->CreateShaderResourceView(buffer->d3d12_buffer, &srv, descriptor->cpu_handle);
+
+  descriptor->use_type = kDescriptorTypeSrv;
 }
 
 static bool
@@ -1839,7 +1881,7 @@ init_buffer_cbv(
   const GpuBuffer* buffer,
   const GpuBufferCbvDesc& desc
 ) {
-  ASSERT(descriptor->type == kDescriptorHeapTypeCbvSrvUav);
+  ASSERT(descriptor->heap_type == kDescriptorHeapTypeCbvSrvUav);
   ASSERT(buffer_is_aligned(buffer, 256, desc.buffer_offset));
   ASSERT(desc.size <= U32_MAX);
 
@@ -1847,6 +1889,8 @@ init_buffer_cbv(
   cbv.BufferLocation = buffer->gpu_addr + desc.buffer_offset;
   cbv.SizeInBytes    = (u32)ALIGN_POW2(desc.size, 256);
   g_GpuDevice->d3d12->CreateConstantBufferView(&cbv, descriptor->cpu_handle);
+
+  descriptor->use_type = kDescriptorTypeCbv;
 }
 
 void
@@ -1855,7 +1899,7 @@ init_buffer_uav(
   const GpuBuffer* buffer,
   const GpuBufferUavDesc& desc
 ) {
-  ASSERT(descriptor->type == kDescriptorHeapTypeCbvSrvUav);
+  ASSERT(descriptor->heap_type == kDescriptorHeapTypeCbvSrvUav);
   ASSERT_MSG_FATAL(desc.counter_offset == 0, "Counter is non zero! Did you mean to use init_buffer_counted_uav", D3D12_UAV_COUNTER_PLACEMENT_ALIGNMENT);
 
   D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {0};
@@ -1867,6 +1911,8 @@ init_buffer_uav(
   uav.Format                      = desc.is_raw ? DXGI_FORMAT_R32_TYPELESS : gpu_format_to_d3d12(desc.format);
   uav.ViewDimension               = D3D12_UAV_DIMENSION_BUFFER;
   g_GpuDevice->d3d12->CreateUnorderedAccessView(buffer->d3d12_buffer, nullptr, &uav, descriptor->cpu_handle);
+
+  descriptor->use_type = kDescriptorTypeUav;
 }
 
 void
@@ -1876,7 +1922,7 @@ init_buffer_counted_uav(
   const GpuBuffer*        counter,
   const GpuBufferUavDesc& desc
 ) {
-  ASSERT(descriptor->type == kDescriptorHeapTypeCbvSrvUav);
+  ASSERT(descriptor->heap_type == kDescriptorHeapTypeCbvSrvUav);
   ASSERT_MSG_FATAL((desc.counter_offset % D3D12_UAV_COUNTER_PLACEMENT_ALIGNMENT) == 0, "Counter offset must be aligned to %u bytes", D3D12_UAV_COUNTER_PLACEMENT_ALIGNMENT);
   ASSERT_MSG_FATAL(desc.format == kGpuFormatUnknown, "Counter UAV buffers must have an unknown format!");
   ASSERT_MSG_FATAL(desc.stride > 0,                  "Counter UAVs must have a stride in the buffer!");
@@ -1891,12 +1937,14 @@ init_buffer_counted_uav(
   uav.Format                      = DXGI_FORMAT_UNKNOWN;
   uav.ViewDimension               = D3D12_UAV_DIMENSION_BUFFER;
   g_GpuDevice->d3d12->CreateUnorderedAccessView(buffer->d3d12_buffer, counter->d3d12_buffer, &uav, descriptor->cpu_handle);
+
+  descriptor->use_type = kDescriptorTypeUav;
 }
 
 void
 init_texture_srv(GpuDescriptor* descriptor, const GpuTexture* texture, GpuTextureSrvDesc desc)
 {
-  ASSERT(descriptor->type == kDescriptorHeapTypeCbvSrvUav);
+  ASSERT(descriptor->heap_type == kDescriptorHeapTypeCbvSrvUav);
   ASSERT(texture->desc.array_size >= 1);
 
   // Reasonable default to just follow what the texture says
@@ -1930,12 +1978,14 @@ init_texture_srv(GpuDescriptor* descriptor, const GpuTexture* texture, GpuTextur
   }
 
   g_GpuDevice->d3d12->CreateShaderResourceView(texture->d3d12_texture, &srv, descriptor->cpu_handle);   
+
+  descriptor->use_type = kDescriptorTypeSrv;
 }
 
 void
 init_texture_uav(GpuDescriptor* descriptor, const GpuTexture* texture, const GpuTextureUavDesc& desc)
 {
-  ASSERT(descriptor->type == kDescriptorHeapTypeCbvSrvUav);
+  ASSERT(descriptor->heap_type == kDescriptorHeapTypeCbvSrvUav);
   ASSERT_MSG_FATAL(desc.mip_slice < texture->desc.mip_levels, "Mip slice %u out of bounds for texture 0x%llx with %u mips!", desc.mip_slice, texture->d3d12_texture, texture->desc.mip_levels);
 
   D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {0};
@@ -1954,25 +2004,14 @@ init_texture_uav(GpuDescriptor* descriptor, const GpuTexture* texture, const Gpu
     uav.Texture2D.PlaneSlice           = 0;
   }
   g_GpuDevice->d3d12->CreateUnorderedAccessView(texture->d3d12_texture, nullptr, &uav, descriptor->cpu_handle);
-}
 
-void
-init_bvh_srv(GpuDescriptor* descriptor, const GpuBvh* bvh)
-{
-  ASSERT(descriptor->type == kDescriptorHeapTypeCbvSrvUav);
-
-  D3D12_SHADER_RESOURCE_VIEW_DESC desc = {0};
-  desc.ViewDimension = D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE;
-  desc.RaytracingAccelerationStructure.Location = bvh->tlas.gpu_addr;
-  desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-
-  g_GpuDevice->d3d12->CreateShaderResourceView(nullptr, &desc, descriptor->cpu_handle);
+  descriptor->use_type = kDescriptorTypeUav;
 }
 
 void
 init_bvh_srv(GpuDescriptor* descriptor, const GpuRtTlas* tlas)
 {
-  ASSERT(descriptor->type == kDescriptorHeapTypeCbvSrvUav);
+  ASSERT(descriptor->heap_type == kDescriptorHeapTypeCbvSrvUav);
 
   D3D12_SHADER_RESOURCE_VIEW_DESC desc = {0};
   desc.ViewDimension                            = D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE;
@@ -1980,6 +2019,8 @@ init_bvh_srv(GpuDescriptor* descriptor, const GpuRtTlas* tlas)
   desc.Shader4ComponentMapping                  = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 
   g_GpuDevice->d3d12->CreateShaderResourceView(nullptr, &desc, descriptor->cpu_handle);
+
+  descriptor->use_type = kDescriptorTypeSrv;
 }
 
 
@@ -2415,6 +2456,7 @@ alloc_back_buffers_from_swap_chain(
     HASSERT(swap_chain->d3d12_swap_chain->GetBuffer(i, IID_PPV_ARGS(&back_buffers[i]->d3d12_texture)));
     back_buffers[i]->desc   = desc;
     back_buffers[i]->layout = kGpuTextureLayoutGeneral;
+    back_buffers[i]->d3d12_texture->SetName(L"Back Buffer");
   }
 }
 
@@ -2520,7 +2562,7 @@ destroy_swap_chain(SwapChain* swap_chain)
 }
 
 
-const GpuTexture*
+GpuTexture*
 swap_chain_acquire(SwapChain* swap_chain)
 {
   u32 index = swap_chain->back_buffer_index;
@@ -3001,22 +3043,34 @@ gpu_memory_barrier(CmdList* cmd)
 }
 
 void
-gpu_texture_layout_transition(CmdList* cmd, GpuTexture* texture, GpuTextureLayout layout)
+gpu_texture_layout_transition(CmdList* cmd, GpuTexture* texture, GpuTextureLayout layout, GpuTextureLoadOp load_op)
 {
   D3D12_TEXTURE_BARRIER barrier;
   barrier.SyncBefore                        = D3D12_BARRIER_SYNC_ALL;
   barrier.SyncAfter                         = D3D12_BARRIER_SYNC_ALL;
   barrier.AccessBefore                      = D3D12_BARRIER_ACCESS_COMMON;
-  barrier.AccessAfter                       = D3D12_BARRIER_ACCESS_COMMON;
+  switch (layout)
+  {
+    case kGpuTextureLayoutGeneral:         barrier.AccessAfter = D3D12_BARRIER_ACCESS_COMMON;               break;
+    case kGpuTextureLayoutShaderResource:  barrier.AccessAfter = D3D12_BARRIER_ACCESS_COMMON;               break;
+    case kGpuTextureLayoutUnorderedAccess: barrier.AccessAfter = D3D12_BARRIER_ACCESS_UNORDERED_ACCESS;     break;
+    case kGpuTextureLayoutRenderTarget:    barrier.AccessAfter = D3D12_BARRIER_ACCESS_RENDER_TARGET;        break;
+    case kGpuTextureLayoutDepthStencil:    barrier.AccessAfter = D3D12_BARRIER_ACCESS_DEPTH_STENCIL_WRITE;  break;
+    case kGpuTextureLayoutDiscard:         barrier.AccessAfter = D3D12_BARRIER_ACCESS_NO_ACCESS;            break;
+    default: UNREACHABLE;
+  }
   barrier.LayoutBefore                      = gpu_texture_layout_to_d3d12(texture->layout);
   barrier.LayoutAfter                       = gpu_texture_layout_to_d3d12(layout);
   barrier.pResource                         = texture->d3d12_texture;
-  barrier.Subresources.IndexOrFirstMipLevel = 0;
-  barrier.Subresources.NumMipLevels         = 1;
-  barrier.Subresources.FirstArraySlice      = 0;
-  barrier.Subresources.NumArraySlices       = texture->desc.array_size;
-  barrier.Subresources.FirstPlane           = 0;
-  barrier.Subresources.NumPlanes            = 0;
+  barrier.Flags                             = D3D12_TEXTURE_BARRIER_FLAG_NONE;
+  barrier.Subresources                      = CD3DX12_BARRIER_SUBRESOURCE_RANGE(0xffffffff);
+
+  if (load_op == kGpuTextureLoadOpDiscard)
+  {
+    barrier.LayoutBefore = gpu_texture_layout_to_d3d12(kGpuTextureLayoutDiscard);
+    barrier.AccessBefore = D3D12_BARRIER_ACCESS_NO_ACCESS;
+    barrier.Flags       |= D3D12_TEXTURE_BARRIER_FLAG_DISCARD;
+  }
 
   D3D12_BARRIER_GROUP group;
   group.Type             = D3D12_BARRIER_TYPE_TEXTURE;
@@ -3026,6 +3080,182 @@ gpu_texture_layout_transition(CmdList* cmd, GpuTexture* texture, GpuTextureLayou
   cmd->d3d12_list->Barrier(1, &group);
 
   texture->layout = layout;
+}
+
+void
+gpu_bind_root_srv(CmdList* cmd, u32 idx, const GpuBuffer&  buffer)
+{
+  gpu_memory_barrier(cmd);
+  cmd->d3d12_list->SetGraphicsRootShaderResourceView(idx, buffer.gpu_addr);
+  cmd->d3d12_list->SetComputeRootShaderResourceView (idx, buffer.gpu_addr);
+}
+
+void
+gpu_bind_root_constants(CmdList* cmd, u32 idx, const u32* constants, u32 count)
+{
+  cmd->d3d12_list->SetGraphicsRoot32BitConstants(idx, count, constants, 0);
+  cmd->d3d12_list->SetComputeRoot32BitConstants (idx, count, constants, 0);
+}
+
+void
+gpu_bind_graphics_pso(CmdList* cmd, const GraphicsPSO& pso)
+{
+  // Hot reloads need to be handled carefully here...
+  if (pso.desc.vertex_shader->generation != pso.vertex_shader_generation || pso.desc.pixel_shader->generation != pso.pixel_shader_generation)
+  {
+    // Not sure if there is a nicer way of handling this other than const_cast
+    // In general it's only an issue for development builds so this entire bit of code
+    // will just go away so I think it's okay.
+    reload_graphics_pipeline(const_cast<GraphicsPSO*>(&pso));
+  }
+  cmd->d3d12_list->SetPipelineState(pso.d3d12_pso);
+}
+
+void
+gpu_bind_compute_pso(CmdList* cmd, const ComputePSO& pso)
+{
+  // Hot reloads need to be handled carefully here...
+  if (pso.compute_shader->generation != pso.compute_shader_generation)
+  {
+    // Not sure if there is a nicer way of handling this other than const_cast
+    // In general it's only an issue for development builds so this entire bit of code
+    // will just go away so I think it's okay.
+    reload_compute_pipeline(const_cast<ComputePSO*>(&pso));
+  }
+  cmd->d3d12_list->SetPipelineState(pso.d3d12_pso);
+}
+
+void
+gpu_dispatch(CmdList* cmd, u32 x, u32 y, u32 z)
+{
+  cmd->d3d12_list->Dispatch(x, y, z);
+}
+
+void
+gpu_draw_instanced(CmdList* cmd, u32 vertex_count_per_instance, u32 instance_count, u32 start_vertex_location, u32 start_instance_location)
+{
+  cmd->d3d12_list->DrawInstanced(vertex_count_per_instance, instance_count, start_vertex_location, start_instance_location);
+}
+
+void
+gpu_draw_indexed_instanced(CmdList* cmd, u32 index_count_per_instance, u32 instance_count, u32 start_index_location, s32 base_vertex_location, u32 start_instance_location)
+{
+  cmd->d3d12_list->DrawIndexedInstanced(
+    index_count_per_instance,
+    instance_count,
+    start_index_location,
+    base_vertex_location,
+    start_instance_location
+  );
+}
+
+void
+gpu_clear_render_target(CmdList* cmd, const GpuDescriptor* rtv, const Vec4& clear_color)
+{
+  cmd->d3d12_list->ClearRenderTargetView(rtv->cpu_handle, (const f32*)&clear_color.r, 0, nullptr);
+}
+
+void
+gpu_set_viewports(CmdList* cmd, f32 left, f32 top, f32 width, f32 height)
+{
+  auto viewport = CD3DX12_VIEWPORT(left, top, width, height);
+  cmd->d3d12_list->RSSetViewports(1, &viewport);
+  auto rect = CD3DX12_RECT(0, 0, S32_MAX, S32_MAX);
+  cmd->d3d12_list->RSSetScissorRects(1, &rect);
+}
+
+void
+gpu_set_scissor_rect(CmdList* cmd, s32 left, s32 top, s32 right, s32 bottom)
+{
+  auto rect = CD3DX12_RECT(left, top, right, bottom);
+  cmd->d3d12_list->RSSetScissorRects(1, &rect);
+}
+
+void
+gpu_clear_depth_stencil(CmdList* cmd, const GpuDescriptor* dsv, DepthStencilClearFlags flags, f32 depth, u8 stencil)
+{
+  D3D12_CLEAR_FLAGS d3d12_flags = (D3D12_CLEAR_FLAGS)0;
+  if (flags & kClearDepth)   d3d12_flags |= D3D12_CLEAR_FLAG_DEPTH;
+  if (flags & kClearStencil) d3d12_flags |= D3D12_CLEAR_FLAG_STENCIL;
+  cmd->d3d12_list->ClearDepthStencilView(dsv->cpu_handle, d3d12_flags, depth, stencil, 0, nullptr);
+}
+
+void
+gpu_ia_set_primitive_topology(CmdList* cmd, D3D12_PRIMITIVE_TOPOLOGY topology)
+{
+  cmd->d3d12_list->IASetPrimitiveTopology(topology);
+}
+
+void
+gpu_ia_set_index_buffer(CmdList* cmd, const GpuBuffer* buffer, u32 stride, u32 size)
+{
+  D3D12_INDEX_BUFFER_VIEW view    = {};
+  view.BufferLocation             = buffer->gpu_addr;
+  view.SizeInBytes                = size ? size : buffer->desc.size;
+  view.Format                     = stride == 2 ? DXGI_FORMAT_R16_UINT : DXGI_FORMAT_R32_UINT;
+  cmd->d3d12_list->IASetIndexBuffer(&view);
+}
+
+void
+gpu_multi_draw_indirect_indexed(
+  CmdList*         cmd,
+  const GpuBuffer* args_buffer,
+  const GpuBuffer* count_buffer,
+  u64              args_offset,
+  u32              max_draw_count
+) {
+  cmd->d3d12_list->ExecuteIndirect(
+    g_GpuDevice->d3d12_multi_draw_indirect_indexed_signature,
+    max_draw_count,
+    args_buffer->d3d12_buffer,
+    args_offset,
+    count_buffer ? count_buffer->d3d12_buffer : nullptr,
+    0
+  );
+}
+
+void
+gpu_multi_draw_indirect(
+  CmdList*         cmd,
+  const GpuBuffer* args_buffer,
+  const GpuBuffer* count_buffer,
+  u64              args_offset,
+  u32              max_draw_count
+) {
+  cmd->d3d12_list->ExecuteIndirect(
+    g_GpuDevice->d3d12_multi_draw_indirect_signature,
+    max_draw_count,
+    args_buffer->d3d12_buffer,
+    args_offset,
+    count_buffer ? count_buffer->d3d12_buffer : nullptr,
+    0
+  );
+}
+
+void
+gpu_bind_render_targets(CmdList* cmd, const GpuDescriptor* rtvs, u32 rtv_count, Option<GpuDescriptor> dsv)
+{
+  D3D12_CPU_DESCRIPTOR_HANDLE cpu_handles[kMaxRenderTargetCount];
+
+  for (u32 irtv = 0; irtv < rtv_count; irtv++)
+  {
+    cpu_handles[irtv] = rtvs[irtv].cpu_handle;
+  }
+
+  if (dsv)
+  {
+    cmd->d3d12_list->OMSetRenderTargets(rtv_count, cpu_handles, FALSE, &unwrap(dsv).cpu_handle);
+  }
+  else
+  {
+    cmd->d3d12_list->OMSetRenderTargets(rtv_count, cpu_handles, FALSE, nullptr);
+  }
+}
+
+void
+gpu_bind_descriptor_heap(CmdList* cmd, const DescriptorLinearAllocator* heap)
+{
+  cmd->d3d12_list->SetDescriptorHeaps(1, &heap->d3d12_heap);
 }
 
 void
@@ -3039,6 +3269,7 @@ init_imgui_ctx(
 
   IMGUI_CHECKVERSION();
   ImGui::CreateContext();
+  ImPlot::CreateContext();
   ImGuiIO* io = &ImGui::GetIO();
   io->ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 

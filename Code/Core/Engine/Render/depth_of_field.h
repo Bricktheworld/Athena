@@ -1,9 +1,6 @@
 #pragma once
-#include "Core/Engine/Render/render_graph.h"
+#include "Core/Engine/Render/renderer.h"
 
-RgHandle<GpuTexture> init_depth_of_field(
-  AllocHeap heap,
-  RgBuilder* builder,
-  RgHandle<GpuTexture> depth_buffer,
-  RgHandle<GpuTexture> taa_buffer
-);
+void render_handler_dof_generate_coc(const RenderEntry* entries, u32 entry_count);
+void render_handler_dof_bokeh_blur   (const RenderEntry* entries, u32 entry_count);
+void render_handler_dof_composite    (const RenderEntry* entries, u32 entry_count);

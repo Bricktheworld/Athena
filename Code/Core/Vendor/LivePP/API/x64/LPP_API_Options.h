@@ -1,4 +1,4 @@
-// Copyright 2011-2023 Molecular Matters GmbH, all rights reserved.
+// Copyright 2011-2025 Molecular Matters GmbH, all rights reserved.
 
 #pragma once
 
@@ -23,10 +23,16 @@ typedef enum LppModulesOption
 	LPP_MODULES_OPTION_ALL_IMPORT_MODULES
 } LppModulesOption;
 
+typedef enum LppReloadOption
+{
+	LPP_RELOAD_OPTION_SYNCHRONIZE_WITH_COMPILATION_AND_RELOAD,		// synchronize with compilation and hot-reload, enters WantsReload() before compilation is about to start
+	LPP_RELOAD_OPTION_SYNCHRONIZE_WITH_RELOAD						// synchronize with hot-reload, enters WantsReload() before hot-reload is about to start
+} LppReloadOption;
+
 typedef enum LppReloadBehaviour
 {
-	LPP_RELOAD_BEHAVIOUR_CONTINUE_EXECUTION,
-	LPP_RELOAD_BEHAVIOUR_WAIT_UNTIL_CHANGES_ARE_APPLIED
+	LPP_RELOAD_BEHAVIOUR_CONTINUE_EXECUTION,						// continues execution
+	LPP_RELOAD_BEHAVIOUR_WAIT_UNTIL_CHANGES_ARE_APPLIED				// waits until the hot-reload operation has finished
 } LppReloadBehaviour;
 
 typedef enum LppRestartOption

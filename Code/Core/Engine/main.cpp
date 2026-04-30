@@ -13,7 +13,6 @@
 
 #include "Core/Engine/Render/graphics.h"
 #include "Core/Engine/Render/renderer.h"
-#include "Core/Engine/Render/render_graph.h"
 #include "Core/Engine/Render/misc.h"
 
 
@@ -250,12 +249,12 @@ application_entry(HINSTANCE instance, int show_code)
   {
     if (lpp_is_valid)
     {
-      if (lpp_agent.WantsReload())
+      if (lpp_agent.WantsReload(lpp::LPP_RELOAD_OPTION_SYNCHRONIZE_WITH_COMPILATION_AND_RELOAD))
       {
         dbgln("Live++ Hot Reloading...");
         wait_for_gpu_device_idle(g_GpuDevice);
 
-        lpp_agent.CompileAndReloadChanges(lpp::LPP_RELOAD_BEHAVIOUR_WAIT_UNTIL_CHANGES_ARE_APPLIED);
+        lpp_agent.Reload(lpp::LPP_RELOAD_BEHAVIOUR_WAIT_UNTIL_CHANGES_ARE_APPLIED);
 
         renderer_on_resize(&g_MainWindow->swap_chain);
 
@@ -266,7 +265,7 @@ application_entry(HINSTANCE instance, int show_code)
       if (lpp_agent.WantsRestart())
       {
         dbgln("Live++ Requested Restart, Terminating...");
-        lpp_agent.Restart(lpp::LPP_RESTART_BEHAVIOUR_INSTANT_TERMINATION, 0u);
+        lpp_agent.Restart(lpp::LPP_RESTART_BEHAVIOUR_INSTANT_TERMINATION, 0u, nullptr);
       }
     }
 
@@ -315,7 +314,7 @@ application_entry(HINSTANCE instance, int show_code)
 
     u64 effective_cpu_start_time = begin_cpu_profiler_timestamp();
 
-    const GpuTexture* back_buffer = swap_chain_acquire(&g_MainWindow->swap_chain);
+    GpuTexture* back_buffer = swap_chain_acquire(&g_MainWindow->swap_chain);
 
     MSG message;
     while (PeekMessageW(&message, 0, 0, 0, PM_REMOVE))
@@ -391,10 +390,12 @@ application_entry(HINSTANCE instance, int show_code)
     if (done)
       break;
 
-    execute_render_graph(back_buffer, g_Renderer.settings);
+    ViewCtx* main_view = submit_scene(&g_MainWindow->swap_chain, back_buffer);
+    render_view_ctx(main_view);
     g_CpuEffectiveTime = end_cpu_profiler_timestamp(effective_cpu_start_time);
 
     swap_chain_submit(&g_MainWindow->swap_chain, g_GpuDevice, back_buffer);
+    g_FrameId++;
   }
 
   lpp::LppDestroySynchronizedAgent(&lpp_agent);

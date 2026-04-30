@@ -202,18 +202,6 @@ dynamic_scene_obj_attach_render_model(SceneObjHandle handle, ModelHandle model, 
   obj->needs_rt_upload                = true;
 }
 
-// TODO(bshihabi): I don't love this, I wish there was a better way to manage the maximum number of uploads per frame
-// so that we could handle high stream loads without having to constantly have this bit of memory
-static constexpr u64 kUploadBufferSize = MiB(4);
-
-struct SceneGpuUploadParams
-{
-  RgCpuUploadBuffer upload_buffer;
-  RgCopyDst         material_buffer;
-  RgCopyDst         scene_obj_buffer;
-  RgCopyDst         rt_obj_buffer;
-};
-
 static u32
 pick_subset_lod(const Vec3& ws_camera, const Mat4& proj, const ModelSubset* subset)
 {
@@ -240,12 +228,17 @@ pick_subset_lod(const Vec3& ws_camera, const Mat4& proj, const ModelSubset* subs
   return ret;
 }
 
-static void
-render_handler_scene_gpu_upload(RenderContext* ctx, const RenderSettings&, const void* data)
+void 
+render_handler_scene_upload(const RenderEntry* entries, u32 count)
 {
-  SceneGpuUploadParams* params   = (SceneGpuUploadParams*)data;
+  // TODO(bshihabi): We should handle this stuff earlier before the render handler I think, that would make more sense
+  // and then we can just send all of the entries at once to the handler
+  UNREFERENCED_PARAMETER(entries);
+  UNREFERENCED_PARAMETER(count);
 
-  u64 offset = 0;
+  const StructuredBuffer<SceneObjGpu>& scene_obj_buffer = g_RenderHandlerState.buffers.scene_obj_buffer;
+  const StructuredBuffer<RtObjGpu>&    rt_obj_buffer    = g_RenderHandlerState.buffers.rt_obj_buffer;
+  const GpuBuffer&                     upload_buffer           = g_RenderHandlerState.buffers.upload_buffer.buffer;
 
   auto fill_scene_obj_gpu = [](SceneObjGpu* dst, SceneObj* src) -> bool
   {
@@ -334,12 +327,6 @@ render_handler_scene_gpu_upload(RenderContext* ctx, const RenderSettings&, const
 
   for (u32 iscene_obj = 0; iscene_obj < kMaxDynamicSceneObjs; iscene_obj++)
   {
-    if (offset >= kUploadBufferSize)
-    {
-      dbgln("Warning: uploaded buffer maxed at 0x%x for frame %u Gpu Scene upload. Consider bumping `kUploadBufferSize`", kUploadBufferSize, g_FrameId, kUploadBufferSize);
-      break;
-    }
-
     if (!bit_is_allocated(g_Scene->dynamic_scene_obj_allocator, iscene_obj))
     {
       continue;
@@ -351,10 +338,9 @@ render_handler_scene_gpu_upload(RenderContext* ctx, const RenderSettings&, const
       SceneObjGpu obj_gpu;
       if (fill_scene_obj_gpu(&obj_gpu, obj))
       {
-        ctx->write_cpu_upload_buffer(params->upload_buffer, &obj_gpu, sizeof(obj_gpu), offset);
-        ctx->copy_buffer(params->scene_obj_buffer, sizeof(SceneObjGpu) * obj->gpu_id, params->upload_buffer, offset, sizeof(obj_gpu));
-
-        offset += sizeof(SceneObjGpu);
+        GpuStagingAllocation upload_alloc = gpu_alloc_staging_bytes(&g_RenderHandlerState.cmd_list, sizeof(obj_gpu));
+        memcpy(upload_alloc.cpu_dst, &obj_gpu, sizeof(obj_gpu));
+        gpu_copy_buffer(&g_RenderHandlerState.cmd_list, scene_obj_buffer.buffer, sizeof(SceneObjGpu) * obj->gpu_id, upload_buffer, upload_alloc.gpu_offset, sizeof(obj_gpu));
       }
 
     }
@@ -364,21 +350,14 @@ render_handler_scene_gpu_upload(RenderContext* ctx, const RenderSettings&, const
       RtObjGpu obj_gpu;
       fill_rt_obj_gpu(&obj_gpu, obj);
 
-      ctx->write_cpu_upload_buffer(params->upload_buffer, &obj_gpu, sizeof(obj_gpu), offset);
-      ctx->copy_buffer(params->rt_obj_buffer, sizeof(RtObjGpu) * obj->gpu_id, params->upload_buffer, offset, sizeof(obj_gpu));
-
-      offset += sizeof(RtObjGpu);
+      GpuStagingAllocation upload_alloc = gpu_alloc_staging_bytes(&g_RenderHandlerState.cmd_list, sizeof(obj_gpu));
+      memcpy(upload_alloc.cpu_dst, &obj_gpu, sizeof(obj_gpu));
+      gpu_copy_buffer(&g_RenderHandlerState.cmd_list, rt_obj_buffer.buffer, sizeof(RtObjGpu) * obj->gpu_id, upload_buffer, upload_alloc.gpu_offset, sizeof(obj_gpu));
     }
   }
 
   for (u32 iscene_obj = 0; iscene_obj < kMaxStaticSceneObjs; iscene_obj++)
   {
-    if (offset >= kUploadBufferSize)
-    {
-      dbgln("Warning: uploaded buffer maxed at 0x%x for frame %u Gpu Scene upload. Consider bumping `kUploadBufferSize`", kUploadBufferSize, g_FrameId, kUploadBufferSize);
-      break;
-    }
-
     if (!bit_is_allocated(g_Scene->static_scene_obj_allocator, iscene_obj))
     {
       continue;
@@ -399,10 +378,9 @@ render_handler_scene_gpu_upload(RenderContext* ctx, const RenderSettings&, const
       SceneObjGpu obj_gpu;
       if (fill_scene_obj_gpu(&obj_gpu, obj))
       {
-        ctx->write_cpu_upload_buffer(params->upload_buffer, &obj_gpu, sizeof(obj_gpu), offset);
-        ctx->copy_buffer(params->scene_obj_buffer, sizeof(SceneObjGpu) * obj->gpu_id, params->upload_buffer, offset, sizeof(obj_gpu));
-
-        offset += sizeof(SceneObjGpu);
+        GpuStagingAllocation upload_alloc = gpu_alloc_staging_bytes(&g_RenderHandlerState.cmd_list, sizeof(obj_gpu));
+        memcpy(upload_alloc.cpu_dst, &obj_gpu, sizeof(obj_gpu));
+        gpu_copy_buffer(&g_RenderHandlerState.cmd_list, scene_obj_buffer.buffer, sizeof(SceneObjGpu) * obj->gpu_id, upload_buffer, upload_alloc.gpu_offset, sizeof(obj_gpu));
       }
     }
 
@@ -410,111 +388,50 @@ render_handler_scene_gpu_upload(RenderContext* ctx, const RenderSettings&, const
     {
       RtObjGpu obj_gpu;
       fill_rt_obj_gpu(&obj_gpu, obj);
-      ctx->write_cpu_upload_buffer(params->upload_buffer, &obj_gpu, sizeof(obj_gpu), offset);
-      ctx->copy_buffer(params->rt_obj_buffer, sizeof(RtObjGpu) * obj->gpu_id, params->upload_buffer, offset, sizeof(obj_gpu));
 
-      offset += sizeof(RtObjGpu);
+      GpuStagingAllocation upload_alloc = gpu_alloc_staging_bytes(&g_RenderHandlerState.cmd_list, sizeof(obj_gpu));
+      memcpy(upload_alloc.cpu_dst, &obj_gpu, sizeof(obj_gpu));
+      gpu_copy_buffer(&g_RenderHandlerState.cmd_list, rt_obj_buffer.buffer, sizeof(RtObjGpu) * obj->gpu_id, upload_buffer, upload_alloc.gpu_offset, sizeof(obj_gpu));
     }
   }
 }
 
-struct SceneTlasFillInstancesParams
+void
+render_handler_build_tlas(const RenderEntry*, u32)
 {
-  ComputePSO pso;
-  RgRWStructuredBufferCounted<D3D12RaytracingInstanceDesc> instances;
-};
-
-static void
-render_handler_fill_tlas_instances(RenderContext* ctx, const RenderSettings&, const void* data)
-{
-  SceneTlasFillInstancesParams* params = (SceneTlasFillInstancesParams*)data;
-
-  ctx->clear_uav_u32(params->instances.m_Counter, 0, 1);
-
-  RtBuildTlasSrt srt;
-  srt.scene_obj_count      = kMaxSceneObjs;
-  srt.tlas_instance_descs  = params->instances;
-
-  ctx->compute_bind_srt(srt);
-  ctx->set_compute_pso(&params->pso);
-  ctx->dispatch(ALIGN_POW2(kMaxSceneObjs, 64) / 64, 1, 1);
-}
-
-struct BuildTlasParams
-{
-  RgStructuredBuffer<D3D12RaytracingInstanceDesc> instances;
-  RgRWRaytracingAccelerationStructure             dst;
-  RgRWBuffer<u32>                                 scratch;
-};
-
-static void
-render_handler_build_tlas(RenderContext* ctx, const RenderSettings&, const void* data)
-{
-  BuildTlasParams* params = (BuildTlasParams*)data;
-
-  u32 instance_count = g_Scene->gpu_scene_obj_allocator.allocated_count;
+  u32 instance_count = g_RenderHandlerState.settings.disable_ray_tracing ? 0 : g_Scene->gpu_scene_obj_allocator.allocated_count;
 
   // TODO(bshihabi): We really should have a nicer way of handling this
   static u32 s_PrevInstanceCount = UINT32_MAX;
 
+  const GpuRtTlas& tlas                = g_RenderHandlerState.buffers.rt_tlas;
+  const auto&      tlas_instance_descs = g_RenderHandlerState.buffers.rt_tlas_instances;
+  const GpuBuffer& scratch             = g_RenderHandlerState.buffers.tlas_scratch;
+
+  CmdList*         cmd                 = &g_RenderHandlerState.cmd_list;
+
+  gpu_clear_buffer_u32(cmd, {tlas_instance_descs.counter_uav.index}, 1, 0, 0);
+  gpu_memory_barrier(cmd);
+
+  RtBuildTlasSrt srt;
+  srt.scene_obj_count     = kMaxSceneObjs;
+  srt.tlas_instance_descs = tlas_instance_descs;
+  gpu_bind_compute_pso(cmd, kCS_RtTlasFillInstances);
+  gpu_bind_srt(cmd, srt);
+  gpu_dispatch(cmd, ALIGN_POW2(kMaxSceneObjs, 64) / 64, 1, 1);
+
+  gpu_memory_barrier(cmd);
+
   u32 build_flags = (instance_count == s_PrevInstanceCount) ? kGpuRtasBuildIncremental : 0;
-  ctx->build_tlas(params->dst, params->scratch, params->instances, instance_count, build_flags);
+  build_rt_tlas(cmd, tlas, tlas_instance_descs.buffer, instance_count, scratch, 0, build_flags);
+  if (build_flags == 0)
+  {
+    dbgln("Non-incremental build RT TLAS: %u", instance_count);
+  }
+
+  gpu_memory_barrier(cmd);
 
   s_PrevInstanceCount = instance_count;
-}
-
-
-SceneGpuResources
-init_scene_gpu_upload_pass(AllocHeap heap, RgBuilder* builder)
-{
-  SceneGpuResources ret;
-  // TODO(bshihabi): This should really be a ring buffer...
-  ret.upload_buffer          = rg_create_upload_buffer(builder, "Upload Buffer",       kGpuHeapSysRAMCpuToGpu, kUploadBufferSize);
-
-  ret.scene_obj_buffer       = rg_create_buffer(builder,        "Scene Object Buffer", sizeof(SceneObjGpu) * kMaxSceneObjs);
-  ret.rt_obj_buffer          = rg_create_buffer(builder,        "RT Object Buffer",    sizeof(RtObjGpu)    * kMaxSceneObjs);
-
-  RgHandleCountedBuffer tlas_instances    = rg_create_counted_buffer(builder, "TLAS instance Buffer", sizeof(D3D12RaytracingInstanceDesc) * kMaxSceneObjs);
-
-  u32                   tlas_scratch_size = 0;
-  RgHandle<GpuRtTlas>   tlas              = rg_create_tlas(builder, "TLAS", kMaxSceneObjs, &tlas_scratch_size);
-  RgHandle<GpuBuffer>   tlas_scratch      = rg_create_buffer(builder, "TLAS Scratch Buffer", tlas_scratch_size);
-
-
-  {
-    SceneGpuUploadParams* params = HEAP_ALLOC(SceneGpuUploadParams, g_InitHeap, 1);
-    RgPassBuilder*        pass   = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "Gpu Scene Upload", params, &render_handler_scene_gpu_upload);
-    params->upload_buffer        = RgCpuUploadBuffer(ret.upload_buffer);
-    params->scene_obj_buffer     = RgCopyDst(pass, &ret.scene_obj_buffer);
-    params->rt_obj_buffer        = RgCopyDst(pass, &ret.rt_obj_buffer);
-  }
-
-  // Bind the GRVs now that we're done modifying them
-  RgStructuredBuffer<SceneObjGpu>::bind_grv(heap, builder, kSceneObjBufferSlot, ret.scene_obj_buffer);
-  RgStructuredBuffer<RtObjGpu   >::bind_grv(heap, builder, kRtObjBufferSlot,    ret.rt_obj_buffer);
-
-  // Fill TLAS instance data
-  {
-    SceneTlasFillInstancesParams* params = HEAP_ALLOC(SceneTlasFillInstancesParams, g_InitHeap, 1);
-    RgPassBuilder*                pass   = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "Fill TLAS instance data", params, &render_handler_fill_tlas_instances);
-    params->pso                          = init_compute_pipeline(g_GpuDevice, get_engine_shader(kCS_RtTlasFillInstances), "CS_RtTlasFillInstances");
-    params->instances                    = RgRWStructuredBufferCounted<D3D12RaytracingInstanceDesc>(pass, &tlas_instances);
-
-  }
-
-  // Build the TLAS
-  {
-    BuildTlasParams*  params = HEAP_ALLOC(BuildTlasParams, g_InitHeap, 1);
-    RgPassBuilder*    pass   = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "Build TLAS", params,  &render_handler_build_tlas);
-    params->instances        = RgStructuredBuffer<D3D12RaytracingInstanceDesc>(pass, tlas_instances.buffer);
-    params->dst              = RgRWRaytracingAccelerationStructure(pass, &tlas);
-    params->scratch          = RgRWBuffer<u32>(pass, &tlas_scratch);
-  }
-
-  RgRaytracingAccelerationStructure::bind_grv(heap, builder, kRaytracingAccelerationStructureSlot, tlas);
-
-
-  return ret;
 }
 
 Camera*

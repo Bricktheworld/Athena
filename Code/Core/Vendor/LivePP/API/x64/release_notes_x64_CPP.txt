@@ -1,3 +1,476 @@
+2.11.2 - March 13, 2025
+=======================
+
+- Processes can now be disabled in the Processes view so that they don't participate in hot-reload or hot-restart.
+  Thanks to Resmi Hasankolli from Electronic Arts for suggesting this.
+
+- Fixed redundant message being shown when a license has expired.
+
+- Fixed an edge case where the scalar and vector deleting destructor alias each other in a way that renders Live++ unable to patch all relocations, leading to a crash.
+  Thanks to Alexander Torstling from Mojang for bringing this to our attention, and thank you to Radek Barton from Microsoft for providing background information.
+
+
+2.11.1 - December 5, 2025
+=========================
+
+- Fixed a crash in the debugger automation in the Bridge when retrieving a breakpoint from Visual Studio failed, which could potentially leave the Broker hanging.
+  Thanks to Cristina Constantin from Electronic Arts for reporting this and providing crash dumps.
+
+- Fixed a potential stack overflow in the scheduler's job system when loading hundreds of modules and their debug data in parallel.
+  Thanks to Alexandre Ganea from Haven Studios for reporting this.
+
+- When an exception is caught in the Bridge, a flashing Win32 message box is now shown and the process is immediately terminated afterwards to close all sockets to the Broker.
+
+- Made capturing the toolchain environment from vcvars*.bat work in cases where the Live++ Broker inherits an environment that already has the corresponding environment variables already set up, making the vcvars script fail internally.
+  Thanks to Tom Winter from Hello Games for reporting this.
+
+- Fixed spawning the compiler in case the toolchain environment was cached, but empty.
+
+- Fixed a bug where linking would fail for symbols which are only referenced through other COMDAT symbols, but make use of an /alternatename linker directive.
+  Thanks to Rainer Dreyer from Meta for reporting and helping with this.</p>
+
+
+2.11.0 - October 30, 2025
+=========================
+
+- Improved detection of file modifications when using virtual/projected file systems.
+  Thanks to Rainer Dreyer from Meta for the discussion on this.
+
+- Implemented dedicated support for PureDev Software 10x IDE.
+
+- When compiling any file, the module path the file belongs to will be set as environment variable for the invoked compiler process.
+  Thanks to Rainer Dreyer from Meta for the discussion on this.
+
+- Removed defunct link to SN-DBS from documentation.
+  Thank you to Simon Coenen from Guerrilla Games for reporting this.
+
+- Removed certain DbgHelp helper DLLs because they can cause massive slowdowns during symbol lookup in the exception handler.
+  Thanks to Olly Brabiner from Creative Assembly for reporting this.
+
+- Implemented hot-restart via the exception handler dialog.
+
+- Added note to exception handler dialog that makes it more clear that code can be hot-reloaded while the dialog is open.
+
+
+2.10.0 - September 23, 2025
+===========================
+
+- Fixed a rare crash caused by accessing a stale pointer returned from an internal cache.
+  When loading several modules concurrently, the cache needs to grow, invalidating existing pointers.
+
+- Added support for hot-deoptimizing files in Visual Studio and Rider which are included by unity files when unity splitting is turned off.
+  Thank you to Lázár Bence Kis from Warhorse Studios for reporting this.
+
+- Added support for overriding the compiler and linker working directory via the project preferences.
+
+- Added support for generic path remapping via the project preferences.
+  Thanks to Rainer Dreyer from Meta for the discussion on this.
+
+- Vastly reduced the required stack space for logging.
+  This could cause stack overflows when logging from user-created threads during automatic loading of modules.
+  Thanks to Alexandre Ganea from Haven Studios and Tom Bui from Valve for reporting this.
+
+- Fixed a bug where linking with lld-link would fail in case of a user-provided DllMain function.
+  Thanks to Alexander Torstling from Mojang for bringing this to our attention.
+
+- Fixed a bug where the internal attribute cache would be filled for paths which are not directories.
+  Thanks to Rainer Dreyer from Meta for providing more information on this.
+
+- Added more context surrounding certain error messages, especially when undocumented Windows functions used internally fail.
+  Thanks to Kirsty Tschirpig from Activision for bringing this to our attention.
+
+- Added support for long paths > MAX_PATH.
+  However, the used toolchain still needs to support these paths. clang-cl and lld-link do, while Visual Studio's cl and link do not.
+  Thanks to Rainer Dreyer from Meta for reporting this.
+
+- Optimized filling the internal attribute cache for duplicate directories, reducing contention.
+
+
+2.9.3 - July 8, 2025
+====================
+
+- Breaking change: -fstandalone-debug is no longer a required compiler option, since it can significantly increase debug information size
+  Instead, Live++ internally takes care of it.
+  Thank you to Simon Coenen from Guerrilla Games for reporting this.
+
+- Fixed a bug where the Broker would crash when unregistering an incomplete module that was loaded from different paths into different processes
+  Thanks to Tristan Bell and Neil Stewart from Electronic Arts for bringing this to our attention.
+
+- Greatly reduced contention when loading several modules in parallel
+  This vastly improves Broker loading times for applications that load hundreds of dynamic libraries, such as modular Unreal Engine builds.
+  Thank you to Henrik Karlsson from Epic Games for reporting this and helping with performance improvements.
+
+- Fixed a potentially endless loop in case the PDB path stored in the linker environment points to a path which is no longer available
+  Thanks to Tudor Fratean from Remedy Entertainment for bringing this to our attention.
+
+- Fixed a bug where symbols from PCHs being pulled in would not be reconstructed before attempting to strip existing symbols
+  Thank you to Davi Farhi from Asobo Studio for reporting this.
+
+- Fixed a bug where a non-matching candidate symbol would not be ignored correctly during symbol reconstruction, leading to ambiguities, causing existing symbols to not be recognized
+
+
+2.9.2 - June 2, 2025
+====================
+
+- Added safety net against corrupted IPI build info records in the PDB
+
+- When a source file cannot be found when deoptimizing a file, do not attempt to recompile it on future hot-reloads, unless its state is changed again
+
+- Fixed a bug where the Agent would abandon its receiver thread, but the Broker would not realize that the connection had broken down, possibly waiting for a message to arrive indefinitely
+
+- Fixed a bug where the toast notification would not always show the correct icon based on status
+
+- Fixed _IMAGE_DOS_HEADER typedef to exactly match the definition in the Windows headers
+  Thanks to Resmi Hasankolli from Electronic Arts for reporting this.
+
+
+2.9.1 - April 22, 2025
+======================
+
+- Implemented reconstruction of dynamic initializers whose mangled names contain an anonymous namespace identifier due to an MSVC compiler bug
+  Thanks to J-S Guay from Bethesda Game Studios for reporting this.
+
+- Fixed a regression where a patch failed to load in the +-2GB range because reserved pages of one module could overlap reserved pages of another registered module
+  Thank you to Morten Hilker-Skaaning from Remedy Entertainment for bringing this to our attention.
+
+- Fixed a Broker crash when trying to deoptimize a compiland for which the source file doesn't exist
+  Thank you to Raphaël Saint-Pierre from Ubisoft for reporting this.
+
+- Fixed a bug where object file data would be evicted from the cache while an internal data structure still had a reference to it, leading to unexpected behavior or crashes
+  Thanks to Benj Carson from Critical Path Games for reporting this and helping with debugging.
+
+
+2.9.0 - April 8, 2025
+=====================
+
+- Initial release of support for PlayStation 4
+
+- Initial release of support for Xbox One
+
+- Added localization for Japanese, Chinese, and Korean
+
+- Added timestamp, process command line, thread ID and thread name to exception handler dialog
+  Thanks to Sebastian Schöner from kerntief for suggesting this.
+
+- Completely reworked documentation to only use plain HTML & CSS, no Javascript or 3rd-party dependencies
+
+- Updated documentation to include -fstandalone-debug as required compiler option for Clang-cl and Clang++
+  Thank you to Daniel Castonguay from Ubisoft Montreal for bringing this to our attention.
+
+- Implemented handling of Clang's "EH CatchRet" symbol
+  Thanks to Jonathan Allard for reporting this issue.
+
+- Improved symbolication of callstacks in the exception handler, with improved error handling
+
+- Vastly improved handling of function static variables, especially in conjunction with the __LINE__ preprocessor macro
+  Due to how the compiler internally handles initialization of static block variables, function static variables would not get initialized properly when being renamed
+  Thanks to Alexander Torstling from Mojang for bringing this to our attention.
+
+- Fixed a bug where relocations to functions would not be redirected to the thunk inserted by the linker when linking with /INCREMENTAL, making function pointer equality tests fail after a hot-reload
+  Thank you to Tobias Sicheritz and Sergey Hakobyan from Mi'pu'mi Games, as well as Alexander Torstling from Mojang for reporting this.
+
+- Fixed a bug where reserved page regions would not be cleared correctly when a module was registered and then unregistered, without the Broker getting a chance to update its data structures in between
+  Thank you to Alexander Torstling from Mojang for reporting this issue.
+
+- Fixed a bug where multiple compiler processes spawned by the Broker would inherit the same stdout handle, leading to increased compile times during unity splitting
+  Thanks to Daniel Lobo from Mojang for bringing this to our attention, and special thanks to Ritesh Oedayrajsingh Varma from Superluminal for helping with debugging this issue.
+
+- Fixed a bug where internal data structures would store duplicates in case a unity file includes several translation units with the same filename, but from different directories
+
+- Fixed a bug where internal data structures would store duplicated compilands in case a translation unit appears more than once in the list of modules in a PDB
+  This can happen when several static libraries are linked into an executable using /WHOLEARCHIVE.
+
+- Fixed a bug where the Agent would hang while waiting for an action in the exception handler, in case the Broker was being terminated in the meantime
+  Thank you to Sebastian Schöner from kerntief for reporting this issue.
+
+- Fixed a bug where the change notification handles would not get closed after the last module gets unloaded by the Broker
+  Thanks to Daniel Lobo from Mojang for bringing this to our attention.
+
+- Fixed a rare race condition when two threads in the Bridge would try to send network blobs to the Broker at the same time
+
+- Fixed a rare deadlock when trying to load modules while compilation is in progress
+  Thank you to Tobias Sicheritz from Mi'pu'mi Games for reporting this.
+
+
+2.8.1 - January 15, 2025
+========================
+
+- Fixed a rare bug that could lead to duplicate symbols being pulled into a patch from static libraries when linking against the static runtime
+  This could happen when defining operator delete with an explicit size argument in a static library.
+  Thanks to Dan Ogles and Marcin Undak from Blizzard Entertainment for reporting this.
+
+- Fixed a rare bug where a data symbol could move between .bss and .data sections depending on optimization settings, potentially leading to a crash after deoptimization
+  Thanks to Sebastian Schöner from kerntief for bringing this to our attention.
+
+- Fixed a rare bug where a data symbol without a dynamic initializer could end up in a different data section after deoptimization, which could lead to reinitialization of the original symbol
+
+- Fixed a bug which would populate the Broker Exception Handler dialog twice in case the module base of the topmost stack frame is zero
+  Thanks to Sebastian Schöner from kerntief for reporting this.
+
+- Improved Dark style UI for better visibility of certain elements
+
+- Improved color accents for drag/drop markers
+  Thanks to Sebastian Schöner from kerntief for suggesting this.
+
+- Improved documentation regarding examples
+  Thanks to Sebastian Schöner from kerntief for suggesting this.
+
+- Added thread ID to log files
+
+
+2.8.0 - December 2, 2024
+========================
+
+- The exception handler in the Broker will no longer write a crash dump for EXCEPTION_IN_PAGE_ERROR errors, but will output a warning instead
+  This was done because running Live++ from portable USB drives or network drives could generate a lot of crash dumps otherwise, filling up disk space
+  Thank you to Simon Moos from Hello Games for reporting this behaviour.
+
+- Implemented check whether IPI stream is contained in the PDB file
+  Thanks to Sebastian Schöner from kerntief for reporting this bug and providing an implementation in the RawPDB library
+
+- Fixed a bug where Live++ would try to recompile a file that has been removed
+  Thanks to Sergey Hakobyan from Mi'pu'mi Games for reporting this.
+
+- Fixed a bug where modules could appear twice in the array of modules to be enabled when using the LPP_MODULES_OPTION_ALL_IMPORT_MODULES option
+  This was caused by deduplication not working correctly when DLLs would appear in a certain order
+  Thanks to Alexandre Ganea from Haven Studios for reporting this.
+
+- Fixed a bug where after failing to link, split compilands would not be compiled again even if required
+  Thank you to Sebastian Schöner from kerntief for bringing this to our attention.
+
+- Fixed a bug where Hot-Restart would time out when the process was not being debugged in Visual Studio or Rider
+
+- Fixed a bug where cleared shortcuts could spontaneously trigger Hot-Reload or Hot-Restart operations
+  Thanks to Alexandre Ganea from Haven Studios and Mark Christoforetti from Blizzard Entertainment for reporting this.
+
+- Implemented tooltip for command-line when hovering over the command-line column in the processes view
+  This helps when working with processes that use very long command-line options
+  Thanks to Sebastian Schöner from kerntief for suggesting this.
+
+- Implemented tooltips for Module and Process views
+
+- Implemented workaround for breaking behaviour introduced in the VS2022 (17.11) debugger
+  Thanks to Sebastian Schöner from kerntief and Neil Wallace from Hello Games for reporting this.
+
+- Improved documentation regarding default Hot-Restart shortcut
+
+- Improved documentation regarding global variables in the debugger
+
+- Improved documentation regarding using FASTBuild with Clang
+  Thanks to Olly Ginger from Electronic Arts for bringing this to our attention.
+
+- Improved documentation regarding a recent Visual Studio Hot Reload option that will bring up a potentially confusing dialog
+
+- Added message box when changing any of the global preferences that require processes to be restarted for the changes to take effect
+  Thanks to Sebastian Schöner from kerntief for suggesting this.
+
+- Added logging of errors for all VirtualAlloc* APIs used internally
+
+- Added logging of PDB filenames whenever an error occurs when trying to read DBI and IPI streams
+
+- Removed zero-sized custom.js from documentation
+  Thanks to Alexandre Ganea from Haven Studios for bringing this to our attention.
+
+
+2.7.2 - September 20, 2024
+==========================
+
+- Re-deployment of 2.7.1 release, which unfortunately had a mix of 2.7.0 and 2.7.1 in its build
+
+
+2.7.1 - September 20, 2024
+==========================
+
+- Implemented dedicated support for JetBrains Rider IDE
+
+
+2.7.0 - September 10, 2024
+==========================
+
+- Breaking API change: The Agent::Restart() API now takes an optional argument for command-line options being passed to the hot-restarted process
+
+- Optimized usage of buffers in thread-local storage
+  While primarily leading to faster loading of plugin DLLs and Agents using fewer TLS slots, this also has the benefit of fixing potential crashes in situations where thread-local storage in the Agent DLL hasn't been initialized yet, such as when calling DbgUiRemoteBreakin.
+
+- Implemented detection of cases where DLLMainCRTStartup is not being linked correctly into patches
+  Thank you to Ales Mlakar for the repro project.
+
+- Implemented blacklist for certain applications like CrowdStrike Falcon and ESET which have been reported to cause problems and crashes several times
+
+- Implemented debug menu to aid with troubleshooting and bug reporting
+  Thanks to Leonardo Santagada from Guerrilla Games for the idea.
+
+- Implemented verbose compiling and verbose linking modes in debug menu
+
+- Implemented dumping of used project preferences in debug menu
+
+- Implemented version compatibility checks for interfaces exposed by plugins
+
+- Implemented check for missing section contribution stream when reading PDBs
+  Thank you to Ritesh Oedayrajsingh Varma and Jelle van der Beek from Superluminal for reporting this.
+
+- Fixed "src" attribute in patch PDBs containing invalid filename when using Clang
+  Thanks to Sylvain Audi from Ubisoft Montreal for helping with this.
+
+- Fixed module details not showing correctly in certain cases
+  Thanks to Marc Aubert from Eugen System for reporting this.
+
+- Fixed Broker exception handler message box not being shown in case the main thread crashes
+
+- Fixed a bug where after changing any project preferences that could potentially alter the outcome of a database loading operation, loaded data would erroneously still be fetched from the database cache
+  Thanks to Leonardo Santagada from Guerrilla Games for reporting this.
+
+- Fixed a bug where a temporary data structure was not large enough in case almost all files needed to be recompiled, leading to a crash in the Broker
+  Thank you to Tobias Sicheritz from Mi'pu'mi Games for reporting this.
+
+- Added Troubleshooting section to documentation
+
+- Reworked docking system
+
+- Updated examples to latest version of Clang and LLD
+
+
+2.6.1 - July 22, 2024
+=====================
+
+- Added support for using all available physical cores during compilation
+
+- Fixed unnecessary delay caused by retrying to open locked executable files before rebasing when installing patches into multiple processes
+
+- Fixed a bug where reconstruction of COMDAT-relative symbols could generate wrong symbol addresses
+  Thank you to Jim Kjellin from MachineGames for reporting this.
+
+
+2.6.0 - July 9, 2024
+====================
+
+- Added support for specifying OPT:NOREF and OPT:NOICF options later in the command-line for overriding defaults or previous options
+  Thanks to Florian Schmiderer from Mi'pu'mi Games for reporting this.
+
+- Fixed a bug that could lead to an overflow and subsequent crash if a module does not contain any dynamic initializers, and CRT sections are larger than 8 bytes
+  Thanks to Dan Printzell from dagg.ai for reporting this.
+
+- Fixed a bug where reserved page regions would not be freed for processes that stay open, continually load and unload modules, creating and destroying agents in between
+  This required users of non-Live++ aware applications like Unity to restart the application, even though their Live++-enabled modules were correctly loaded and unloaded.
+  Thank you to Edward Lambert from Sports Interactive for reporting and helping with this.
+
+- Fixed a bug where waiting for the Agent to exit before deleting patch files in the Bridge could lead to a subsequent hang during the next hot-reload for a reloaded DLL
+  Thank you to Edward Lambert from Sports Interactive for reporting this.
+
+- Fixed a bug where a temporary data structure had too little space during symbol reconstruction from object files, leading to a potential crash due to an out-of-bounds access
+  Thank you to Daniel Jennings from Valve for bringing this to our attention.
+
+- Fixed a bug where after deleting PDB files with FILE_FLAG_DELETE_ON_CLOSE, subsequent hot-reloads on the same process would fail because the PDB file could not be written to
+  Thank you to Julien Charbonneau from Quantic Dream for reporting this.
+
+- Fixed a bug where symbol reconstruction would not check for false positives, leading to wrongly reconstructed symbols in some cases, potentially patching unrelated code in a bad and unpredictable way
+  Thank you to Raphaël Saint-Pierre and Daniel Castonguay from Ubisoft for reporting this.
+
+- Fixed a bug that would cause the exception handler to hang while symbolicating the callstack
+  Thank you to Edward Lambert from Sports Interactive and Leonardo Santagada from Guerrilla Games for reporting this.
+
+- Fixed a race condition where a synchronized socket would try to abandon its operations, but had already been deleted behind the scenes because the patch process relinquished its ownership already
+
+
+2.5.2 - May 22, 2024
+====================
+
+- Implemented support for PDBs with nil stream indices
+  This makes the PDB reader more robust against (partially) corrupted PDBs.
+  Thanks to Alexandre Ganea from Haven Studios for bringing this to our attention.
+
+- Implemented source path filters for compilands
+  This is useful for ignoring automatically generated code files, such as Unreal Engine's .gen.cpp.
+
+- Fixed a bug where hot-deoptimize would remove parts of user-defined preprocessor definitions that contain "/O"
+  Thanks to Hamza Sood from Criterion Games for reporting this.
+
+
+2.5.1 - May 6, 2024
+===================
+
+- Fixed potential crash when calling patch entry point
+  Thank you to Billy Khan from id Software for reporting this.
+
+
+2.5.0 - April 29, 2024
+======================
+
+- Initial release of support for PlayStation 5
+
+- Fixed Broker not being spawned from Agent/Bridge
+  Spawning the Broker no longer uses the CREATE_BREAKAWAY_FROM_JOB flag.
+
+- Fixed a bug where unnamed blocks could be considered valid candidates during symbol reconstruction
+  In the worst case, this could lead to false positives, resulting in relocations being patched at wrong offsets.
+  Thank you to Raphaël Saint-Pierre and Daniel Castonguay from Ubisoft for reporting this.
+
+- Optimized behaviour for processes consisting of several modules when using LPP_RELOAD_OPTION_SYNCHRONIZE_WITH_RELOAD
+  Thank you to Daniel Jennings from Valve for the feedback and discussions regarding this change.
+
+- Implemented timeout when waiting for signals from the Broker
+  In some cases, packets could be blocked by firewall rules, making the Agent hang in LppEnableModule while waiting for a signal
+  Thank you to Luis Angel Mex and Chris Cooper from Turn 10 Studios for bringing this to our attention.
+
+- Implemented reconstruction of symbols relative to COMDAT sections
+  This is much faster and more robust than trying to determine the symbol RVAs by binary section matching.
+
+- Improved messaging and flow when a license has expired
+  Thank you to Hans Sjunnesson for suggesting this.
+
+
+2.4.1 - March 18, 2024
+======================
+
+- Optimized loading times
+  Since most build systems output all object files into the same directory, Live++ uses this as an opportunity to fetch several file attributes at once
+
+- Optimized patching performance
+
+- Improved documentation
+
+- Added showing progress in the task bar
+  This can be configured in the UI tab in the global preferences.
+  Thank you to Tom Read Cutting from Hello Games for suggesting this.
+
+- Added showing a message box when versions don't match between the Agent and the Broker
+  This can be configured in the UI tab in the global preferences.
+  Thank you to Tobias Sicheritz from Mi'pu'mi Games for suggesting this.
+
+- Fixed a crash in the 64-bit version of the Bridge when trying to read project preferences published from a 32-bit Agent process
+  Thank you to Tom Bui from Valve for reporting this.
+
+- Fixed a race condition between the pre-patch hook and Update() function in the examples
+
+
+2.4.0 - January 26, 2024
+========================
+
+- Resurrected support for x86/Win32 applications
+
+- Breaking API change: The WantsReload() API now offers options to either synchronize with compilation and hot-reload, or just hot-reload
+  Consequently, the CompileAndReloadChanges() API has been renamed into Reload() as well.
+  Thank you to Daniel Jennings from Valve for the feedback and discussions regarding this change.
+
+- Added global hot-restart shortcut CTRL+ALT+R
+  This can be configured in the Hot-Restart tab in the global preferences.
+
+- Added shortcuts to all action buttons in the exception handler dialog
+  Additionally, the dialog now focuses on "Leave function" by default and will also remember the last selected action.
+
+- The Broker version is now shown in the window title
+
+- Fixed patching of section-relative relocations with non-zero destination offset
+
+- Fixed horizontal scrolling in Module view
+
+- Fixed determining whether a SEH state is available in exception handler
+
+- Fixed serialization of licensing options
+  Changing any of these options never had an effect, because they weren't serialized correctly into the global preferences file.
+  Thank you to Sylvain Audi from Ubisoft Montreal for reporting this.
+
+
 2.3.3 - November 30, 2023
 =========================
 
