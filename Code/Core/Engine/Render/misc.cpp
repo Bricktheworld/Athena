@@ -13,17 +13,6 @@
 
 #include "Core/Engine/Vendor/imgui/implot.h"
 
-struct FrameInitParams
-{
-  RgHandle<GpuBuffer>                         viewport_buffer;
-  RgHandle<GpuBuffer>                         render_settings;
-  RgRWStructuredBuffer<MultiDrawIndirectArgs> debug_draw_args_buffer;
-  RgRWStructuredBuffer<DebugLinePoint>        debug_line_vert_buffer;
-  RgRWStructuredBuffer<DebugSdf>              debug_sdf_buffer;
-
-  ComputePSO                                  init_debug_draw_buffers_pso;
-};
-
 static f32
 camera_params_to_ev100(f32 aperture, f32 shutter_time, f32 iso)
 {
@@ -135,11 +124,6 @@ render_handler_frame_init(const RenderEntry*, u32)
   gpu_dispatch(&g_RenderHandlerState.cmd_list, UCEIL_DIV(MAX(kDebugMaxVertices, kDebugMaxSdfs), 64), 1, 1);
   gpu_memory_barrier(&g_RenderHandlerState.cmd_list);
 }
-
-struct ImGuiParams
-{
-  RgRtv dst;
-};
 
 f64 g_CpuEffectiveTime = 0.0;
 
@@ -308,18 +292,6 @@ render_handler_debug_ui(const RenderEntry*, u32)
   ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), g_RenderHandlerState.cmd_list.d3d12_list);
 }
 
-struct DebugDrawParams
-{
-  RgRtv dst;
-  RgDsv depth;
-  RgIndirectArgsBuffer               debug_draw_args_buffer;
-  RgStructuredBuffer<DebugLinePoint> debug_line_vert_buffer;
-  RgStructuredBuffer<DebugSdf>       debug_sdf_buffer;
-  
-  GraphicsPSO debug_draw_line_pso;
-  GraphicsPSO debug_draw_sdf_pso;
-};
-
 void
 render_handler_indirect_debug_draw(const RenderEntry*, u32)
 {
@@ -345,47 +317,3 @@ render_handler_indirect_debug_draw(const RenderEntry*, u32)
   gpu_ia_set_primitive_topology(cmd, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
   gpu_multi_draw_indirect(cmd, &buffers->debug_draw_args_buffer, nullptr, sizeof(MultiDrawIndirectArgs), 1);
 }
-
-#if 0
-void
-init_debug_draw_pass(AllocHeap heap, RgBuilder* builder, const FrameResources& frame_resources, GBuffer* gbuffer, RgHandle<GpuTexture>* dst)
-{
-  DebugDrawParams* params        = HEAP_ALLOC(DebugDrawParams, g_InitHeap, 1);
-
-  RgPassBuilder*   pass          = add_render_pass(heap, builder, kCmdQueueTypeGraphics, "Debug Line Draw Pass", params, &render_handler_indirect_debug_draw);
-  params->dst                    = RgRtv(pass, dst);
-  params->depth                  = RgDsv(pass, &gbuffer->depth);
-
-  params->debug_draw_args_buffer = RgIndirectArgsBuffer(pass, frame_resources.debug_draw_args_buffer);
-
-  params->debug_line_vert_buffer = RgStructuredBuffer<DebugLinePoint>(pass, frame_resources.debug_line_vert_buffer);
-  params->debug_sdf_buffer       = RgStructuredBuffer<DebugSdf>(pass, frame_resources.debug_sdf_buffer);
-
-
-  {
-    GraphicsPipelineDesc desc = 
-    {
-      .vertex_shader = get_engine_shader(kVS_DebugDrawLine),
-      .pixel_shader  = get_engine_shader(kPS_DebugDrawLine),
-      .rtv_formats   = Span{kGpuFormatRGBA16Float},
-      .dsv_format    = kGpuFormatD32Float,
-      .depth_func    = kDepthComparison,
-      .topology      = kPrimitiveTopologyLine,
-      .blend_enable  = true,
-    };
-    params->debug_draw_line_pso = init_graphics_pipeline(g_GpuDevice, desc, "Debug Line Draw");
-  }
-  {
-    GraphicsPipelineDesc desc = 
-    {
-      .vertex_shader = get_engine_shader(kVS_DebugDrawSdf),
-      .pixel_shader  = get_engine_shader(kPS_DebugDrawSdf),
-      .rtv_formats   = Span{kGpuFormatRGBA16Float},
-      .dsv_format    = kGpuFormatD32Float,
-      .depth_func    = kDepthComparison,
-      .blend_enable  = true,
-    };
-    params->debug_draw_sdf_pso  = init_graphics_pipeline(g_GpuDevice, desc, "Debug SDF Draw");
-  }
-}
-#endif

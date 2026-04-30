@@ -13,7 +13,6 @@
 
 #include "Core/Engine/Render/graphics.h"
 #include "Core/Engine/Render/renderer.h"
-#include "Core/Engine/Render/render_graph.h"
 #include "Core/Engine/Render/misc.h"
 
 
@@ -391,7 +390,6 @@ application_entry(HINSTANCE instance, int show_code)
     if (done)
       break;
 
-    // execute_render_graph(back_buffer, g_Renderer.settings);
     ViewCtx* main_view = submit_scene(&g_MainWindow->swap_chain, back_buffer);
     render_view_ctx(main_view);
     g_CpuEffectiveTime = end_cpu_profiler_timestamp(effective_cpu_start_time);

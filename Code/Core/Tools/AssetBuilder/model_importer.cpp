@@ -256,7 +256,6 @@ asset_builder::import_model(
           3 + 2, // normal + uv
           nullptr,
           target_index_count,
-          nullptr,
           target_error,
           0,
           &simplified_error

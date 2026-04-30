@@ -79,45 +79,6 @@ get_engine_shader(u32 index)
   return &g_ShaderManager->shaders[index];
 }
 
-#if 0
-static void
-init_renderer_dependency_graph(
-  const SwapChain* swap_chain,
-  RenderGraphDestroyFlags flags
-) {
-  ScratchAllocator scratch_arena = alloc_scratch_arena();
-  defer { free_scratch_arena(&scratch_arena); };
-
-  RgBuilder builder = init_rg_builder(scratch_arena, swap_chain->width, swap_chain->height);
-  GBuffer gbuffer = init_gbuffer(&builder);
-  FrameResources frame_resources = init_frame_init_pass(scratch_arena, &builder);
-
-  init_scene_gpu_upload_pass(scratch_arena, &builder);
-
-  init_gbuffer_static(scratch_arena, &builder, &gbuffer);
-
-  DiffuseGiResources diffuse_gi = init_rt_diffuse_gi(scratch_arena, &builder);
-
-  RgHandle<GpuTexture> hdr_buffer  = init_hdr_buffer(&builder);
-  init_lighting(scratch_arena, &builder, gbuffer, diffuse_gi, &hdr_buffer);
-
-  RgHandle<GpuTexture> taa_buffer  = init_taa_buffer(&builder);
-  init_taa(scratch_arena, &builder, hdr_buffer, gbuffer, &taa_buffer);
-
-  RgHandle<GpuTexture> dof_buffer = init_depth_of_field(scratch_arena, &builder, gbuffer.depth, taa_buffer);
-
-  RgHandle<GpuTexture> tonemapped_buffer = init_tonemapping(scratch_arena, &builder, dof_buffer);
-
-  init_debug_draw_pass(scratch_arena, &builder, frame_resources, &gbuffer, &tonemapped_buffer);
-
-  init_imgui_pass(scratch_arena, &builder, &tonemapped_buffer);
-
-  init_back_buffer_blit(scratch_arena, &builder, tonemapped_buffer);
-
-  compile_render_graph(g_InitHeap, builder, flags);
-}
-#endif
-
 RenderBuffers
 init_render_buffers(
   const SwapChain* swap_chain
@@ -457,12 +418,12 @@ init_render_buffers(
   u32 w = swap_chain->width;
   u32 h = swap_chain->height;
 
-  alloc_render_target                 (&ret.gbuffer.material_id,      "GBuffer Material ID",                w,               h,     kGpuFormatR32Uint,     kRenderLayerGBuffer, kRenderLayerLighting);
-  alloc_render_target                 (&ret.gbuffer.diffuse_metallic, "GBuffer Diffuse Metallic",           w,               h,     kGpuFormatRGBA8Unorm,  kRenderLayerGBuffer, kRenderLayerLighting);
-  alloc_render_target                 (&ret.gbuffer.normal_roughness, "GBuffer Normal Roughness",           w,               h,     kGpuFormatRGBA16Float, kRenderLayerGBuffer, kRenderLayerLighting);
-  alloc_temporal_render_target        (&ret.gbuffer.velocity,         "GBuffer Velocity",                   w,               h,     kGpuFormatRG32Float);
-  alloc_depth_target                  (&ret.gbuffer.depth,            "GBuffer Depth",                      w,               h,     kGpuFormatD32Float,    kRenderLayerGBuffer, kRenderLayerPost);
-  alloc_scratch_texture               (&ret.gbuffer.hzb,              "HZB",                      UCEIL_DIV(w, 4), UCEIL_DIV(h, 4),                        kRenderLayerGBuffer, kRenderLayerPost, kHZBMipCount);
+  alloc_render_target                 (&ret.gbuffer.material_id,      "GBuffer Material ID",                w,                       h, kGpuFormatR32Uint,       kRenderLayerGBuffer,     kRenderLayerLighting);
+  alloc_render_target                 (&ret.gbuffer.diffuse_metallic, "GBuffer Diffuse Metallic",           w,                       h, kGpuFormatRGBA8Unorm,    kRenderLayerGBuffer,     kRenderLayerLighting);
+  alloc_render_target                 (&ret.gbuffer.normal_roughness, "GBuffer Normal Roughness",           w,                       h, kGpuFormatRGBA16Float,   kRenderLayerGBuffer,     kRenderLayerLighting);
+  alloc_temporal_render_target        (&ret.gbuffer.velocity,         "GBuffer Velocity",                   w,                       h, kGpuFormatRG32Float);
+  alloc_depth_target                  (&ret.gbuffer.depth,            "GBuffer Depth",                      w,                       h, kGpuFormatD32Float,      kRenderLayerGBuffer,     kRenderLayerPost);
+  alloc_scratch_texture               (&ret.gbuffer.hzb,              "HZB",                      UCEIL_DIV(w, 4),         UCEIL_DIV(h, 4),                      kRenderLayerGBuffer,     kRenderLayerPost, kHZBMipCount);
 
 
   // Frame / misc
@@ -476,7 +437,7 @@ init_render_buffers(
   // Scene                            
   alloc_structured_buffer             (&ret.scene_obj_buffer,         "Scene Object Buffer",                sizeof(SceneObjGpu) * kMaxSceneObjs);
   alloc_structured_buffer             (&ret.rt_obj_buffer,            "RT Object Buffer",                   sizeof(RtObjGpu)    * kMaxSceneObjs);
-  alloc_append_structured_buffer      (&ret.rt_tlas_instances,        "TLAS Instance Buffer",               sizeof(D3D12RaytracingInstanceDesc) * kMaxSceneObjs, kRenderLayerInit, kRenderLayerSubmit);
+  alloc_append_structured_buffer      (&ret.rt_tlas_instances,        "TLAS Instance Buffer",               sizeof(D3D12RaytracingInstanceDesc) * kMaxSceneObjs, kRenderLayerInit,        kRenderLayerSubmit);
 
   GpuRtTlasSizeInfo rt_tlas_size_info = query_gpu_rt_tlas_size_info(kMaxSceneObjs);
   alloc_scratch_buffer                (&ret.tlas_scratch,             "TLAS Scratch Buffer",                rt_tlas_size_info.scratch_size);
@@ -487,17 +448,17 @@ init_render_buffers(
   alloc_structured_buffer             (&ret.occlusion_results,        "GBuffer Occlusion Results",          sizeof(u64) * UCEIL_DIV(kMaxSceneObjs, 64));
 
   // Lighting / post-process          
-  alloc_scratch_texture               (&ret.hdr,                      "HDR Buffer",  w,                       h,                        kRenderLayerLighting, kRenderLayerPost);
-  alloc_temporal_render_target        (&ret.taa,                      "TAA Buffer",  w,                       h, kGpuFormatRGBA16Float);
-  alloc_scratch_texture               (&ret.coc_buffer,     "CoC Buffer",            w / kDoFResolutionScale, h / kDoFResolutionScale,  kRenderLayerPost,     kRenderLayerPost);
-  alloc_scratch_texture               (&ret.blur_buffer,    "Bokeh Blur Buffer",     w / kDoFResolutionScale, h / kDoFResolutionScale,  kRenderLayerPost,     kRenderLayerPost);
-  alloc_scratch_texture               (&ret.depth_of_field, "Depth Of Field Buffer", w,                       h,                        kRenderLayerPost,     kRenderLayerPost);
-  alloc_render_target                 (&ret.tonemapped_buffer, "Tone Mapping Buffer", w, h, kGpuFormatRGBA16Float, kRenderLayerPost,     kRenderLayerSubmit);
+  alloc_scratch_texture               (&ret.hdr,                      "HDR Buffer",                         w,                       h,                          kRenderLayerLighting,    kRenderLayerPost);
+  alloc_temporal_render_target        (&ret.taa,                      "TAA Buffer",                         w,                       h, kGpuFormatRGBA16Float);
+  alloc_scratch_texture               (&ret.coc_buffer,               "CoC Buffer",                         w / kDoFResolutionScale, h / kDoFResolutionScale,    kRenderLayerPost,        kRenderLayerPost);
+  alloc_scratch_texture               (&ret.blur_buffer,              "Bokeh Blur Buffer",                  w / kDoFResolutionScale, h / kDoFResolutionScale,    kRenderLayerPost,        kRenderLayerPost);
+  alloc_scratch_texture               (&ret.depth_of_field,           "Depth Of Field Buffer",              w,                       h,                          kRenderLayerPost,        kRenderLayerPost);
+  alloc_render_target                 (&ret.tonemapped_buffer,        "Tone Mapping Buffer",                w,                       h, kGpuFormatRGBA16Float,   kRenderLayerPost,        kRenderLayerSubmit);
 
   // DDGI
   alloc_temporal_scratch_texture_array(&ret.probe_page_table, "RT Diffuse GI - Probe Page Table", kProbeCountPerClipmap.x, kProbeCountPerClipmap.z, kProbeCountPerClipmap.y * kProbeClipmapCount);
-  alloc_structured_buffer             (&ret.probe_buffer,     "RT Diffuse GI - Luminance Probe Buffer", sizeof(DiffuseGiProbe) * kProbeMaxActiveCount);
-  alloc_structured_buffer             (&ret.ray_luminance,    "RT Diffuse GI - Ray Luminance Data",     sizeof(GiRayLuminance) * kProbeMaxRayCount, kRenderLayerRtDiffuseGi, kRenderLayerRtDiffuseGi);
+  alloc_structured_buffer             (&ret.probe_buffer,     "RT Diffuse GI - Luminance Probe Buffer",     sizeof(DiffuseGiProbe) * kProbeMaxActiveCount);
+  alloc_structured_buffer             (&ret.ray_luminance,    "RT Diffuse GI - Ray Luminance Data",         sizeof(GiRayLuminance) * kProbeMaxRayCount,          kRenderLayerRtDiffuseGi, kRenderLayerRtDiffuseGi);
 
 
   u32 render_buffer_count = (u32)(dst_args - args_start);
@@ -804,9 +765,9 @@ init_render_buffers(
   for (u32 imip = 0; imip < kHZBMipCount; imip++)
   {
     ret.gbuffer.hzb_mip_uavs[imip] = alloc_descriptor(g_DescriptorCbvSrvUavPool);
-    GpuTextureUavDesc mip_uav_desc  = {0};
-    mip_uav_desc.format             = kGpuFormatR32Float;
-    mip_uav_desc.mip_slice          = imip;
+    GpuTextureUavDesc mip_uav_desc = {0};
+    mip_uav_desc.format            = kGpuFormatR32Float;
+    mip_uav_desc.mip_slice         = imip;
     init_texture_uav(&ret.gbuffer.hzb_mip_uavs[imip], &ret.gbuffer.hzb.texture, mip_uav_desc);
   }
 
@@ -821,8 +782,8 @@ init_render_buffers(
   gpu_init_grv<RWStructuredBufferPtr<DebugLinePoint>>(kDebugVertexBufferSlot, ret.debug_line_vert_buffer.buffer);
   gpu_init_grv<RWStructuredBufferPtr<DebugSdf>>(kDebugSdfBufferSlot, ret.debug_sdf_buffer.buffer);
 
-  gpu_init_grv<StructuredBufferPtr<SceneObjGpu  >>(kSceneObjBufferSlot,                  ret.scene_obj_buffer.buffer);
-  gpu_init_grv<StructuredBufferPtr<RtObjGpu     >>(kRtObjBufferSlot,                     ret.rt_obj_buffer.buffer);
+  gpu_init_grv<StructuredBufferPtr<SceneObjGpu>>(kSceneObjBufferSlot, ret.scene_obj_buffer.buffer);
+  gpu_init_grv<StructuredBufferPtr<RtObjGpu>>(kRtObjBufferSlot, ret.rt_obj_buffer.buffer);
   gpu_init_grv<RaytracingAccelerationStructurePtr>(kRaytracingAccelerationStructureSlot, ret.rt_tlas);
 
   // Back buffer RTV gets initialized every frame
