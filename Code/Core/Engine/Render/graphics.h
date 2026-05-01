@@ -773,10 +773,12 @@ void destroy_gpu_device();
 
 void wait_for_gpu_device_idle(GpuDevice* device);
 
-void begin_gpu_profiler_timestamp(CmdList* cmd_buffer, STRING_LITERAL const char* name);
-void end_gpu_profiler_timestamp(CmdList* cmd_buffer, STRING_LITERAL const char* name);
-f64  query_gpu_profiler_timestamp(STRING_LITERAL const char* name);
-bool has_gpu_profiler_timestamp(STRING_LITERAL const char* name);
+// If "name" is not unique per frame, then "tag" + "name" must be unique
+// These values must also be stable
+void begin_gpu_profiler_timestamp(CmdList* cmd_buffer, STRING_LITERAL const char* name, u32 tag = 0);
+void end_gpu_profiler_timestamp(CmdList* cmd_buffer, STRING_LITERAL const char* name, u32 tag = 0);
+f64  query_gpu_profiler_timestamp(STRING_LITERAL const char* name, u32 tag = 0);
+bool has_gpu_profiler_timestamp(STRING_LITERAL const char* name, u32 tag = 0);
 
 struct SwapChain
 {
@@ -921,6 +923,10 @@ void imgui_render(CmdList* cmd);
 #define GPU_BEGIN_EVENT(color, cmdlist, fmt, ...) PIXBeginEvent((cmdlist)->d3d12_list, color, fmt, ##__VA_ARGS__); begin_gpu_profiler_timestamp((cmdlist), fmt)
 #define GPU_END_EVENT(cmdlist, fmt, ...) PIXEndEvent((cmdlist)->d3d12_list); end_gpu_profiler_timestamp((cmdlist), fmt) 
 #define GPU_SCOPED_EVENT(color, cmdlist, fmt, ...) GPU_BEGIN_EVENT(color, cmdlist, fmt, __VA_ARGS__); defer { GPU_END_EVENT(cmdlist, fmt, __VA_ARGS__); }
+
+#define GPU_BEGIN_EVENT_TAGGED(color, cmdlist, tag, fmt, ...) PIXBeginEvent((cmdlist)->d3d12_list, color, fmt, ##__VA_ARGS__); begin_gpu_profiler_timestamp((cmdlist), fmt, tag)
+#define GPU_END_EVENT_TAGGED(cmdlist, tag, fmt, ...) PIXEndEvent((cmdlist)->d3d12_list); end_gpu_profiler_timestamp((cmdlist), fmt, tag)
+#define GPU_SCOPED_EVENT_TAGGED(color, cmdlist, tag, fmt, ...) GPU_BEGIN_EVENT_TAGGED(color, cmdlist, tag, fmt, __VA_ARGS__); defer { GPU_END_EVENT_TAGGED(cmdlist, tag, fmt, __VA_ARGS__); }
 
 
 template <typename T>

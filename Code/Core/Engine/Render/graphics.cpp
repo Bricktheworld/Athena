@@ -560,20 +560,20 @@ init_gpu_profiler(void)
 }
 
 void
-begin_gpu_profiler_timestamp(CmdList* cmd_buffer, const char* name)
+begin_gpu_profiler_timestamp(CmdList* cmd_buffer, const char* name, u32 tag)
 {
   GpuProfiler* profiler = &g_GpuDevice->profiler;
 
   u32 idx = 0;
   {
-    u32* existing = hash_table_find(&profiler->name_to_timestamp, name);
+    u32* existing = hash_table_find(&profiler->name_to_timestamp, name + tag);
     if (existing == nullptr)
     {
       ASSERT_MSG_FATAL(
         profiler->next_free_idx < kMaxGpuTimestamps,
         "Attempting to start a GPU timestamp name %s but no slots left! You are permitted up to %u GPU timestamps. If you need more, try incrementing kMaxGpuTimestamps", name, kMaxGpuTimestamps
       );
-      u32* dst = hash_table_insert(&profiler->name_to_timestamp, name);
+      u32* dst = hash_table_insert(&profiler->name_to_timestamp, name + tag);
       *dst = profiler->next_free_idx++;
       existing = dst;
     }
@@ -583,7 +583,7 @@ begin_gpu_profiler_timestamp(CmdList* cmd_buffer, const char* name)
 
   GpuTimestamp* timestamp = profiler->timestamps + idx;
 
-  ASSERT_MSG_FATAL(!timestamp->in_flight, "GPU profiler timestamp name '%s' wasn't closed properly!", name);
+  ASSERT_MSG_FATAL(!timestamp->in_flight, "GPU profiler timestamp name '%s[%u]' wasn't closed properly!", name, tag);
 
   u32 start_idx = idx * 2;
   cmd_buffer->d3d12_list->EndQuery(profiler->d3d12_timestamp_heap, D3D12_QUERY_TYPE_TIMESTAMP, start_idx);
@@ -592,13 +592,13 @@ begin_gpu_profiler_timestamp(CmdList* cmd_buffer, const char* name)
 }
 
 void
-end_gpu_profiler_timestamp(CmdList* cmd_buffer, const char* name)
+end_gpu_profiler_timestamp(CmdList* cmd_buffer, const char* name, u32 tag)
 {
   GpuProfiler* profiler = &g_GpuDevice->profiler;
 
-  u32* ptr = hash_table_find(&profiler->name_to_timestamp, name);
+  u32* ptr = hash_table_find(&profiler->name_to_timestamp, name + tag);
 
-  ASSERT_MSG_FATAL(ptr != nullptr, "GPU profiler timestamp name '%s' is invalid! Did you forget to call begin_gpu_profiler_timestamp?", name);
+  ASSERT_MSG_FATAL(ptr != nullptr, "GPU profiler timestamp name '%s[%u]' is invalid! Did you forget to call begin_gpu_profiler_timestamp?", name, tag);
 
   u32 idx       = *ptr;
   u32 start_idx = idx * 2;
@@ -625,15 +625,15 @@ end_gpu_profiler_timestamp(CmdList* cmd_buffer, const char* name)
 }
 
 bool
-has_gpu_profiler_timestamp(const char* name)
+has_gpu_profiler_timestamp(const char* name, u32 tag)
 {
   GpuProfiler* profiler = &g_GpuDevice->profiler;
-  u32* ptr = hash_table_find(&profiler->name_to_timestamp, name);
+  u32* ptr = hash_table_find(&profiler->name_to_timestamp, name + tag);
   return ptr != nullptr;
 }
 
 f64
-query_gpu_profiler_timestamp(const char* name)
+query_gpu_profiler_timestamp(const char* name, u32 tag)
 {
   if (g_FrameId < 1)
   {
@@ -646,9 +646,9 @@ query_gpu_profiler_timestamp(const char* name)
   // I designed it like this because the render graph won't actually have the query
   // data because command lists are submitted all at once. This needs to be fixed first.
 
-  u32* ptr = hash_table_find(&profiler->name_to_timestamp, name);
+  u32* ptr = hash_table_find(&profiler->name_to_timestamp, name + tag);
 
-  ASSERT_MSG_FATAL(ptr != nullptr, "GPU profiler timestamp name '%s' is invalid! Did you forget to call begin_gpu_profiler_timestamp?", name);
+  ASSERT_MSG_FATAL(ptr != nullptr, "GPU profiler timestamp name '%s[%u]' is invalid! Did you forget to call begin_gpu_profiler_timestamp?", name + tag);
 
   u32 idx       = *ptr;
   u32 start_idx = idx * 2;

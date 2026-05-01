@@ -249,6 +249,31 @@ enum RenderHandlerId : u32
   kRenderHandlerCount
 };
 
+static const char* kRenderHandlerNames[] =
+{
+  "FrameInit",
+  "SceneUpload",
+  "BuildTLAS",
+  "RtDiffuseGiInit",
+  "GBufferGenerateMultiDrawArgs",
+  "GBufferOpaque",
+  "GenerateHZB",
+  "RtDiffuseGiTraceRays",
+  "RtDiffuseGiProbeBlend",
+  "Lighting",
+  "DoFGenerateCoC",
+  "DoFBokehBlur",
+  "DoFComposite",
+  "TemporalAA",
+  "Tonemapping",
+  "DebugUi",
+  "DebugBuffers",
+  "DebugBufferBlit",
+  "DebugDrawIndirect",
+  "BackBufferBlit",
+};
+static_assert(ARRAY_LENGTH(kRenderHandlerNames) == kRenderHandlerCount, "Mismatched render handler names! Double check you added it correctly here (in the right order)");
+
 
 struct RenderEntry
 {

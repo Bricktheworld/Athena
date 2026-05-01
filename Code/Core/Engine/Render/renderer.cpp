@@ -1028,32 +1028,6 @@ static constexpr RenderHandler* kRenderHandlers[]
 };
 static_assert(ARRAY_LENGTH(kRenderHandlers) == kRenderHandlerCount, "Mismatched render handlers! Double check you added it correctly here (in the right order)");
 
-static const char* kRenderHandlerNames[] =
-{
-  "FrameInit",
-  "SceneUpload",
-  "BuildTLAS",
-  "RtDiffuseGiInit",
-  "GBufferGenerateMultiDrawArgs",
-  "GBufferOpaque",
-  "GenerateHZB",
-  "RtDiffuseGiTraceRays",
-  "RtDiffuseGiProbeBlend",
-  "Lighting",
-  "DoFGenerateCoC",
-  "DoFBokehBlur",
-  "DoFComposite",
-  "TemporalAA",
-  "Tonemapping",
-  "DebugUi",
-  "DebugBuffers",
-  "DebugBufferBlit",
-  "DebugDrawIndirect",
-  "BackBufferBlit",
-};
-static_assert(ARRAY_LENGTH(kRenderHandlerNames) == kRenderHandlerCount, "Mismatched render handler names! Double check you added it correctly here (in the right order)");
-
-
 static constexpr u32 kMaxRenderBatches = 2048;
 
 static
@@ -1288,6 +1262,7 @@ render_view_ctx(ViewCtx* view_ctx)
 
   begin_gpu_profiler_timestamp(&g_RenderHandlerState.cmd_list, kTotalFrameGpuMarker);
   defer { end_gpu_profiler_timestamp(&g_RenderHandlerState.cmd_list, kTotalFrameGpuMarker); };
+  u32 tag = 0;
 
   RenderLayer layer = kRenderLayerCount;
   for (u32 ibatch = 0; ibatch < view_ctx->render_batch_count; ibatch++)
@@ -1313,8 +1288,11 @@ render_view_ctx(ViewCtx* view_ctx)
       {
         gpu_bind_engine_defaults();
 
-        // GPU_SCOPED_EVENT(PIX_COLOR_DEFAULT, &g_RenderHandlerState.cmd_list, kRenderHandlerNames[start_entry->handler]);
-        (kRenderHandlers[start_entry->handler])(start_entry, (u32)(end_entry - start_entry));
+        {
+          GPU_SCOPED_EVENT_TAGGED(PIX_COLOR_DEFAULT, &g_RenderHandlerState.cmd_list, tag, kRenderHandlerNames[start_entry->handler]);
+          (kRenderHandlers[start_entry->handler])(start_entry, (u32)(end_entry - start_entry));
+        }
+        tag++;
         start_entry = end_entry;
       }
     }

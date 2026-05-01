@@ -260,23 +260,47 @@ render_handler_debug_ui(const RenderEntry*, u32)
     const ViewCtx* view_ctx = &g_RenderHandlerState.main_view;
 
     u32 layer = kRenderLayerCount;
+    u32 tag   = 0;
     for (u32 ibatch = 0; ibatch < view_ctx->render_batch_count; ibatch++)
     {
       const RenderBatch* batch = view_ctx->render_batches + ibatch;
-      if (layer == batch->layer)
+      if (layer != batch->layer)
       {
-        continue;
-      }
-      layer = batch->layer;
+        layer = batch->layer;
 
-      const char* name = kRenderLayerNames[layer];
-      if (!has_gpu_profiler_timestamp(name))
+        const char* name = kRenderLayerNames[layer];
+        if (!has_gpu_profiler_timestamp(name))
+        {
+          continue;
+        }
+
+        f64 dt = query_gpu_profiler_timestamp(name);
+        ImGui::Text("%s: %f ms", name, dt);
+      }
+
+
+      ImGui::Indent();
+      RenderHandlerId handler = kRenderHandlerCount;
+      for (u32 ientry = 0; ientry < batch->entry_count; ientry++)
       {
-        continue;
-      }
+        const RenderEntry* entry = batch->entries + ientry;
+        if (handler == entry->handler)
+        {
+          continue;
+        }
 
-      f64 dt = query_gpu_profiler_timestamp(name);
-      ImGui::Text("%s: %f ms", name, dt);
+        handler = entry->handler;
+        const char* name = kRenderHandlerNames[handler];
+        // NOTE(bshihabi): This is a hack due to the one-frame behind issue of timestamps
+        if (has_gpu_profiler_timestamp(name, tag))
+        {
+          f64 dt = query_gpu_profiler_timestamp(name, tag);
+          ImGui::Text("%s: %f ms", name, dt);
+        }
+
+        tag++;
+      }
+      ImGui::Unindent();
     }
   }
 

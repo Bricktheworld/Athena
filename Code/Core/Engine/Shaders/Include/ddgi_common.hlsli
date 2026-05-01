@@ -31,7 +31,7 @@ struct GiRayLuminance
   Nits3f16 luminance;
   Vec3f16  direction;
 
-  f32      pdf;
+  uint     probe_index;
   f16      __pad__;
 };
 

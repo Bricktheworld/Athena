@@ -226,7 +226,6 @@ void CS_RtDiffuseGiTraceRays(
   if (query.CommittedStatus() == COMMITTED_TRIANGLE_HIT)
   {
     VertexUncompressed vert      = get_traced_vertex(query);
-    // TODO(bshihabi): Get actual diffuse from material
     uint               gpu_id    = query.CommittedInstanceID();
     SceneObjGpu        scene_obj = g_SceneObjs[gpu_id];
     MaterialGpu        material  = g_Materials[scene_obj.mat_id];
@@ -286,7 +285,6 @@ void CS_RtDiffuseGiTraceRays(
 
       ray_output_buffer[dst_idx].luminance.m_Value = (half3)luminance.m_Value;
       ray_output_buffer[dst_idx].direction         = (half3)sample_direction;
-      ray_output_buffer[dst_idx].pdf               = pdf;
 
       if (mouse_intersect_sphere(probe_ws_pos, 0.1f))
       {
@@ -307,7 +305,6 @@ void CS_RtDiffuseGiTraceRays(
 
     ray_output_buffer[dst_idx].luminance.m_Value = (half3)0.0f;
     ray_output_buffer[dst_idx].direction         = (half3)sample_direction;
-    ray_output_buffer[dst_idx].pdf               = pdf;
 
     if (mouse_intersect_sphere(probe_ws_pos, 0.1f))
     {
