@@ -47,17 +47,30 @@ DeferredPSOut PS_BasicNormalGloss(BasicVSOut ps_in)
     normal = normal_tex.Sample(g_BilinearSamplerWrap, ps_in.uv).xyz;
   }
 
-#if 0
+
+  float metalness = 0.5f;
+  if (material.metalness != 0)
+  {
+    Texture2D<float4> metalness_tex = DEREF(material.metalness);
+    metalness = metalness_tex.Sample(g_BilinearSamplerWrap, ps_in.uv).r;
+  }
+
+  float roughness = 0.1f;
+  if (material.roughness != 0)
+  {
+    Texture2D<float4> roughness_tex = DEREF(material.roughness);
+    roughness = roughness_tex.Sample(g_BilinearSamplerWrap, ps_in.uv).r;
+  }
+
   if (alpha < 0.01f)
   {
     discard;
   }
-#endif
 
 
   ret.material_id       = 1;
-  ret.diffuse_metallic  = float4(diffuse.rgb, 0.5f);
-  ret.normal_roughness  = float4(ps_in.normal.xyz, 0.1f);
+  ret.diffuse_metallic  = float4(diffuse.rgb, metalness);
+  ret.normal_roughness  = float4(ps_in.normal.xyz, roughness);
   ret.velocity          = calculate_velocity(ps_in.curr_pos, ps_in.prev_pos);
 
   return ret;

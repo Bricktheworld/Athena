@@ -70,6 +70,8 @@ enum RenderDebugLayer : u32
   kRenderDebugHZB2,
   kRenderDebugHZB3,
 
+  kRenderDebugGiVariance,
+
   kRenderDebugLayerCount
 };
 
@@ -84,6 +86,8 @@ static constexpr const char* kRenderDebugLayerNames[kRenderDebugLayerCount] =
   "GBuffer HZB1",
   "GBuffer HZB2",
   "GBuffer HZB3",
+
+  "Gi Variance",
 };
 static_assert(ARRAY_LENGTH(kRenderDebugLayerNames) == kRenderDebugLayerCount, "Mismatched render debug layer names! Double check you added it correctly here (in the right order)");
 
@@ -237,6 +241,7 @@ enum RenderHandlerId : u32
   kRenderHandlerDebugUi,
 
   kRenderHandlerDebugBuffers,
+  kRenderHandlerDebugBufferBlit,
   kRenderHandlerIndirectDebugDraw,
 
   kRenderHandlerBackBufferBlit,
@@ -456,7 +461,7 @@ struct RenderBuffers
   StructuredBuffer<u64> occlusion_results;
 
   // Lighting / post-process
-  Texture2D<Vec4f16>                 hdr;
+  Texture2D<Vec4f16> hdr;
   TemporalResource<RenderTarget> taa;
   Texture2D<Vec4f16> coc_buffer;
   Texture2D<Vec4f16> blur_buffer;
@@ -467,6 +472,10 @@ struct RenderBuffers
   TemporalResource<Texture2DArray<u32>> probe_page_table;
   StructuredBuffer<DiffuseGiProbe> probe_buffer;
   StructuredBuffer<GiRayLuminance> ray_luminance;
+
+  // Due to issues with render target aliasing, blits must be done at different times
+  // but they all end up in this buffer
+  RenderTarget  debug_buffer;
 
   GpuRingBuffer upload_buffer;
 

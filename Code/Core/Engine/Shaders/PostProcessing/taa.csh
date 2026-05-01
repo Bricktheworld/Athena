@@ -32,10 +32,6 @@ uint2 get_dilated_texel(int2 texel)
   return closest_texel_pos;
 }
 
-float luma_rec709(float3 color)
-{
-  return 0.2126f * color.r + 0.7152f * color.g + 0.0722f * color.b;
-}
 
 float3 luma_weight_color_rec709(float3 color)
 {

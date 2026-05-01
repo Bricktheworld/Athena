@@ -460,6 +460,9 @@ init_render_buffers(
   alloc_structured_buffer             (&ret.probe_buffer,     "RT Diffuse GI - Luminance Probe Buffer",     sizeof(DiffuseGiProbe) * kProbeMaxActiveCount);
   alloc_structured_buffer             (&ret.ray_luminance,    "RT Diffuse GI - Ray Luminance Data",         sizeof(GiRayLuminance) * kProbeMaxRayCount,          kRenderLayerRtDiffuseGi, kRenderLayerRtDiffuseGi);
 
+  // Debug only (must be alive the entire frame)
+  alloc_render_target                 (&ret.debug_buffer,             "Debug Buffer",                       w,                       h, kGpuFormatRGBA16Float);
+
 
   u32 render_buffer_count = (u32)(dst_args - args_start);
   ASSERT_MSG_FATAL(render_buffer_count <= kMaxRenderBuffers, "Please bump kMaxRenderBuffers to something larger than %u", render_buffer_count);
@@ -817,6 +820,7 @@ init_engine_psos(EnginePSOLibrary* library, const SwapChain* swap_chain)
   REGISTER_COMPUTE_PSO(library, CS_TextureDownsampleHalf);
   REGISTER_COMPUTE_PSO(library, CS_DebugNormals);
   REGISTER_COMPUTE_PSO(library, CS_DebugDepth);
+  REGISTER_COMPUTE_PSO(library, CS_DebugGiVariance);
 
 
   {
@@ -918,7 +922,7 @@ render_handler_debug_buffers(const RenderEntry*, u32)
 {
   const ViewCtx* view_ctx = &g_RenderHandlerState.main_view;
   RenderBuffers* buffers  = &g_RenderHandlerState.buffers;
-  RenderTarget*  dst      = &buffers->tonemapped_buffer;
+  RenderTarget*  dst      = &buffers->debug_buffer;
   gpu_texture_layout_transition(&g_RenderHandlerState.cmd_list, &dst->texture, kGpuTextureLayoutUnorderedAccess);
 
   u32 layer = g_RenderHandlerState.settings.debug_layer;
@@ -953,7 +957,50 @@ render_handler_debug_buffers(const RenderEntry*, u32)
       gpu_bind_srt(&g_RenderHandlerState.cmd_list, srt);
       gpu_dispatch(&g_RenderHandlerState.cmd_list, UCEIL_DIV(view_ctx->width, 8), UCEIL_DIV(view_ctx->height, 8), 1);
     } break;
+    case kRenderDebugGiVariance:
+    {
+      DepthTarget*                      depth            = &buffers->gbuffer.depth;
+      RenderTarget*                     normal           = &buffers->gbuffer.normal_roughness;
+      Texture2D<Vec4f16>*               lighting         = &buffers->hdr;
+      Texture2DArray<u32>*              probe_page_table = buffers->probe_page_table.get_temporal(0);
+      StructuredBuffer<DiffuseGiProbe>* probe_buffer     = &buffers->probe_buffer;
+      gpu_texture_layout_transition(&g_RenderHandlerState.cmd_list, &depth->texture,            kGpuTextureLayoutShaderResource);
+      gpu_texture_layout_transition(&g_RenderHandlerState.cmd_list, &normal->texture,           kGpuTextureLayoutShaderResource);
+      gpu_texture_layout_transition(&g_RenderHandlerState.cmd_list, &probe_page_table->texture, kGpuTextureLayoutShaderResource);
+      gpu_texture_layout_transition(&g_RenderHandlerState.cmd_list, &lighting->texture,         kGpuTextureLayoutShaderResource);
+
+      DebugGiVarianceSrt srt;
+      srt.gbuffer_depth            = {depth->srv.index};
+      srt.gbuffer_normal_roughness = {normal->srv.index};
+      srt.lighting                 = *lighting;
+      srt.diffuse_gi_page_table    = *probe_page_table;
+      srt.diffuse_gi_probes        = *probe_buffer;
+      srt.dst                      = {dst->uav.index};
+      gpu_bind_compute_pso(&g_RenderHandlerState.cmd_list, kCS_DebugGiVariance);
+      gpu_bind_srt(&g_RenderHandlerState.cmd_list, srt);
+      gpu_dispatch(&g_RenderHandlerState.cmd_list, UCEIL_DIV(view_ctx->width, 8), UCEIL_DIV(view_ctx->height, 8), 1);
+    } break;
   }
+}
+
+void
+render_handler_debug_buffer_blit(const RenderEntry*, u32)
+{
+  const ViewCtx* view_ctx = &g_RenderHandlerState.main_view;
+  CmdList*       cmd      = &g_RenderHandlerState.cmd_list;
+  RenderBuffers* buffers  = &g_RenderHandlerState.buffers;
+  RenderTarget*  dst      = &buffers->tonemapped_buffer;
+  RenderTarget*  src      = &buffers->debug_buffer;
+
+  gpu_texture_layout_transition(cmd, &src->texture, kGpuTextureLayoutShaderResource);
+  gpu_texture_layout_transition(cmd, &dst->texture, kGpuTextureLayoutUnorderedAccess);
+
+  gpu_bind_compute_pso(cmd, kCS_TextureCopy);
+  TextureCopySrt srt;
+  srt.src = {src->srv.index};
+  srt.dst = {dst->uav.index};
+  gpu_bind_srt(cmd, srt);
+  gpu_dispatch(cmd, UCEIL_DIV(view_ctx->width, 8), UCEIL_DIV(view_ctx->height, 8), 8);
 }
 
 static constexpr RenderHandler* kRenderHandlers[]
@@ -975,6 +1022,7 @@ static constexpr RenderHandler* kRenderHandlers[]
   &render_handler_tonemapping,
   &render_handler_debug_ui,
   &render_handler_debug_buffers,
+  &render_handler_debug_buffer_blit,
   &render_handler_indirect_debug_draw,
   &render_handler_back_buffer_blit,
 };
@@ -999,6 +1047,7 @@ static const char* kRenderHandlerNames[] =
   "Tonemapping",
   "DebugUi",
   "DebugBuffers",
+  "DebugBufferBlit",
   "DebugDrawIndirect",
   "BackBufferBlit",
 };
@@ -1166,7 +1215,20 @@ submit_scene(const SwapChain* swap_chain, GpuTexture* back_buffer)
   sort_key = 0;
   if (g_RenderHandlerState.settings.debug_layer != kRenderDebugDefault)
   {
-    submit_render_entry(view_ctx, kRenderLayerDebug, kRenderHandlerDebugBuffers, sort_key++, nullptr);
+    switch (g_RenderHandlerState.settings.debug_layer)
+    {
+      case kRenderDebugDiffuse:
+      case kRenderDebugNormal:
+      case kRenderDebugDepth:
+      case kRenderDebugHZB0:
+      case kRenderDebugHZB1:
+      case kRenderDebugHZB2:
+      case kRenderDebugHZB3: 
+      case kRenderDebugGiVariance: submit_render_entry(view_ctx, kRenderLayerGBuffer, kRenderHandlerDebugBuffers, U32_MAX, nullptr); break;
+      default: break;
+    }
+
+    submit_render_entry(view_ctx, kRenderLayerPost, kRenderHandlerDebugBufferBlit, U32_MAX, nullptr);
   }
 
   sort_key = 0;

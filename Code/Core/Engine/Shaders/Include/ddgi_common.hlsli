@@ -11,26 +11,28 @@
 #define kProbeCountPerClipmap (SVec3(kProbeCountPerClipmapX, kProbeCountPerClipmapY, kProbeCountPerClipmapZ))
 #define kProbeClipmapCount (3)
 #define kProbeMaxActiveCount (kProbeCountPerClipmapX * kProbeCountPerClipmapY * kProbeCountPerClipmapZ * kProbeClipmapCount)
-#define kProbeMaxRayCount (64 * kProbeMaxActiveCount) // 32768; // This is 8 rays per probe in a 16 x 16 x 16 grid, choose wisely!
+#define kProbeMaxRays (32)
+#define kProbeMaxRayCount (kProbeMaxRays * kProbeMaxActiveCount) // 32768; // This is 8 rays per probe in a 16 x 16 x 16 grid, choose wisely!
 
 struct DiffuseGiProbe
 {
+  // This is also the mean
   SH::L1_F16_RGB luminance;
 
-  Vec3f16 mean;
-  f16     backface_percentage;
+  SH::L1_F16_RGB short_mean;
+  SH::L1_F16_RGB variance;
 
-  Vec3f16 short_mean;
-  f16     vbbr;
-
-  Vec3f16 variance;
-  f16     inconsistency;
+  f16            vbbr;
+  f16            inconsistency;
 };
 
 struct GiRayLuminance
 {
   Nits3f16 luminance;
   Vec3f16  direction;
+
+  f32      pdf;
+  f16      __pad__;
 };
 
 struct RtDiffuseGiProbeInitSrt
@@ -185,13 +187,6 @@ Nits3 sample_indirect_luminance(float3 ws_pos, float3 normal, float3 diffuse, Te
       u32    probe_idx              = diffuse_gi_page_table[tex_coord];
       DiffuseGiProbe probe          = diffuse_gi_probes[probe_idx];
 
-#if 0
-      if (probe.backface_percentage > 0.4)
-      {
-        weight = 0.0f;
-      }
-#endif
-
       if (debug_draw_sampled_probes && weight > 0)
       {
         debug_draw_line(ws_pos,        biased_ws_pos,    float3(0.0f, 0.0f, 1.0f));
@@ -220,6 +215,75 @@ Nits3 sample_indirect_luminance(float3 ws_pos, float3 normal, float3 diffuse, Te
 Nits3 sample_indirect_luminance(float3 ws_pos, float3 normal, float3 diffuse, Texture2DArray<u32> diffuse_gi_page_table, StructuredBuffer<DiffuseGiProbe> diffuse_gi_probes)
 {
   return sample_indirect_luminance(ws_pos, normal, diffuse, diffuse_gi_page_table, diffuse_gi_probes, false);
+}
+
+float get_indirect_vbbr(float3 ws_pos, float3 normal, Texture2DArray<u32> diffuse_gi_page_table, StructuredBuffer<DiffuseGiProbe> diffuse_gi_probes)
+{
+  // Helps deal with cases where the nearest probe is "inside" the geometry, so the backface weights basically just kill it, we'd ideally want to choose the neighboring cube of probes
+  static const float kSampleBias = 0.1f;
+
+  float3 biased_ws_pos        = ws_pos + normal * kSampleBias;
+
+  uint   clipmap_idx          = 0;
+  int3   probe_base           = get_probe_floor(biased_ws_pos, clipmap_idx);
+  float  vbbr                 = 0.0f;
+  while (clipmap_idx < kProbeClipmapCount)
+  {
+    float3 probe_base_dist    = biased_ws_pos - get_probe_ws_pos(probe_base, clipmap_idx);
+    float3 alpha              = saturate(probe_base_dist / get_probe_spacing(clipmap_idx));
+    float  total_weights      = 0.0f;
+
+    bool   below_volume       = get_probe_ws_pos(probe_base, clipmap_idx).y > biased_ws_pos.y;
+
+    for (uint iprobe = 0; iprobe < (below_volume ? 4 : 8); iprobe++)
+    {
+      // iprobe = 0 -> (0, 0, 0)
+      // iprobe = 1 -> (1, 0, 0)
+      // iprobe = 4 -> (0, 0, 1)
+      // iprobe = 5 -> (1, 0, 1)
+      // iprobe = 2 -> (0, 1, 0)
+      // iprobe = 3 -> (1, 1, 0)
+      // iprobe = 6 -> (0, 1, 1)
+      // iprobe = 7 -> (1, 1, 1)
+      int3   adj_coord_offset       = int3(iprobe, iprobe >> 2, iprobe >> 1) & int3(1, 1, 1);
+
+      int3   adj_probe_coords       = probe_base + adj_coord_offset;
+      if (any(adj_probe_coords < 0) || any(adj_probe_coords >= kProbeCountPerClipmap))
+      {
+        continue;
+      }
+
+
+      float3 adj_probe_ws_pos       = get_probe_ws_pos(adj_probe_coords, clipmap_idx);
+
+      float3 biased_to_adj_dir      = normalize(adj_probe_ws_pos - biased_ws_pos);
+      float  biased_to_adj_dist     = length(adj_probe_ws_pos - biased_ws_pos);
+
+      float3 trilinear              = max(0.001f, lerp(1.0f - alpha, alpha, adj_coord_offset));
+      float  trilinear_weight       = trilinear.x * trilinear.y * trilinear.z;
+
+      float  backface_weight        = max(dot(biased_to_adj_dir, normal), 0.0f);
+      float  weight                 = trilinear_weight * backface_weight;
+
+      int3   tex_coord              = get_probe_tex_coord(adj_probe_coords, clipmap_idx);
+      u32    probe_idx              = diffuse_gi_page_table[tex_coord];
+      DiffuseGiProbe probe          = diffuse_gi_probes[probe_idx];
+
+      vbbr += probe.inconsistency * weight;
+      total_weights += weight;
+    }
+
+    if (total_weights > 0.0f)
+    {
+      vbbr /= total_weights;
+      break;
+    }
+
+    clipmap_idx++;
+    probe_base           = get_probe_floor(biased_ws_pos, clipmap_idx);
+  }
+
+  return vbbr;
 }
 
 #endif

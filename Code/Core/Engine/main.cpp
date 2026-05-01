@@ -274,6 +274,7 @@ application_entry(HINSTANCE instance, int show_code)
     {
       sponza_load_start_timestamp = begin_cpu_profiler_timestamp();
       // sponza_model = kick_model_load(ASSET_ID("Assets/Source/sponza/Sponza.gltf"));
+      // sponza_model = kick_model_load(ASSET_ID("Assets/Source/sponza_intel/sponza.gltf"));
       sponza_model = kick_model_load(ASSET_ID("Assets/Source/Bistro/BistroExterior.fbx"));
     }
 

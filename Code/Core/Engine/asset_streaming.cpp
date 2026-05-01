@@ -1859,7 +1859,7 @@ init_asset_streamer_impl(void)
   u32 kGpuStagingBufferSize     = MiB(128);
   u32 kGpuScratchBufferSize     = MiB(8);
 
-  u32 kGpuTextureHeapSize       = MiB(800);
+  u32 kGpuTextureHeapSize       = GiB(2);
 
   ret->header_file_io_buffer              = init_push_buffer(KiB(1),  kHeaderFileIOBufferSize,   MiB(8));
   ret->content_file_io_buffer             = init_push_buffer(MiB(32), kContentFileIOBufferSize,  GiB(1));

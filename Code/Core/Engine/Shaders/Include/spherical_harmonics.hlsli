@@ -189,6 +189,11 @@ template<typename T, int32_t N> L1_Generic<T, N> Lerp(L1_Generic<T, N> x, L1_Gen
     return x * (T(1.0) - s) + y * s;
 }
 
+template<typename T, int32_t N> L1_Generic<T, N> Lerp(L1_Generic<T, N> x, L1_Generic<T, N> y, vector<T, N> s)
+{
+    return x * (T(1.0) - s) + y * s;
+}
+
 template<typename T, int32_t N> L2_Generic<T, N> Lerp(L2_Generic<T, N> x, L2_Generic<T, N> y, T s)
 {
     return x * (T(1.0) - s) + y * s;
@@ -566,6 +571,15 @@ template<typename T, int32_t N> L2_Generic<T, N> Rotate(L2_Generic<T, N> sh, flo
 
     return result;
 }
+
+template<typename T, int32_t N> bool IsNan(L1_Generic<T, N> sh)
+{
+  [unroll]
+  for(uint i = 0; i < L2_Generic<T, N>::NumCoefficients; ++i)
+    if (any(isnan(sh.C[i]))) return true;
+  return false;
+}
+
 #endif
 
 } // namespace SH

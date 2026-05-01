@@ -33,6 +33,11 @@ float4 screen_to_world(float3 screen, float2 screen_size)
   return world;
 }
 
+float luma_rec709(float3 color)
+{
+  return 0.2126f * color.r + 0.7152f * color.g + 0.0722f * color.b;
+}
+
 template<int N>
 vector<f32, N> snorm16_to_f32(vector<s16, N> packed)
 {

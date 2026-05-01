@@ -73,7 +73,7 @@ render_handler_rt_diffuse_gi_probe_blend(const RenderEntry*, u32)
   srt.probe_buffer = buffers->probe_buffer;
   gpu_bind_compute_pso(&g_RenderHandlerState.cmd_list, kCS_RtDiffuseGiProbeBlend);
   gpu_bind_srt(&g_RenderHandlerState.cmd_list, srt);
-  gpu_dispatch(&g_RenderHandlerState.cmd_list, ALIGN_POW2(kProbeMaxActiveCount, 64) / 64, 1, 1);
+  gpu_dispatch(&g_RenderHandlerState.cmd_list, ALIGN_POW2(kProbeMaxActiveCount, kProbeMaxRays) / kProbeMaxRays, 1, 1);
 
   gpu_memory_barrier(&g_RenderHandlerState.cmd_list);
 }

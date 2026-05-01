@@ -36,12 +36,7 @@ namespace Athena
       conf.ProjectPath = @"[project.SharpmakeCsPath]\VS\[project.Name]";
       conf.Options.Add(Options.Vc.Compiler.CppLanguageStandard.CPP20);
       conf.Options.Add(Options.Vc.Compiler.Exceptions.Disable);
-      if (target.Optimization == Optimization.Debug)
-      {
-        conf.Options.Add(Options.Vc.General.DebugInformation.ProgramDatabaseEnC);
-        conf.Options.Add(Options.Vc.Compiler.FunctionLevelLinking.Enable);
-        conf.Options.Add(Options.Vc.Linker.Incremental.Enable);
-      }
+      conf.Options.Add(Options.Vc.Linker.CreateHotPatchableImage.Enable);
       conf.Options.Add(Options.Vc.Linker.EnableCOMDATFolding.DoNotRemoveRedundantCOMDATs);
       conf.Options.Add(Options.Vc.Linker.GenerateDebugInformation.Enable);
       conf.Options.Add(Options.Vc.General.ExternalWarningLevel.Level0);

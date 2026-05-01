@@ -29,13 +29,18 @@ asset_builder::import_model(
     aiProcess_Triangulate           |
     aiProcess_JoinIdenticalVertices |
     aiProcess_SortByPType           |
+    aiProcess_GenUVCoords           |
+    aiProcess_GenNormals            |
+    aiProcess_TransformUVCoords     |
+    aiProcess_ConvertToLeftHanded   |
     aiProcess_SplitLargeMeshes      | // Need this to handle large meshes that overflow u16
     aiProcess_PreTransformVertices    // TODO(Brandon): We're gonna delete this and replace with prefab system
   );
 
   if (assimp_model == nullptr)
   {
-    printf("Failed to import scene through assimp!\n");
+    
+    printf("Failed to import scene through assimp: %s!\n", importer.GetErrorString());
     return false;
   }
 
