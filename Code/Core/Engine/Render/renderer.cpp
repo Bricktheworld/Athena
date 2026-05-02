@@ -13,6 +13,7 @@
 #include "Core/Engine/Render/post_processing.h"
 #include "Core/Engine/Render/taa.h"
 #include "Core/Engine/Render/visibility_buffer.h"
+#include "Core/Engine/Render/blue_noise.h"
 
 #include "Core/Engine/Shaders/root_signature.hlsli"
 #include "Core/Engine/Shaders/Include/clear_common.hlsli"
@@ -462,8 +463,14 @@ init_render_buffers(
   alloc_structured_buffer             (&ret.ray_allocs,               "RT Diffuse GI - Ray Alloc Arguments",    sizeof(GiRayAlloc)     * kProbeMaxActiveCount,   kRenderLayerInit,        kRenderLayerRtDiffuseGi);
   alloc_structured_buffer             (&ret.probe_atomic_counters,    "RT Diffuse GI - Total Inconsistency",    sizeof(u32) * 2,                                 kRenderLayerInit,        kRenderLayerRtDiffuseGi);
 
+  // Blue noise is uploaded two at engine init
+  alloc_scratch_texture               (&ret.blue_noise_unorm,         "Blue Noise Unit Unorm",            128,                     128);
+  alloc_scratch_texture               (&ret.blue_noise_uvec2,         "Blue Noise Unit Vec2",             128,                     128);
+  alloc_scratch_texture               (&ret.blue_noise_uvec3,         "Blue Noise Unit Vec3",             128,                     128);
+
   // Debug only (must be alive the entire frame)
   alloc_render_target                 (&ret.debug_buffer,             "Debug Buffer",                       w,                       h, kGpuFormatRGBA16Float);
+
 
 
   u32 render_buffer_count = (u32)(dst_args - args_start);
@@ -790,6 +797,7 @@ init_render_buffers(
   gpu_init_grv<StructuredBufferPtr<SceneObjGpu>>(kSceneObjBufferSlot, ret.scene_obj_buffer.buffer);
   gpu_init_grv<StructuredBufferPtr<RtObjGpu>>(kRtObjBufferSlot, ret.rt_obj_buffer.buffer);
   gpu_init_grv<RaytracingAccelerationStructurePtr>(kRaytracingAccelerationStructureSlot, ret.rt_tlas);
+  gpu_init_grv<Texture2DPtr<Vec4Unorm>>(kBlueNoiseVec3UnormSlot, ret.blue_noise_uvec3.texture);
 
   // Back buffer RTV gets initialized every frame
   ret.back_buffer_rtv = alloc_descriptor(&rtv_descriptor_heap);
@@ -1006,6 +1014,40 @@ render_handler_debug_buffer_blit(const RenderEntry*, u32)
   gpu_dispatch(cmd, UCEIL_DIV(view_ctx->width, 8), UCEIL_DIV(view_ctx->height, 8), 8);
 }
 
+void
+render_handler_upload_blue_noise_texture(const RenderEntry*, u32)
+{
+  RenderBuffers* buffers = &g_RenderHandlerState.buffers;
+  CmdList*       cmd     = &g_RenderHandlerState.cmd_list;
+
+  GpuTextureCopyableFootprint footprint    = gpu_get_texture_copyable_footprint(buffers->blue_noise_uvec3.texture.desc);
+  GpuStagingAllocation        upload_alloc = gpu_alloc_staging_bytes(cmd, (u32)footprint.total_size);
+
+  u32 src_width           = 128;
+  u32 src_height          = 128;
+  u32 bpp                 = kBlueNoiseTextureUnitVec3_128x128_Size / (src_width * src_height);
+  u32 src_row_pitch_bytes = bpp * src_width;
+
+  u8* dst                 = upload_alloc.cpu_dst;
+
+  dst                    += footprint.offset;
+  u32 dst_row_pitch_padded_bytes = (u32)footprint.row_padded_byte_count;
+  u32 dst_row_pitch_packed_bytes = (u32)footprint.row_byte_count;
+
+  u64 min_height                 = MIN(src_height, footprint.row_count);
+  u64 min_packed_row_pitch       = MIN(MIN(dst_row_pitch_padded_bytes, src_row_pitch_bytes), dst_row_pitch_packed_bytes);
+  ASSERT_MSG_FATAL(min_packed_row_pitch == src_width * bpp, "Unsupported row pitch configuration!");
+  for (u64 y = 0; y < min_height; y++)
+  {
+    u8* dst_row = ALLOC_OFF(dst, dst_row_pitch_padded_bytes);
+    memcpy(dst_row, kBlueNoiseTextureUnitVec3_128x128_RGBA8Unorm + y * src_row_pitch_bytes, min_packed_row_pitch);
+  }
+
+  gpu_texture_layout_transition(cmd, &buffers->blue_noise_uvec3.texture, kGpuTextureLayoutGeneral, kGpuTextureLoadOpDiscard);
+  gpu_copy_texture(cmd, &buffers->blue_noise_uvec3.texture, buffers->upload_buffer.buffer, upload_alloc.gpu_offset, dst - upload_alloc.cpu_dst);
+  gpu_texture_layout_transition(cmd, &buffers->blue_noise_uvec3.texture, kGpuTextureLayoutGeneral);
+}
+
 static constexpr RenderHandler* kRenderHandlers[]
 {
   &render_handler_frame_init,
@@ -1028,6 +1070,8 @@ static constexpr RenderHandler* kRenderHandlers[]
   &render_handler_debug_buffer_blit,
   &render_handler_indirect_debug_draw,
   &render_handler_back_buffer_blit,
+
+  &render_handler_upload_blue_noise_texture,
 };
 static_assert(ARRAY_LENGTH(kRenderHandlers) == kRenderHandlerCount, "Mismatched render handlers! Double check you added it correctly here (in the right order)");
 
@@ -1133,8 +1177,13 @@ submit_scene(const SwapChain* swap_chain, GpuTexture* back_buffer)
   view_ctx->render_batches     = HEAP_ALLOC(RenderBatch, g_FrameHeap, kMaxRenderBatches);
   view_ctx->render_batch_count = 0;
 
-  // Submit frame init
   u32 sort_key = 0;
+  if (g_RenderHandlerState.frame_id == 0)
+  {
+    submit_render_entry(view_ctx, kRenderLayerInit, kRenderHandlerUploadBlueNoiseTexture, sort_key++, nullptr);
+  }
+
+  // Submit frame init
   submit_render_entry(view_ctx, kRenderLayerInit,   kRenderHandlerFrameInit,       sort_key++, nullptr);
   submit_render_entry(view_ctx, kRenderLayerInit,   kRenderHandlerSceneUpload,     sort_key++, nullptr);
   submit_render_entry(view_ctx, kRenderLayerInit,   kRenderHandlerBuildTlas,       sort_key++, nullptr);

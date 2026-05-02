@@ -184,14 +184,6 @@ get_bc7_compression_stats(const ImportedTexture& texture)
   return ret;
 }
 
-struct GpuTextureCopyableFootprint
-{
-  u64 offset                = 0;
-  u64 row_count             = 0;
-  u64 row_byte_count        = 0;
-  u64 row_padded_byte_count = 0;
-  u64 total_size            = 0;
-};
 
 static u32
 get_uncompressed_bytes_per_pixel(const ImportedTexture& src)

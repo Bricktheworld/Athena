@@ -26,6 +26,7 @@ void CS_StandardBrdf(uint2 dispatch_thread_id : SV_DispatchThreadID)
 
   uint   material_id  = gbuffer_material_ids    [dispatch_thread_id];
   float3 diffuse      = gbuffer_diffuse_metallic[dispatch_thread_id].rgb;
+  float  roughness    = gbuffer_normal_roughness[dispatch_thread_id].a;
   float  metallic     = gbuffer_diffuse_metallic[dispatch_thread_id].a;
   float3 normal       = normalize(gbuffer_normal_roughness[dispatch_thread_id].xyz);
   float  depth        = gbuffer_depth           [dispatch_thread_id];
@@ -55,7 +56,7 @@ void CS_StandardBrdf(uint2 dispatch_thread_id : SV_DispatchThreadID)
   Lux3   directional_illuminance;
   directional_illuminance.m_Value = directional_light.illuminance * directional_light.diffuse.rgb;
 
-  BSDF   directional_bsdf   = cook_torrance_bsdf(directional_light.direction.xyz, view_direction, normal, 0.8f, 0.0f, diffuse);
+  BSDF   directional_bsdf   = cook_torrance_bsdf(directional_light.direction.xyz, view_direction, normal, roughness, metallic, diffuse);
   Nits3  direct_luminance   = directional_bsdf * directional_illuminance.attenuated(shadow_atten);
 
   bool   is_hovering_debug_mouse = all((uint2)(g_RenderSettings.mouse_pos * screen_size) == dispatch_thread_id);

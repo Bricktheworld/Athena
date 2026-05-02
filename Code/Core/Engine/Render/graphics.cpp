@@ -2980,6 +2980,26 @@ gpu_copy_buffer(
   cmd->d3d12_list->CopyBufferRegion(dst.d3d12_buffer, dst_offset, src.d3d12_buffer, src_offset, bytes);
 }
 
+GpuTextureCopyableFootprint
+gpu_get_texture_copyable_footprint(const GpuTextureDesc& desc)
+{
+  D3D12_RESOURCE_DESC1 d3d12_desc = d3d12_resource_desc(desc);
+
+  D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint;
+  u32 row_count;
+  u64 row_byte_count;
+  u64 total_size;
+  g_GpuDevice->d3d12->GetCopyableFootprints1(&d3d12_desc, 0, 1, 0, &footprint, &row_count, &row_byte_count, &total_size);
+
+  GpuTextureCopyableFootprint ret;
+  ret.offset                = footprint.Offset;
+  ret.row_count             = row_count;
+  ret.row_byte_count        = row_byte_count;
+  ret.row_padded_byte_count = footprint.Footprint.RowPitch;
+  ret.total_size            = total_size;
+  return ret;
+}
+
 void
 gpu_copy_texture(
         CmdList*    cmd,
@@ -2988,24 +3008,13 @@ gpu_copy_texture(
         u64         src_offset,
         u64         src_size
 ) {
-  D3D12_RESOURCE_DESC desc = {0};
-  desc.Dimension           = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-  desc.Alignment           = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
-  desc.DepthOrArraySize    = 1;
-  desc.Width               = dst->desc.width;
-  desc.Height              = dst->desc.height;
-  desc.MipLevels           = 1;
-  desc.Format              = gpu_format_to_d3d12(dst->desc.format);
-  desc.SampleDesc.Count    = 1;
-  desc.SampleDesc.Quality  = 0;
-  desc.Layout              = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-  desc.Flags               = D3D12_RESOURCE_FLAG_NONE;
+  D3D12_RESOURCE_DESC1 desc = d3d12_resource_desc(dst->desc);
 
   D3D12_PLACED_SUBRESOURCE_FOOTPRINT src_footprint;
   u32 row_count;
   u64 row_byte_count;
   u64 total_size;
-  g_GpuDevice->d3d12->GetCopyableFootprints(&desc, 0, 1, 0, &src_footprint, &row_count, &row_byte_count, &total_size);
+  g_GpuDevice->d3d12->GetCopyableFootprints1(&desc, 0, 1, 0, &src_footprint, &row_count, &row_byte_count, &total_size);
   src_footprint.Offset = src_offset;
 
   ASSERT_MSG_FATAL(total_size == src_size, "Size mismatch for copyable footprint of buffer! Are you copying to the correct format?");

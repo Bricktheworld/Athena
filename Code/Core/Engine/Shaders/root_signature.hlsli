@@ -14,6 +14,7 @@
 #define kMaterialBufferSlot 1
 #define kRaytracingAccelerationStructureSlot 2
 #define kRtObjBufferSlot 3
+#define kBlueNoiseVec3UnormSlot 4
 
 #define kDebugArgsBufferSlot 32
 #define kDebugVertexBufferSlot 33
@@ -46,6 +47,7 @@
   "StaticSampler(s0, filter = FILTER_MIN_MAG_LINEAR_MIP_POINT, addressU = TEXTURE_ADDRESS_WRAP,  addressV = TEXTURE_ADDRESS_WRAP,  addressW = TEXTURE_ADDRESS_WRAP,  mipLODBias = 0.0f, minLOD = 0.0f, maxLOD = 100.0f),"\
   "StaticSampler(s1, filter = FILTER_MIN_MAG_LINEAR_MIP_POINT, addressU = TEXTURE_ADDRESS_CLAMP, addressV = TEXTURE_ADDRESS_CLAMP, addressW = TEXTURE_ADDRESS_CLAMP, mipLODBias = 0.0f, minLOD = 0.0f, maxLOD = 100.0f),"\
   "StaticSampler(s2, filter = FILTER_MINIMUM_MIN_MAG_LINEAR_MIP_POINT, addressU = TEXTURE_ADDRESS_CLAMP, addressV = TEXTURE_ADDRESS_CLAMP, addressW = TEXTURE_ADDRESS_CLAMP, mipLODBias = 0.0f, minLOD = 0.0f, maxLOD = 100.0f),"\
+  "StaticSampler(s3, filter = FILTER_MIN_MAG_MIP_POINT, addressU = TEXTURE_ADDRESS_WRAP,  addressV = TEXTURE_ADDRESS_WRAP,  addressW = TEXTURE_ADDRESS_WRAP,  mipLODBias = 0.0f, minLOD = 0.0f, maxLOD = 100.0f),"\
   "SRV(t0),"\
   "SRV(t1),"\
   "SRV(t2),"\
@@ -63,6 +65,7 @@
 SamplerState                              g_BilinearSamplerWrap   : register(s0);
 SamplerState                              g_BilinearSamplerClamp  : register(s1);
 SamplerState                              g_MinSamplerClamp       : register(s2);
+SamplerState                              g_PointSamplerWrap      : register(s3);
 
 // Can't move these to GRVs for now because of stupid reasons
 StructuredBuffer<u16>                     g_IndexBuffer           : register(t1);
@@ -82,6 +85,7 @@ StructuredBuffer<SceneObjGpu>             g_SceneObjs             : register(t12
 StructuredBuffer<MaterialGpu>             g_Materials             : register(t129);
 RaytracingAccelerationStructure           g_AccelerationStructure : register(t130);
 StructuredBuffer<RtObjGpu>                g_RtObjs                : register(t131);
+Texture2D<float3>                         g_BlueNoiseVec3Unorm    : register(t132);
 
 //////////// Temporal ////////////
 ConstantBuffer<ViewportGpu>               g_ViewportBuffer        : register(b112);

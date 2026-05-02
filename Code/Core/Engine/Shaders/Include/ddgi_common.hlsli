@@ -25,7 +25,8 @@ struct DiffuseGiProbe
   f16            vbbr;
   f16            inconsistency;
 
-  uint           sample_count;
+  u16            sample_count;
+  u16            frames_since_last_traced;
 };
 
 struct GiRayAlloc

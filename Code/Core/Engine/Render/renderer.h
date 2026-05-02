@@ -247,6 +247,8 @@ enum RenderHandlerId : u32
 
   kRenderHandlerBackBufferBlit,
 
+  kRenderHandlerUploadBlueNoiseTexture,
+
   kRenderHandlerCount
 };
 
@@ -272,6 +274,8 @@ static const char* kRenderHandlerNames[] =
   "DebugBufferBlit",
   "DebugDrawIndirect",
   "BackBufferBlit",
+
+  "UploadBlueNoiseTexture",
 };
 static_assert(ARRAY_LENGTH(kRenderHandlerNames) == kRenderHandlerCount, "Mismatched render handler names! Double check you added it correctly here (in the right order)");
 
@@ -501,6 +505,11 @@ struct RenderBuffers
   StructuredBuffer<GiRayAlloc> ray_allocs;
   StructuredBuffer<u32> probe_atomic_counters;
 
+  // Blue Noise
+  Texture2D<Unorm>     blue_noise_unorm;
+  Texture2D<Vec2Unorm> blue_noise_uvec2;
+  Texture2D<Vec4Unorm> blue_noise_uvec3;
+
   // Due to issues with render target aliasing, blits must be done at different times
   // but they all end up in this buffer
   RenderTarget  debug_buffer;
@@ -508,6 +517,7 @@ struct RenderBuffers
   GpuRingBuffer upload_buffer;
 
   GpuDescriptor back_buffer_rtv;
+
 };
 
 struct RenderHandlerState
@@ -652,10 +662,32 @@ struct GpuInitGrvHelper<RaytracingAccelerationStructurePtr>
 };
 
 template <typename T>
+struct GpuInitGrvHelper<Texture2DPtr<T>>
+{
+  static void init(u32 idx, const GpuTexture& texture)
+  {
+    GpuDescriptor grv = alloc_table_descriptor(g_DescriptorCbvSrvUavPool, kGrvTemporalCount * kBackBufferCount + idx);
+    GpuTextureSrvDesc desc;
+    desc.mip_levels        = texture.desc.mip_levels;
+    desc.most_detailed_mip = 0;
+    desc.array_size        = texture.desc.array_size;
+    desc.format            = gpu_format_from_type<T>();
+    init_texture_srv(&grv, &texture, desc);
+  }
+};
+
+template <typename T>
 inline void
 gpu_init_grv(u32 idx, const GpuBuffer& buffer)
 {
   GpuInitGrvHelper<T>::init(idx, buffer);
+}
+
+template <typename T>
+inline void
+gpu_init_grv(u32 idx, const GpuTexture& texture)
+{
+  GpuInitGrvHelper<T>::init(idx, texture);
 }
 
 template <typename T>

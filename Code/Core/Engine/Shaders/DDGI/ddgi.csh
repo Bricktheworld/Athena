@@ -33,23 +33,24 @@ void CS_RtDiffuseGiPageTableInit(uint3 thread_id : SV_DispatchThreadID)
 
   page_table[tex_coord] = (u32)probe_idx;
 
-  DiffuseGiProbe new_probe = probe_buffer[probe_idx];
+  DiffuseGiProbe new_probe           = probe_buffer[probe_idx];
 
-  new_probe.luminance     = SH::L1_F16_RGB::Zero();
+  new_probe.luminance                = SH::L1_F16_RGB::Zero();
 
   // The probe is going to have high variance initially so we can resolve it quickly
-  new_probe.short_mean    = SH::L1_F16_RGB::Zero();
-  new_probe.variance      = SH::L1_F16_RGB::Zero();
-  new_probe.vbbr          = 1.0h;
-  new_probe.inconsistency = 10.0h;
-  new_probe.sample_count  = 0;
+  new_probe.short_mean               = SH::L1_F16_RGB::Zero();
+  new_probe.variance                 = SH::L1_F16_RGB::Zero();
+  new_probe.vbbr                     = 1.0h;
+  new_probe.inconsistency            = 10.0h;
+  new_probe.sample_count             = 0;
+  new_probe.frames_since_last_traced = 0xFFFE;
 
   probe_buffer[probe_idx] = new_probe;
 }
 
-float get_probe_weight(f32 inconsistency, uint clipmap_idx, uint sample_count)
+float get_probe_weight(f32 inconsistency, uint clipmap_idx, u16 sample_count, u16 frames_since_last_traced)
 {
-  return sample_count > 1024 ? inconsistency * pow(1.1f, kProbeClipmapCount - clipmap_idx) : 10.0f;
+  return (sample_count > 1024 && frames_since_last_traced < 30) ? inconsistency * pow(1.1f, kProbeClipmapCount - clipmap_idx) : 10.0f;
 }
 
 ConstantBuffer<RtDiffuseGiProbeReprojectSrt> g_ProbeReprojectSrt : register(b0);
@@ -89,10 +90,11 @@ void CS_RtDiffuseGiPageTableReproject(uint3 thread_id : SV_DispatchThreadID)
     return;
   }
 
-  int3 src_tex_coord = get_probe_tex_coord(src_coord, clipmap_idx);
-  u32  probe_idx     = page_table_prev[src_tex_coord];
-  f32  inconsistency = (f32)probe_buffer[probe_idx].inconsistency;
-  u32  sample_count  = probe_buffer[probe_idx].sample_count;
+  int3 src_tex_coord           = get_probe_tex_coord(src_coord, clipmap_idx);
+  u32  probe_idx               = page_table_prev[src_tex_coord];
+  f32  inconsistency           = (f32)probe_buffer[probe_idx].inconsistency;
+  u16  sample_count            = probe_buffer[probe_idx].sample_count;
+  u16  frames_since_last_trace = probe_buffer[probe_idx].frames_since_last_traced;
   if (clipmap_diff.x == 0 && clipmap_diff.y == 0 && clipmap_diff.z == 0)
   {
     page_table[src_tex_coord] = probe_idx;
@@ -101,8 +103,6 @@ void CS_RtDiffuseGiPageTableReproject(uint3 thread_id : SV_DispatchThreadID)
     float3 probe_ws_pos      = get_probe_ws_pos(src_coord, clipmap_idx);
 
     debug_draw_spherical_harmonic(probe_ws_pos, 0.1f, probe_buffer[probe_idx].luminance);
-    // debug_draw_spherical_harmonic(probe_ws_pos, 0.2f, probe_buffer[probe_idx].variance);
-    // debug_draw_sphere(probe_ws_pos, 0.1f, lerp(float3(1.0f, 1.0f, 1.0f), float3(1.0f, 0.0f, 0.0f), probe_buffer[probe_idx].vbbr));
   }
   else
   {
@@ -122,18 +122,20 @@ void CS_RtDiffuseGiPageTableReproject(uint3 thread_id : SV_DispatchThreadID)
       DiffuseGiProbe adj_probe     = probe_buffer[adj_idx];
 
       // Get the adjacent probe's luminance
-      new_probe.luminance     = adj_probe.luminance;
+      new_probe.luminance                = adj_probe.luminance;
 
       // The probe is going to have high variance initially so we can resolve it quickly
-      new_probe.short_mean    = adj_probe.luminance;
-      new_probe.vbbr          = adj_probe.vbbr;
-      new_probe.inconsistency = adj_probe.inconsistency;
-      new_probe.sample_count  = 0;
+      new_probe.short_mean               = adj_probe.luminance;
+      new_probe.vbbr                     = 0.3h;
+      new_probe.inconsistency            = 0.5h;
+      new_probe.sample_count             = 0;
+      new_probe.frames_since_last_traced = 0xFFFE;
 
       probe_buffer[probe_idx] = new_probe;
 
       inconsistency           = (f32)new_probe.inconsistency;
       sample_count            = 0;
+      frames_since_last_trace = 0xFFFE;
     }
 
     if (needs_reset)
@@ -147,7 +149,8 @@ void CS_RtDiffuseGiPageTableReproject(uint3 thread_id : SV_DispatchThreadID)
     page_table[dst_tex_coord] = page_table_prev[src_tex_coord];
   }
 
-  InterlockedAdd(atomic_counters[0], get_probe_weight(inconsistency, clipmap_idx, sample_count) * 1000.0f);
+  float weight = get_probe_weight(inconsistency, clipmap_idx, sample_count, frames_since_last_trace);
+  InterlockedAdd(atomic_counters[0], weight * 1000.0f);
 }
 
 ConstantBuffer<RtDiffuseGiProbeAllocRaysSrt> g_ProbeRayAllocSrt : register(b0);
@@ -181,7 +184,7 @@ void CS_RtDiffuseGiAllocRays(uint3 thread_id : SV_DispatchThreadID)
   DiffuseGiProbe probe     = probe_buffer[probe_idx];
   f32    total_weight      = atomic_counters[0] / 1000.0f;
   f32    inconsistency     = probe.inconsistency;
-  f32    weight            = get_probe_weight(inconsistency, clipmap_idx, probe.sample_count);
+  f32    weight            = get_probe_weight(inconsistency, clipmap_idx, probe.sample_count, probe.frames_since_last_traced);
   f32    relative_priority = weight / total_weight;
   u32    ray_count         = clamp(relative_priority * g_RenderSettings.diffuse_gi_ray_budget, 0, kProbeMaxRays);
 
@@ -250,7 +253,8 @@ void CS_RtDiffuseGiTraceRays(
   float  total_luminance      = 0;
   for (uint i = 0; i < kDirectionSampleCount; i += lane_count)
   {
-    float3 rand_direction       = normalize(mul((float3x3)base_rotation, spherical_fibonacci(i + lane_idx, kDirectionSampleCount)));
+    float3 rand_direction       = g_BlueNoiseVec3Unorm.Sample(g_PointSamplerWrap, float2((float)group_thread_id / (float)kDirectionSampleCount, probe_idx / 128.0f) + g_ViewportBuffer.frame_id / 128.0f).xyz * 2.0f - 1.0f;
+    // float3 rand_direction       = normalize(mul((float3x3)base_rotation, spherical_fibonacci(i + lane_idx, kDirectionSampleCount)));
     float  luminance            = luma_rec709((float3)SH::Evaluate(probe_buffer[probe_idx].luminance, (half3)rand_direction));
     float  luminance_prefix_sum = WavePrefixSum(luminance) + luminance + total_luminance;
     total_luminance            += WaveActiveSum(luminance);
@@ -301,7 +305,7 @@ void CS_RtDiffuseGiTraceRays(
   ray.Direction = sample_direction;
   ray.TMin      = 0.01f;
   // Short rays for probes
-  ray.TMax      = 20.0f;
+  ray.TMax      = 100.0f;
   // debug_draw_line(ray.Origin, ray.Origin + ray.Direction * 0.5f, float3(1.0, 0.0, 0.0));
 
   DirectionalLight directional_light = g_ViewportBuffer.directional_light;
@@ -420,6 +424,10 @@ void CS_RtDiffuseGiProbeBlend(uint thread_id : SV_DispatchThreadID, uint group_i
 
   if (args.ray_count == 0)
   {
+    if (probe_buffer[probe_idx].frames_since_last_traced < 0xFFFE)
+    {
+      probe_buffer[probe_idx].frames_since_last_traced++;
+    }
     return;
   }
 
@@ -442,6 +450,13 @@ void CS_RtDiffuseGiProbeBlend(uint thread_id : SV_DispatchThreadID, uint group_i
   luminance = luminance * (1.0h / (f16)args.ray_count);
 
   DiffuseGiProbe probe = probe_buffer[probe_idx];
+
+  // TODO(bshihabi): I'm not too sure where the NaN is coming from, but this seems to happen sometimes and the probes go crazy because of it.
+  // this is my temporary solution
+  if (SH::IsNan(probe.variance))
+  {
+    probe.variance = SH::L1_F16_RGB::Zero();
+  }
 
   float3 total_catch_up_blend = 0.0f;
   float  total_vbbr           = 0.0f;
@@ -493,7 +508,6 @@ void CS_RtDiffuseGiProbeBlend(uint thread_id : SV_DispatchThreadID, uint group_i
   probe.inconsistency        = (half)mean_inconsistency;
   probe.vbbr                 = (half)mean_vbbr;
 
-  // TODO(bshihabi): We should blend based on variance
   probe.luminance  = SH::Lerp(probe.luminance, luminance, (half3)mean_catch_up_blend);
 
   if (SH::IsNan(probe.luminance))
@@ -502,9 +516,10 @@ void CS_RtDiffuseGiProbeBlend(uint thread_id : SV_DispatchThreadID, uint group_i
     probe.luminance    = err;
   }
 
-  if (probe.sample_count < 0xFFFFFFFE)
+  if (probe.sample_count < 0xFFFE)
   {
-    probe.sample_count   += args.ray_count;
+    probe.sample_count   += (u16)args.ray_count;
   }
-  probe_buffer[probe_idx] = probe;
+  probe.frames_since_last_traced = 0;
+  probe_buffer[probe_idx]        = probe;
 }

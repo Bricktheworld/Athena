@@ -850,6 +850,17 @@ void gpu_copy_buffer(
   u64      bytes
 );
 
+struct GpuTextureCopyableFootprint
+{
+  u64 offset                = 0;
+  u64 row_count             = 0;
+  u64 row_byte_count        = 0;
+  u64 row_padded_byte_count = 0;
+  u64 total_size            = 0;
+};
+
+GpuTextureCopyableFootprint gpu_get_texture_copyable_footprint(const GpuTextureDesc& desc);
+
 static constexpr u32 kGpuTextureAlignment = 512;
 // Copy buffer to texture
 void gpu_copy_texture(
@@ -928,15 +939,26 @@ void imgui_render(CmdList* cmd);
 #define GPU_END_EVENT_TAGGED(cmdlist, tag, fmt, ...) PIXEndEvent((cmdlist)->d3d12_list); end_gpu_profiler_timestamp((cmdlist), fmt, tag)
 #define GPU_SCOPED_EVENT_TAGGED(color, cmdlist, tag, fmt, ...) GPU_BEGIN_EVENT_TAGGED(color, cmdlist, tag, fmt, __VA_ARGS__); defer { GPU_END_EVENT_TAGGED(cmdlist, tag, fmt, __VA_ARGS__); }
 
+// TODO(bshihabi): We should implement some basic operands for these
+struct Unorm { u8 _; };
+struct Vec2Unorm { Vec2u8 _; };
+struct Vec3Unorm { Vec3u8 _; };
+struct Vec4Unorm { Vec4u8 _; };
 
 template <typename T>
 inline GpuFormat gpu_format_from_type();
 
 template <>
-inline GpuFormat gpu_format_from_type<float>()    { return kGpuFormatR32Float;    }
+inline GpuFormat gpu_format_from_type<Unorm>()    { return kGpuFormatR8Unorm;    }
 
 template <>
-inline GpuFormat gpu_format_from_type<f16>()      { return kGpuFormatR16Float;    }
+inline GpuFormat gpu_format_from_type<Vec2Unorm>() { return kGpuFormatRG8Unorm;   }
+
+template <>
+inline GpuFormat gpu_format_from_type<Vec4Unorm>() { return kGpuFormatRGBA8Unorm; }
+
+template <>
+inline GpuFormat gpu_format_from_type<float>()    { return kGpuFormatR32Float;    }
 
 template <>
 inline GpuFormat gpu_format_from_type<float2>()   { return kGpuFormatRG32Float;   }
@@ -946,6 +968,9 @@ inline GpuFormat gpu_format_from_type<float3>()   { return kGpuFormatRGB32Float;
 
 template <>
 inline GpuFormat gpu_format_from_type<float4>()   { return kGpuFormatRGBA32Float; }
+
+template <>
+inline GpuFormat gpu_format_from_type<f16>()      { return kGpuFormatR16Float;    }
 
 template <>
 inline GpuFormat gpu_format_from_type<Vec2f16>()   { return kGpuFormatRG16Float;   }
