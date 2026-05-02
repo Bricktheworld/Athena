@@ -89,7 +89,7 @@ RaytracingAccelerationStructure           g_AccelerationStructure : register(t13
 StructuredBuffer<RtObjGpu>                g_RtObjs                : register(t131);
 Texture2DArray<float>                     g_BlueNoiseUnorm        : register(t132);
 Texture2DArray<float2>                    g_BlueNoiseVec2Unorm    : register(t133);
-Texture2D<float3>                         g_BlueNoiseUnitVec3     : register(t134);
+Texture2DArray<float3>                    g_BlueNoiseUnitVec3     : register(t134);
 
 //////////// Temporal ////////////
 ConstantBuffer<ViewportGpu>               g_ViewportBuffer        : register(b112);

@@ -264,7 +264,7 @@ void CS_RtDiffuseGiTraceRays(
   float  total_luminance      = 0;
   for (uint i = 0; i < kDirectionSampleCount; i += lane_count)
   {
-    float3 rand_direction       = g_BlueNoiseUnitVec3.Sample(g_PointSamplerWrap, float2((float)group_thread_id / (float)kDirectionSampleCount, probe_idx / 128.0f) + g_ViewportBuffer.frame_id / 128.0f).xyz * 2.0f - 1.0f;
+    float3 rand_direction       = g_BlueNoiseUnitVec3.Sample(g_PointSamplerWrap, float3((float)group_thread_id / 128.0f, probe_idx / 128.0f, g_ViewportBuffer.frame_id % 64)).xyz * 2.0f - 1.0f;
     // float3 rand_direction       = normalize(mul((float3x3)base_rotation, spherical_fibonacci(i + lane_idx, kDirectionSampleCount)));
     float  luminance            = luma_rec709((float3)SH::Evaluate(probe_buffer[probe_idx].luminance, (half3)rand_direction));
     float  luminance_prefix_sum = WavePrefixSum(luminance) + luminance + total_luminance;

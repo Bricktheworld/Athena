@@ -466,7 +466,7 @@ init_render_buffers(
   // Blue noise is uploaded two at engine init
   alloc_scratch_texture_array         (&ret.blue_noise_unorm,         "Blue Noise Unit Unorm",            128,                     128, 64);
   alloc_scratch_texture_array         (&ret.blue_noise_uvec2,         "Blue Noise Unit Vec2",             128,                     128, 64);
-  alloc_scratch_texture               (&ret.blue_noise_uvec3,         "Blue Noise Unit Vec3",             128,                     128);
+  alloc_scratch_texture_array         (&ret.blue_noise_uvec3,         "Blue Noise Unit Vec3",             128,                     128, 64);
 
   // Debug only (must be alive the entire frame)
   alloc_render_target                 (&ret.debug_buffer,             "Debug Buffer",                       w,                       h, kGpuFormatRGBA16Float);
@@ -799,7 +799,7 @@ init_render_buffers(
   gpu_init_grv<RaytracingAccelerationStructurePtr>(kRaytracingAccelerationStructureSlot, ret.rt_tlas);
   gpu_init_grv<Texture2DArrayPtr<Unorm>>(kBlueNoiseUnormSlot, ret.blue_noise_unorm.texture);
   gpu_init_grv<Texture2DArrayPtr<Vec2Unorm>>(kBlueNoiseVec2UnormSlot, ret.blue_noise_uvec2.texture);
-  gpu_init_grv<Texture2DPtr<Vec4Unorm>>(kBlueNoiseVec3UnormSlot, ret.blue_noise_uvec3.texture);
+  gpu_init_grv<Texture2DArrayPtr<Vec4Unorm>>(kBlueNoiseVec3UnormSlot, ret.blue_noise_uvec3.texture);
 
   // Back buffer RTV gets initialized every frame
   ret.back_buffer_rtv = alloc_descriptor(&rtv_descriptor_heap);
@@ -1086,7 +1086,7 @@ render_handler_upload_blue_noise_texture(const RenderEntry*, u32)
 
   upload_texture_array(&buffers->blue_noise_unorm, kBlueNoiseTextureScalar_128x128x64_R8Unorm, 64, 128, 128);
   upload_texture_array(&buffers->blue_noise_uvec2, kBlueNoiseTextureVec2_128x128x64_RG8Unorm, 64, 128, 128);
-  upload_texture      (&buffers->blue_noise_uvec3, kBlueNoiseTextureUnitVec3_128x128_RGBA8Unorm, kBlueNoiseTextureUnitVec3_128x128_Size);
+  upload_texture_array(&buffers->blue_noise_uvec3, kBlueNoiseTextureUnitVec3_128x128x64_RGBA8Unorm, 64, 128, 128);
 }
 
 static constexpr RenderHandler* kRenderHandlers[]

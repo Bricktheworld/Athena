@@ -508,7 +508,7 @@ struct RenderBuffers
   // Blue Noise
   Texture2DArray<Unorm> blue_noise_unorm;
   Texture2DArray<Vec2Unorm> blue_noise_uvec2;
-  Texture2D<Vec4Unorm> blue_noise_uvec3;
+  Texture2DArray<Vec4Unorm> blue_noise_uvec3;
 
   // Due to issues with render target aliasing, blits must be done at different times
   // but they all end up in this buffer
