@@ -108,7 +108,7 @@ struct RenderSettings
 
   Vec2  mouse_pos                = Vec2(0.0f, 0.0f);
   s32   forced_model_lod         = -1;
-  u32   diffuse_gi_ray_budget    = 32896;
+  u32   diffuse_gi_ray_budget    = 16448;
 
   Vec3  diffuse_gi_probe_spacing = Vec3(1.0f, 1.8f, 1.0f);
 
@@ -506,8 +506,8 @@ struct RenderBuffers
   StructuredBuffer<u32> probe_atomic_counters;
 
   // Blue Noise
-  Texture2D<Unorm>     blue_noise_unorm;
-  Texture2D<Vec2Unorm> blue_noise_uvec2;
+  Texture2DArray<Unorm> blue_noise_unorm;
+  Texture2DArray<Vec2Unorm> blue_noise_uvec2;
   Texture2D<Vec4Unorm> blue_noise_uvec3;
 
   // Due to issues with render target aliasing, blits must be done at different times
@@ -663,6 +663,21 @@ struct GpuInitGrvHelper<RaytracingAccelerationStructurePtr>
 
 template <typename T>
 struct GpuInitGrvHelper<Texture2DPtr<T>>
+{
+  static void init(u32 idx, const GpuTexture& texture)
+  {
+    GpuDescriptor grv = alloc_table_descriptor(g_DescriptorCbvSrvUavPool, kGrvTemporalCount * kBackBufferCount + idx);
+    GpuTextureSrvDesc desc;
+    desc.mip_levels        = texture.desc.mip_levels;
+    desc.most_detailed_mip = 0;
+    desc.array_size        = texture.desc.array_size;
+    desc.format            = gpu_format_from_type<T>();
+    init_texture_srv(&grv, &texture, desc);
+  }
+};
+
+template <typename T>
+struct GpuInitGrvHelper<Texture2DArrayPtr<T>>
 {
   static void init(u32 idx, const GpuTexture& texture)
   {

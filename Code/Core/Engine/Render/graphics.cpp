@@ -3006,7 +3006,8 @@ gpu_copy_texture(
         GpuTexture* dst,
   const GpuBuffer&  src,
         u64         src_offset,
-        u64         src_size
+        u64         src_size,
+        u32         subresource_index
 ) {
   D3D12_RESOURCE_DESC1 desc = d3d12_resource_desc(dst->desc);
 
@@ -3014,11 +3015,10 @@ gpu_copy_texture(
   u32 row_count;
   u64 row_byte_count;
   u64 total_size;
-  g_GpuDevice->d3d12->GetCopyableFootprints1(&desc, 0, 1, 0, &src_footprint, &row_count, &row_byte_count, &total_size);
+  g_GpuDevice->d3d12->GetCopyableFootprints1(&desc, subresource_index, 1, 0, &src_footprint, &row_count, &row_byte_count, &total_size);
   src_footprint.Offset = src_offset;
 
   ASSERT_MSG_FATAL(total_size == src_size, "Size mismatch for copyable footprint of buffer! Are you copying to the correct format?");
-  
 
   D3D12_TEXTURE_COPY_LOCATION src_location = {0};
   src_location.pResource        = src.d3d12_buffer;
@@ -3028,7 +3028,7 @@ gpu_copy_texture(
   D3D12_TEXTURE_COPY_LOCATION dst_location = {0};
   dst_location.pResource        = dst->d3d12_texture;
   dst_location.Type             = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-  dst_location.SubresourceIndex = 0;
+  dst_location.SubresourceIndex = subresource_index;
 
   cmd->d3d12_list->CopyTextureRegion(&dst_location, 0, 0, 0, &src_location, nullptr);
 }

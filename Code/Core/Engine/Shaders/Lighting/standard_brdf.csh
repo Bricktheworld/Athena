@@ -64,7 +64,9 @@ void CS_StandardBrdf(uint2 dispatch_thread_id : SV_DispatchThreadID)
   Nits3  indirect_luminance = Nits3::zero();
   if (!g_RenderSettings.disable_diffuse_gi)
   {
-    indirect_luminance      = sample_indirect_luminance(ws_pos, normal, diffuse, diffuse_gi_page_table, diffuse_gi_probes, is_hovering_debug_mouse && g_RenderSettings.debug_gi_sample_probes);
+    float2 screen_uvs       = (float2(dispatch_thread_id) + 0.5f) / 128.0f;
+    float blue_noise        = g_BlueNoiseUnorm.Sample(g_PointSamplerWrap, float3(screen_uvs, g_ViewportBuffer.frame_id % 64));
+    indirect_luminance      = sample_indirect_luminance(ws_pos, normal, diffuse, diffuse_gi_page_table, diffuse_gi_probes, blue_noise, is_hovering_debug_mouse && g_RenderSettings.debug_gi_sample_probes);
   }
 
   Nits3 luminance;

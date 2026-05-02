@@ -868,7 +868,8 @@ void gpu_copy_texture(
         GpuTexture* dst,
   const GpuBuffer&  src,
         u64         src_offset,
-        u64         src_size
+        u64         src_size,
+        u32         subresource_index = 0
 );
 
 void gpu_memory_barrier(CmdList* cmd);

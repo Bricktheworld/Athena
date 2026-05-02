@@ -150,7 +150,7 @@ int3 get_probe_floor(float3 ws_pos, inout uint clipmap_idx)
   return -1;
 }
 
-Nits3 sample_indirect_luminance(float3 ws_pos, float3 normal, float3 diffuse, Texture2DArray<u32> diffuse_gi_page_table, StructuredBuffer<DiffuseGiProbe> diffuse_gi_probes, bool debug_draw_sampled_probes)
+Nits3 sample_indirect_luminance(float3 ws_pos, float3 normal, float3 diffuse, Texture2DArray<u32> diffuse_gi_page_table, StructuredBuffer<DiffuseGiProbe> diffuse_gi_probes, float blue_noise, bool debug_draw_sampled_probes)
 {
   // Helps deal with cases where the nearest probe is "inside" the geometry, so the backface weights basically just kill it, we'd ideally want to choose the neighboring cube of probes
   static const float kSampleBias = 0.1f;
@@ -158,7 +158,6 @@ Nits3 sample_indirect_luminance(float3 ws_pos, float3 normal, float3 diffuse, Te
   float3 biased_ws_pos        = ws_pos + normal * kSampleBias;
 
   uint   clipmap_idx          = 0;
-  int3   probe_base           = get_probe_floor(biased_ws_pos, clipmap_idx);
 
   Lux3   indirect_illuminance = Lux3::zero();
   // Account for energy loss on bounce
@@ -169,11 +168,32 @@ Nits3 sample_indirect_luminance(float3 ws_pos, float3 normal, float3 diffuse, Te
 
   while (clipmap_idx < kProbeClipmapCount)
   {
+    indirect_illuminance      = Lux3::zero();
+
+    int3   probe_base         = get_probe_floor(biased_ws_pos, clipmap_idx);
+
     float3 probe_base_dist    = biased_ws_pos - get_probe_ws_pos(probe_base, clipmap_idx);
     float3 alpha              = saturate(probe_base_dist / get_probe_spacing(clipmap_idx));
     float  total_weights      = 0.0f;
 
     bool   below_volume       = get_probe_ws_pos(probe_base, clipmap_idx).y > biased_ws_pos.y;
+
+    // I only blend XZ clipmaps for now because it's not very common to move up/down
+    if (clipmap_idx < kProbeClipmapCount - 1 && (any(probe_base.xz <= 1) || any(probe_base.xz >= kProbeCountPerClipmap.xz - 2)))
+    {
+      int3   clipmap_origin    = get_clipmap_origin(clipmap_idx);
+      float3 probe_spacing     = get_probe_spacing(clipmap_idx);
+      float3 clipmap_origin_ws = clipmap_origin * probe_spacing;
+      float2 ls_dist           = abs(biased_ws_pos.xz - clipmap_origin_ws.xz) / probe_spacing.xz;
+      float2 clipmap_extents   = 0.5f * kProbeCountPerClipmap.xz;
+      float2 dist_from_edge    = (clipmap_extents - ls_dist);
+      float  fade              = saturate(min(dist_from_edge.x, dist_from_edge.y)) / 1.5f;
+      if (blue_noise > fade)
+      {
+        clipmap_idx++;
+        continue;
+      }
+    }
 
     for (uint iprobe = 0; iprobe < (below_volume ? 4 : 8); iprobe++)
     {
@@ -190,9 +210,9 @@ Nits3 sample_indirect_luminance(float3 ws_pos, float3 normal, float3 diffuse, Te
       int3   adj_probe_coords       = probe_base + adj_coord_offset;
       if (any(adj_probe_coords < 0) || any(adj_probe_coords >= kProbeCountPerClipmap))
       {
+        total_weights = 0.0f;
         continue;
       }
-
 
       float3 adj_probe_ws_pos       = get_probe_ws_pos(adj_probe_coords, clipmap_idx);
 
@@ -227,9 +247,6 @@ Nits3 sample_indirect_luminance(float3 ws_pos, float3 normal, float3 diffuse, Te
     }
 
     clipmap_idx++;
-    probe_base           = get_probe_floor(biased_ws_pos, clipmap_idx);
-
-    indirect_illuminance = Lux3::zero();
   }
 
   return bsdf * indirect_illuminance;
@@ -237,7 +254,7 @@ Nits3 sample_indirect_luminance(float3 ws_pos, float3 normal, float3 diffuse, Te
 
 Nits3 sample_indirect_luminance(float3 ws_pos, float3 normal, float3 diffuse, Texture2DArray<u32> diffuse_gi_page_table, StructuredBuffer<DiffuseGiProbe> diffuse_gi_probes)
 {
-  return sample_indirect_luminance(ws_pos, normal, diffuse, diffuse_gi_page_table, diffuse_gi_probes, false);
+  return sample_indirect_luminance(ws_pos, normal, diffuse, diffuse_gi_page_table, diffuse_gi_probes, 0.0f, false);
 }
 
 float get_indirect_vbbr(float3 ws_pos, float3 normal, Texture2DArray<u32> diffuse_gi_page_table, StructuredBuffer<DiffuseGiProbe> diffuse_gi_probes)

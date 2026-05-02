@@ -14,7 +14,9 @@
 #define kMaterialBufferSlot 1
 #define kRaytracingAccelerationStructureSlot 2
 #define kRtObjBufferSlot 3
-#define kBlueNoiseVec3UnormSlot 4
+#define kBlueNoiseUnormSlot 4
+#define kBlueNoiseVec2UnormSlot 5
+#define kBlueNoiseVec3UnormSlot 6
 
 #define kDebugArgsBufferSlot 32
 #define kDebugVertexBufferSlot 33
@@ -85,7 +87,9 @@ StructuredBuffer<SceneObjGpu>             g_SceneObjs             : register(t12
 StructuredBuffer<MaterialGpu>             g_Materials             : register(t129);
 RaytracingAccelerationStructure           g_AccelerationStructure : register(t130);
 StructuredBuffer<RtObjGpu>                g_RtObjs                : register(t131);
-Texture2D<float3>                         g_BlueNoiseVec3Unorm    : register(t132);
+Texture2DArray<float>                     g_BlueNoiseUnorm        : register(t132);
+Texture2DArray<float2>                    g_BlueNoiseVec2Unorm    : register(t133);
+Texture2D<float3>                         g_BlueNoiseUnitVec3     : register(t134);
 
 //////////// Temporal ////////////
 ConstantBuffer<ViewportGpu>               g_ViewportBuffer        : register(b112);

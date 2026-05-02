@@ -232,6 +232,9 @@ BSDF cook_torrance_bsdf(
 
   float3 H = normalize(view_direction + light_direction);
 
+  // Make sure we don't get NaNs
+  roughness = max(roughness, 0.01f);
+
   BSDF ret;
   ret.m_NdotV = abs(dot(N, V)) + 1e-5f;
   ret.m_NdotL = saturate(dot(N, L));

@@ -464,8 +464,8 @@ init_render_buffers(
   alloc_structured_buffer             (&ret.probe_atomic_counters,    "RT Diffuse GI - Total Inconsistency",    sizeof(u32) * 2,                                 kRenderLayerInit,        kRenderLayerRtDiffuseGi);
 
   // Blue noise is uploaded two at engine init
-  alloc_scratch_texture               (&ret.blue_noise_unorm,         "Blue Noise Unit Unorm",            128,                     128);
-  alloc_scratch_texture               (&ret.blue_noise_uvec2,         "Blue Noise Unit Vec2",             128,                     128);
+  alloc_scratch_texture_array         (&ret.blue_noise_unorm,         "Blue Noise Unit Unorm",            128,                     128, 64);
+  alloc_scratch_texture_array         (&ret.blue_noise_uvec2,         "Blue Noise Unit Vec2",             128,                     128, 64);
   alloc_scratch_texture               (&ret.blue_noise_uvec3,         "Blue Noise Unit Vec3",             128,                     128);
 
   // Debug only (must be alive the entire frame)
@@ -797,6 +797,8 @@ init_render_buffers(
   gpu_init_grv<StructuredBufferPtr<SceneObjGpu>>(kSceneObjBufferSlot, ret.scene_obj_buffer.buffer);
   gpu_init_grv<StructuredBufferPtr<RtObjGpu>>(kRtObjBufferSlot, ret.rt_obj_buffer.buffer);
   gpu_init_grv<RaytracingAccelerationStructurePtr>(kRaytracingAccelerationStructureSlot, ret.rt_tlas);
+  gpu_init_grv<Texture2DArrayPtr<Unorm>>(kBlueNoiseUnormSlot, ret.blue_noise_unorm.texture);
+  gpu_init_grv<Texture2DArrayPtr<Vec2Unorm>>(kBlueNoiseVec2UnormSlot, ret.blue_noise_uvec2.texture);
   gpu_init_grv<Texture2DPtr<Vec4Unorm>>(kBlueNoiseVec3UnormSlot, ret.blue_noise_uvec3.texture);
 
   // Back buffer RTV gets initialized every frame
@@ -1020,32 +1022,71 @@ render_handler_upload_blue_noise_texture(const RenderEntry*, u32)
   RenderBuffers* buffers = &g_RenderHandlerState.buffers;
   CmdList*       cmd     = &g_RenderHandlerState.cmd_list;
 
-  GpuTextureCopyableFootprint footprint    = gpu_get_texture_copyable_footprint(buffers->blue_noise_uvec3.texture.desc);
-  GpuStagingAllocation        upload_alloc = gpu_alloc_staging_bytes(cmd, (u32)footprint.total_size);
-
-  u32 src_width           = 128;
-  u32 src_height          = 128;
-  u32 bpp                 = kBlueNoiseTextureUnitVec3_128x128_Size / (src_width * src_height);
-  u32 src_row_pitch_bytes = bpp * src_width;
-
-  u8* dst                 = upload_alloc.cpu_dst;
-
-  dst                    += footprint.offset;
-  u32 dst_row_pitch_padded_bytes = (u32)footprint.row_padded_byte_count;
-  u32 dst_row_pitch_packed_bytes = (u32)footprint.row_byte_count;
-
-  u64 min_height                 = MIN(src_height, footprint.row_count);
-  u64 min_packed_row_pitch       = MIN(MIN(dst_row_pitch_padded_bytes, src_row_pitch_bytes), dst_row_pitch_packed_bytes);
-  ASSERT_MSG_FATAL(min_packed_row_pitch == src_width * bpp, "Unsupported row pitch configuration!");
-  for (u64 y = 0; y < min_height; y++)
+  auto upload_texture = [&]<typename T>(Texture2D<T>* texture, const u8* src, u32 src_size)
   {
-    u8* dst_row = ALLOC_OFF(dst, dst_row_pitch_padded_bytes);
-    memcpy(dst_row, kBlueNoiseTextureUnitVec3_128x128_RGBA8Unorm + y * src_row_pitch_bytes, min_packed_row_pitch);
-  }
+    GpuTextureCopyableFootprint footprint    = gpu_get_texture_copyable_footprint(texture->texture.desc);
+    GpuStagingAllocation        upload_alloc = gpu_alloc_staging_bytes(cmd, (u32)footprint.total_size);
 
-  gpu_texture_layout_transition(cmd, &buffers->blue_noise_uvec3.texture, kGpuTextureLayoutGeneral, kGpuTextureLoadOpDiscard);
-  gpu_copy_texture(cmd, &buffers->blue_noise_uvec3.texture, buffers->upload_buffer.buffer, upload_alloc.gpu_offset, dst - upload_alloc.cpu_dst);
-  gpu_texture_layout_transition(cmd, &buffers->blue_noise_uvec3.texture, kGpuTextureLayoutGeneral);
+    u32 src_width           = 128;
+    u32 src_height          = 128;
+    u32 bpp                 = src_size / (src_width * src_height);
+    u32 src_row_pitch_bytes = bpp * src_width;
+
+    u8* dst                 = upload_alloc.cpu_dst;
+
+    dst                    += footprint.offset;
+    u32 dst_row_pitch_padded_bytes = (u32)footprint.row_padded_byte_count;
+    u32 dst_row_pitch_packed_bytes = (u32)footprint.row_byte_count;
+
+    u64 min_height                 = MIN(src_height, footprint.row_count);
+    u64 min_packed_row_pitch       = MIN(MIN(dst_row_pitch_padded_bytes, src_row_pitch_bytes), dst_row_pitch_packed_bytes);
+    ASSERT_MSG_FATAL(min_packed_row_pitch == src_width * bpp, "Unsupported row pitch configuration!");
+    for (u64 y = 0; y < min_height; y++)
+    {
+      u8* dst_row = ALLOC_OFF(dst, dst_row_pitch_padded_bytes);
+      memcpy(dst_row, src + y * src_row_pitch_bytes, min_packed_row_pitch);
+    }
+
+    gpu_texture_layout_transition(cmd, &texture->texture, kGpuTextureLayoutGeneral, kGpuTextureLoadOpDiscard);
+    gpu_copy_texture(cmd, &texture->texture, buffers->upload_buffer.buffer, upload_alloc.gpu_offset, dst - upload_alloc.cpu_dst);
+    gpu_texture_layout_transition(cmd, &texture->texture, kGpuTextureLayoutGeneral);
+  };
+
+  auto upload_texture_array = [&]<typename T>(Texture2DArray<T>* texture, const u8* src, u32 slice_count, u32 src_width, u32 src_height)
+  {
+    GpuTextureCopyableFootprint slice_fp     = gpu_get_texture_copyable_footprint(texture->texture.desc);
+    GpuStagingAllocation        upload_alloc = gpu_alloc_staging_bytes(cmd, (u32)(slice_fp.total_size * slice_count));
+
+    u32 bpp            = (u32)(slice_fp.row_byte_count / src_width);
+    u32 src_row_pitch  = src_width * bpp;
+    u32 dst_row_pitch  = (u32)slice_fp.row_padded_byte_count;
+    u32 copy_row_pitch = (u32)slice_fp.row_byte_count;
+    u64 row_count      = MIN(src_height, slice_fp.row_count);
+
+    for (u32 slice = 0; slice < slice_count; slice++)
+    {
+      u64       slice_offset = slice_fp.offset + slice * slice_fp.total_size;
+      u8*       dst          = upload_alloc.cpu_dst + slice_offset;
+      const u8* slice_src    = src + slice * src_width * src_height * bpp;
+
+      for (u64 y = 0; y < row_count; y++)
+      {
+        memcpy(dst + y * dst_row_pitch, slice_src + y * src_row_pitch, copy_row_pitch);
+      }
+    }
+
+    gpu_texture_layout_transition(cmd, &texture->texture, kGpuTextureLayoutGeneral, kGpuTextureLoadOpDiscard);
+    for (u32 slice = 0; slice < slice_count; slice++)
+    {
+      u64 slice_gpu_offset = upload_alloc.gpu_offset + slice_fp.offset + slice * slice_fp.total_size;
+      gpu_copy_texture(cmd, &texture->texture, buffers->upload_buffer.buffer, slice_gpu_offset, slice_fp.total_size, slice);
+    }
+    gpu_texture_layout_transition(cmd, &texture->texture, kGpuTextureLayoutGeneral);
+  };
+
+  upload_texture_array(&buffers->blue_noise_unorm, kBlueNoiseTextureScalar_128x128x64_R8Unorm, 64, 128, 128);
+  upload_texture_array(&buffers->blue_noise_uvec2, kBlueNoiseTextureVec2_128x128x64_RG8Unorm, 64, 128, 128);
+  upload_texture      (&buffers->blue_noise_uvec3, kBlueNoiseTextureUnitVec3_128x128_RGBA8Unorm, kBlueNoiseTextureUnitVec3_128x128_Size);
 }
 
 static constexpr RenderHandler* kRenderHandlers[]
@@ -1310,49 +1351,50 @@ render_view_ctx(ViewCtx* view_ctx)
 {
   gpu_flush_cmds();
 
-  GPU_SCOPED_EVENT(PIX_COLOR_DEFAULT, &g_RenderHandlerState.cmd_list, "Frame %lu", g_RenderHandlerState.frame_id);
-
-  begin_gpu_profiler_timestamp(&g_RenderHandlerState.cmd_list, kTotalFrameGpuMarker);
-  defer { end_gpu_profiler_timestamp(&g_RenderHandlerState.cmd_list, kTotalFrameGpuMarker); };
-  u32 tag = 0;
-
-  RenderLayer layer = kRenderLayerCount;
-  for (u32 ibatch = 0; ibatch < view_ctx->render_batch_count; ibatch++)
   {
-    const RenderBatch* batch       = view_ctx->render_batches + ibatch;
-    if (batch->layer != layer)
+    GPU_SCOPED_EVENT(PIX_COLOR_DEFAULT, &g_RenderHandlerState.cmd_list, "Frame %lu", g_RenderHandlerState.frame_id);
+
+    begin_gpu_profiler_timestamp(&g_RenderHandlerState.cmd_list, kTotalFrameGpuMarker);
+    defer { end_gpu_profiler_timestamp(&g_RenderHandlerState.cmd_list, kTotalFrameGpuMarker); };
+    u32 tag = 0;
+
+    RenderLayer layer = kRenderLayerCount;
+    for (u32 ibatch = 0; ibatch < view_ctx->render_batch_count; ibatch++)
     {
-      if (layer < kRenderLayerCount)
+      const RenderBatch* batch       = view_ctx->render_batches + ibatch;
+      if (batch->layer != layer)
       {
-        GPU_END_EVENT(&g_RenderHandlerState.cmd_list, kRenderLayerNames[layer]);
-      }
-
-      layer = batch->layer;
-      GPU_BEGIN_EVENT(PIX_COLOR_DEFAULT, &g_RenderHandlerState.cmd_list, kRenderLayerNames[layer]);
-    }
-    const RenderEntry* start_entry = batch->entries;
-    const RenderEntry* end_entry   = start_entry;
-
-    while (end_entry < batch->entries + batch->entry_count)
-    {
-      end_entry++;
-      if (end_entry >= batch->entries + batch->entry_count || end_entry->handler != start_entry->handler)
-      {
-        gpu_bind_engine_defaults();
-
+        if (layer < kRenderLayerCount)
         {
-          GPU_SCOPED_EVENT_TAGGED(PIX_COLOR_DEFAULT, &g_RenderHandlerState.cmd_list, tag, kRenderHandlerNames[start_entry->handler]);
-          (kRenderHandlers[start_entry->handler])(start_entry, (u32)(end_entry - start_entry));
+          GPU_END_EVENT(&g_RenderHandlerState.cmd_list, kRenderLayerNames[layer]);
         }
-        tag++;
-        start_entry = end_entry;
+
+        layer = batch->layer;
+        GPU_BEGIN_EVENT(PIX_COLOR_DEFAULT, &g_RenderHandlerState.cmd_list, kRenderLayerNames[layer]);
+      }
+      const RenderEntry* start_entry = batch->entries;
+      const RenderEntry* end_entry   = start_entry;
+
+      while (end_entry < batch->entries + batch->entry_count)
+      {
+        end_entry++;
+        if (end_entry >= batch->entries + batch->entry_count || end_entry->handler != start_entry->handler)
+        {
+          gpu_bind_engine_defaults();
+          {
+            GPU_SCOPED_EVENT_TAGGED(PIX_COLOR_DEFAULT, &g_RenderHandlerState.cmd_list, tag, kRenderHandlerNames[start_entry->handler]);
+            (kRenderHandlers[start_entry->handler])(start_entry, (u32)(end_entry - start_entry));
+          }
+          tag++;
+          start_entry = end_entry;
+        }
       }
     }
-  }
 
-  if (layer < kRenderLayerCount)
-  {
-    GPU_END_EVENT(&g_RenderHandlerState.cmd_list, kRenderLayerNames[layer]);
+    if (layer < kRenderLayerCount)
+    {
+      GPU_END_EVENT(&g_RenderHandlerState.cmd_list, kRenderLayerNames[layer]);
+    }
   }
   gpu_flush_cmds();
 }

@@ -50,7 +50,18 @@ void CS_RtDiffuseGiPageTableInit(uint3 thread_id : SV_DispatchThreadID)
 
 float get_probe_weight(f32 inconsistency, uint clipmap_idx, u16 sample_count, u16 frames_since_last_traced)
 {
-  return (sample_count > 1024 && frames_since_last_traced < 30) ? inconsistency * pow(1.1f, kProbeClipmapCount - clipmap_idx) : 10.0f;
+  if (sample_count < 1024)
+  {
+    return 10.0f;
+  }
+  else if (frames_since_last_traced >= 30)
+  {
+    return 5.0f;
+  }
+  else
+  {
+    return inconsistency * pow(1.1f, kProbeClipmapCount - clipmap_idx);
+  }
 }
 
 ConstantBuffer<RtDiffuseGiProbeReprojectSrt> g_ProbeReprojectSrt : register(b0);
@@ -253,7 +264,7 @@ void CS_RtDiffuseGiTraceRays(
   float  total_luminance      = 0;
   for (uint i = 0; i < kDirectionSampleCount; i += lane_count)
   {
-    float3 rand_direction       = g_BlueNoiseVec3Unorm.Sample(g_PointSamplerWrap, float2((float)group_thread_id / (float)kDirectionSampleCount, probe_idx / 128.0f) + g_ViewportBuffer.frame_id / 128.0f).xyz * 2.0f - 1.0f;
+    float3 rand_direction       = g_BlueNoiseUnitVec3.Sample(g_PointSamplerWrap, float2((float)group_thread_id / (float)kDirectionSampleCount, probe_idx / 128.0f) + g_ViewportBuffer.frame_id / 128.0f).xyz * 2.0f - 1.0f;
     // float3 rand_direction       = normalize(mul((float3x3)base_rotation, spherical_fibonacci(i + lane_idx, kDirectionSampleCount)));
     float  luminance            = luma_rec709((float3)SH::Evaluate(probe_buffer[probe_idx].luminance, (half3)rand_direction));
     float  luminance_prefix_sum = WavePrefixSum(luminance) + luminance + total_luminance;
@@ -305,7 +316,7 @@ void CS_RtDiffuseGiTraceRays(
   ray.Direction = sample_direction;
   ray.TMin      = 0.01f;
   // Short rays for probes
-  ray.TMax      = 100.0f;
+  ray.TMax      = 50.0f;
   // debug_draw_line(ray.Origin, ray.Origin + ray.Direction * 0.5f, float3(1.0, 0.0, 0.0));
 
   DirectionalLight directional_light = g_ViewportBuffer.directional_light;
@@ -456,6 +467,18 @@ void CS_RtDiffuseGiProbeBlend(uint thread_id : SV_DispatchThreadID, uint group_i
   if (SH::IsNan(probe.variance))
   {
     probe.variance = SH::L1_F16_RGB::Zero();
+  }
+  if (SH::IsNan(probe.short_mean))
+  {
+    probe.short_mean = SH::L1_F16_RGB::Zero();
+  }
+  if (isnan(probe.inconsistency))
+  {
+    probe.inconsistency = 0.3h;
+  }
+  if (isnan(probe.vbbr))
+  {
+    probe.vbbr = 0.3h;
   }
 
   float3 total_catch_up_blend = 0.0f;
