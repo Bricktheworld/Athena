@@ -5,11 +5,11 @@
 #include "lighting_common.hlsli"
 #include "spherical_harmonics.hlsli"
 
-#define kProbeCountPerClipmapX (32)
+#define kProbeCountPerClipmapX (16)
 #define kProbeCountPerClipmapY (4)
-#define kProbeCountPerClipmapZ (32)
+#define kProbeCountPerClipmapZ (16)
 #define kProbeCountPerClipmap (SVec3(kProbeCountPerClipmapX, kProbeCountPerClipmapY, kProbeCountPerClipmapZ))
-#define kProbeClipmapCount (3)
+#define kProbeClipmapCount (6)
 #define kProbeMaxActiveCount (kProbeCountPerClipmapX * kProbeCountPerClipmapY * kProbeCountPerClipmapZ * kProbeClipmapCount)
 #define kProbeMaxRays (32)
 #define kProbeMaxRayCount (kProbeMaxRays * kProbeMaxActiveCount) // 32768; // This is 8 rays per probe in a 16 x 16 x 16 grid, choose wisely!
@@ -24,6 +24,14 @@ struct DiffuseGiProbe
 
   f16            vbbr;
   f16            inconsistency;
+
+  uint           sample_count;
+};
+
+struct GiRayAlloc
+{
+  uint           ray_idx;
+  uint           ray_count;
 };
 
 struct GiRayLuminance
@@ -37,7 +45,8 @@ struct GiRayLuminance
 
 struct RtDiffuseGiProbeInitSrt
 {
-  RWTexture2DArrayPtr<u32> page_table;
+  RWTexture2DArrayPtr<u32>              page_table;
+  RWStructuredBufferPtr<DiffuseGiProbe> probe_buffer;
 };
 
 struct RtDiffuseGiProbeReprojectSrt
@@ -45,6 +54,16 @@ struct RtDiffuseGiProbeReprojectSrt
   RWTexture2DArrayPtr<u32>               page_table;
   RWStructuredBufferPtr<DiffuseGiProbe>  probe_buffer;
   Texture2DArrayPtr<u32>                 page_table_prev;
+  RWStructuredBufferPtr<uint>            atomic_counters;
+};
+
+struct RtDiffuseGiProbeAllocRaysSrt
+{
+  Texture2DArrayPtr<u32>                 page_table;
+  StructuredBufferPtr<DiffuseGiProbe>    probe_buffer;
+  RWStructuredBufferPtr<GiRayAlloc>      ray_allocs;
+  RWStructuredBufferPtr<GiRayLuminance>  ray_output_buffer;
+  RWStructuredBufferPtr<uint>            atomic_counters;
 };
 
 struct RtDiffuseGiTraceRaySrt
@@ -53,18 +72,20 @@ struct RtDiffuseGiTraceRaySrt
   Texture2DArrayPtr<u32>                 page_table;
   StructuredBufferPtr<DiffuseGiProbe>    probe_buffer;
   RWStructuredBufferPtr<GiRayLuminance>  ray_output_buffer;
+  StructuredBufferPtr<GiRayAlloc>        ray_alloc_args;
 };
 
 struct RtDiffuseGiProbeBlendSrt
 {
   StructuredBufferPtr<GiRayLuminance>    ray_buffer;
   RWStructuredBufferPtr<DiffuseGiProbe>  probe_buffer;
+  StructuredBufferPtr<GiRayAlloc>        ray_alloc_args;
 };
 
 #if !defined(__cplusplus)
 float3 get_probe_spacing(uint clipmap_idx)
 {
-  return g_RenderSettings.diffuse_gi_probe_spacing * pow(4.0f, clipmap_idx);
+  return g_RenderSettings.diffuse_gi_probe_spacing * pow(2.5f, clipmap_idx);
 }
 
 int3 get_clipmap_origin(uint clipmap_idx)
@@ -186,6 +207,7 @@ Nits3 sample_indirect_luminance(float3 ws_pos, float3 normal, float3 diffuse, Te
       int3   tex_coord              = get_probe_tex_coord(adj_probe_coords, clipmap_idx);
       u32    probe_idx              = diffuse_gi_page_table[tex_coord];
       DiffuseGiProbe probe          = diffuse_gi_probes[probe_idx];
+      weight                       *= lerp(0.0f, 1.0f, probe.sample_count / 2048.0f);
 
       if (debug_draw_sampled_probes && weight > 0)
       {

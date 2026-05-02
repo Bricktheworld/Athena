@@ -11,7 +11,8 @@ ConstantBuffer<RtDiffuseGiProbeInitSrt> g_ProbeInitSrt : register(b0);
 [numthreads(8, 1, 8)]
 void CS_RtDiffuseGiPageTableInit(uint3 thread_id : SV_DispatchThreadID)
 {
-  RWTexture2DArray<u32> page_table = DEREF(g_ProbeInitSrt.page_table);
+  RWTexture2DArray<u32>               page_table   = DEREF(g_ProbeInitSrt.page_table);
+  RWStructuredBuffer<DiffuseGiProbe>  probe_buffer = DEREF(g_ProbeInitSrt.probe_buffer);
 
   uint clipmap_idx = thread_id.y / kProbeCountPerClipmap.y;
 
@@ -31,6 +32,24 @@ void CS_RtDiffuseGiPageTableInit(uint3 thread_id : SV_DispatchThreadID)
   tex_coord.z += clipmap_idx * kProbeCountPerClipmap.y;
 
   page_table[tex_coord] = (u32)probe_idx;
+
+  DiffuseGiProbe new_probe = probe_buffer[probe_idx];
+
+  new_probe.luminance     = SH::L1_F16_RGB::Zero();
+
+  // The probe is going to have high variance initially so we can resolve it quickly
+  new_probe.short_mean    = SH::L1_F16_RGB::Zero();
+  new_probe.variance      = SH::L1_F16_RGB::Zero();
+  new_probe.vbbr          = 1.0h;
+  new_probe.inconsistency = 10.0h;
+  new_probe.sample_count  = 0;
+
+  probe_buffer[probe_idx] = new_probe;
+}
+
+float get_probe_weight(f32 inconsistency, uint clipmap_idx, uint sample_count)
+{
+  return sample_count > 1024 ? inconsistency * pow(1.1f, kProbeClipmapCount - clipmap_idx) : 10.0f;
 }
 
 ConstantBuffer<RtDiffuseGiProbeReprojectSrt> g_ProbeReprojectSrt : register(b0);
@@ -45,6 +64,7 @@ void CS_RtDiffuseGiPageTableReproject(uint3 thread_id : SV_DispatchThreadID)
   }
 
   RWStructuredBuffer<DiffuseGiProbe>  probe_buffer    = DEREF(g_ProbeReprojectSrt.probe_buffer);
+  RWStructuredBuffer<uint>            atomic_counters = DEREF(g_ProbeReprojectSrt.atomic_counters);
   RWTexture2DArray<u32>               page_table      = DEREF(g_ProbeReprojectSrt.page_table);
   Texture2DArray<u32>                 page_table_prev = DEREF(g_ProbeReprojectSrt.page_table_prev);
 
@@ -70,54 +90,112 @@ void CS_RtDiffuseGiPageTableReproject(uint3 thread_id : SV_DispatchThreadID)
   }
 
   int3 src_tex_coord = get_probe_tex_coord(src_coord, clipmap_idx);
-
+  u32  probe_idx     = page_table_prev[src_tex_coord];
+  f32  inconsistency = (f32)probe_buffer[probe_idx].inconsistency;
+  u32  sample_count  = probe_buffer[probe_idx].sample_count;
   if (clipmap_diff.x == 0 && clipmap_diff.y == 0 && clipmap_diff.z == 0)
   {
-    u32 probe_idx = page_table_prev[src_tex_coord];
     page_table[src_tex_coord] = probe_idx;
 
     float3 kClipmapToColor[] = { float3(0.0, 0.0, 1.0), float3(1.0, 0.0, 0.0), float3(0.0, 1.0, 0.0) };
     float3 probe_ws_pos      = get_probe_ws_pos(src_coord, clipmap_idx);
 
     debug_draw_spherical_harmonic(probe_ws_pos, 0.1f, probe_buffer[probe_idx].luminance);
-    debug_draw_spherical_harmonic(probe_ws_pos, 0.2f, probe_buffer[probe_idx].variance);
+    // debug_draw_spherical_harmonic(probe_ws_pos, 0.2f, probe_buffer[probe_idx].variance);
     // debug_draw_sphere(probe_ws_pos, 0.1f, lerp(float3(1.0f, 1.0f, 1.0f), float3(1.0f, 0.0f, 0.0f), probe_buffer[probe_idx].vbbr));
+  }
+  else
+  {
+    int3 reproj_coord = src_coord - clipmap_diff;
+
+    // Logic to figure out if we need to reset the probe because it went wrapped around the clipmap
+    bool needs_reset  = any(reproj_coord < 0) || any(reproj_coord >= kProbeCountPerClipmap);
+    reproj_coord      = (reproj_coord % kProbeCountPerClipmap + kProbeCountPerClipmap) % kProbeCountPerClipmap;
+    if (needs_reset)
+    {
+      // Reset the probe
+      DiffuseGiProbe new_probe     = probe_buffer[probe_idx];
+      // Get a neighboring probe close to the center of the clipmap
+      int3           adj_coord     = reproj_coord;
+      int3           adj_tex_coord = get_probe_tex_coord(adj_coord, clipmap_idx);
+      u32            adj_idx       = page_table_prev[adj_tex_coord];
+      DiffuseGiProbe adj_probe     = probe_buffer[adj_idx];
+
+      // Get the adjacent probe's luminance
+      new_probe.luminance     = adj_probe.luminance;
+
+      // The probe is going to have high variance initially so we can resolve it quickly
+      new_probe.short_mean    = adj_probe.luminance;
+      new_probe.vbbr          = adj_probe.vbbr;
+      new_probe.inconsistency = adj_probe.inconsistency;
+      new_probe.sample_count  = 0;
+
+      probe_buffer[probe_idx] = new_probe;
+
+      inconsistency           = (f32)new_probe.inconsistency;
+      sample_count            = 0;
+    }
+
+    if (needs_reset)
+    {
+      float3 probe_ws_pos      = get_probe_ws_pos(reproj_coord, clipmap_idx);
+      debug_draw_sphere(probe_ws_pos, 0.1f, float3(1.0f, 0.0f, 0.0f));
+    }
+
+    int3 dst_tex_coord = get_probe_tex_coord(reproj_coord, clipmap_idx);
+
+    page_table[dst_tex_coord] = page_table_prev[src_tex_coord];
+  }
+
+  InterlockedAdd(atomic_counters[0], get_probe_weight(inconsistency, clipmap_idx, sample_count) * 1000.0f);
+}
+
+ConstantBuffer<RtDiffuseGiProbeAllocRaysSrt> g_ProbeRayAllocSrt : register(b0);
+
+[RootSignature(BINDLESS_ROOT_SIGNATURE)]
+[numthreads(8, 1, 8)]
+void CS_RtDiffuseGiAllocRays(uint3 thread_id : SV_DispatchThreadID)
+{
+  StructuredBuffer<DiffuseGiProbe>   probe_buffer      = DEREF(g_ProbeRayAllocSrt.probe_buffer);
+  Texture2DArray<u32>                page_table        = DEREF(g_ProbeRayAllocSrt.page_table);
+  RWStructuredBuffer<GiRayAlloc>     dst_allocs        = DEREF(g_ProbeRayAllocSrt.ray_allocs);
+  RWStructuredBuffer<GiRayLuminance> ray_output_buffer = DEREF(g_ProbeRayAllocSrt.ray_output_buffer);
+  RWStructuredBuffer<u32>            atomic_counters   = DEREF(g_ProbeRayAllocSrt.atomic_counters);
+
+  // Get probe coordinates for which probe we're allocating rays for
+  uint   clipmap_idx       = thread_id.y / kProbeCountPerClipmap.y;
+  int3   probe_coord       = int3(thread_id.x, thread_id.y % kProbeCountPerClipmap.y, thread_id.z);
+
+  if (
+    clipmap_idx   >= kProbeClipmapCount      ||
+    probe_coord.x >= kProbeCountPerClipmap.x ||
+    probe_coord.y >= kProbeCountPerClipmap.y ||
+    probe_coord.z >= kProbeCountPerClipmap.z
+  ) {
     return;
   }
 
-  int3 reproj_coord = src_coord - clipmap_diff;
+  int3   probe_tex_coord   = get_probe_tex_coord(probe_coord, clipmap_idx);
+  uint   probe_idx         = page_table[probe_tex_coord];
+  
+  DiffuseGiProbe probe     = probe_buffer[probe_idx];
+  f32    total_weight      = atomic_counters[0] / 1000.0f;
+  f32    inconsistency     = probe.inconsistency;
+  f32    weight            = get_probe_weight(inconsistency, clipmap_idx, probe.sample_count);
+  f32    relative_priority = weight / total_weight;
+  u32    ray_count         = clamp(relative_priority * g_RenderSettings.diffuse_gi_ray_budget, 0, kProbeMaxRays);
 
-  // Logic to figure out if we need to reset the probe because it went wrapped around the clipmap
-  bool needs_reset  = any(reproj_coord < 0) || any(reproj_coord >= kProbeCountPerClipmap);
-  if (needs_reset)
+  u32    ray_idx           = 0;
+  if (ray_count > 0)
   {
-    u32 reset_probe = page_table_prev[src_tex_coord];
-
-    // Reset the probe
-    DiffuseGiProbe new_probe  = probe_buffer[reset_probe];
-
-    new_probe.luminance     = SH::L1_F16_RGB::Zero();
-
-    // The probe is going to have high variance initially so we can resolve it quickly
-    new_probe.short_mean    = SH::L1_F16_RGB::Zero();
-    new_probe.vbbr          = 1.0h;
-    new_probe.inconsistency = 1.0h;
-
-    probe_buffer[reset_probe] = new_probe;
+    InterlockedAdd(atomic_counters[1], ray_count, ray_idx);
   }
 
-  // Reproject with overwrite logic for "new" probes (probes that were reset)
-  reproj_coord = (reproj_coord % kProbeCountPerClipmap + kProbeCountPerClipmap) % kProbeCountPerClipmap;
+  dst_allocs[probe_idx].ray_idx   = ray_idx;
+  dst_allocs[probe_idx].ray_count = ray_count;
 
-  if (needs_reset)
-  {
-    float3 probe_ws_pos      = get_probe_ws_pos(reproj_coord, clipmap_idx);
-    debug_draw_sphere(probe_ws_pos, 0.1f, float3(1.0f, 0.0f, 0.0f));
-  }
-
-  int3 dst_tex_coord = get_probe_tex_coord(reproj_coord, clipmap_idx);
-
-  page_table[dst_tex_coord] = page_table_prev[src_tex_coord];
+  // float3 probe_ws_pos      = get_probe_ws_pos(probe_coord, clipmap_idx);
+  // debug_draw_sphere(probe_ws_pos, 0.1f, lerp(float3(1.0f, 1.0f, 1.0f), float3(1.0f, 0.0f, 0.0f), (f32)ray_count / (f32)kProbeMaxRays));
 }
 
 float3 spherical_fibonacci(float sample_idx, float num_samples)
@@ -151,6 +229,7 @@ void CS_RtDiffuseGiTraceRays(
   Texture2DArray<u32>                 page_table        = DEREF(g_ProbeTraceRaySrt.page_table);
   RWStructuredBuffer<GiRayLuminance>  ray_output_buffer = DEREF(g_ProbeTraceRaySrt.ray_output_buffer);
   StructuredBuffer<DiffuseGiProbe>    probe_buffer      = DEREF(g_ProbeTraceRaySrt.probe_buffer);
+  StructuredBuffer<GiRayAlloc>        ray_alloc_args    = DEREF(g_ProbeTraceRaySrt.ray_alloc_args);
 
 
   // Get probe coordinates for which probe we're sending rays for
@@ -158,6 +237,9 @@ void CS_RtDiffuseGiTraceRays(
   int3   probe_coord     = int3(group_id.x, group_id.y % kProbeCountPerClipmap.y, group_id.z);
   int3   probe_tex_coord = get_probe_tex_coord(probe_coord, clipmap_idx);
   u32    probe_idx       = page_table[probe_tex_coord];
+
+  GiRayAlloc args        = ray_alloc_args[probe_idx];
+  u32        dst_idx     = args.ray_idx + group_thread_id;
 
   // Importance sampling
   uint   lane_count = WaveGetLaneCount();
@@ -199,6 +281,12 @@ void CS_RtDiffuseGiTraceRays(
     }
   }
 
+  // Nop any threads beyond the ray count
+  if (group_thread_id >= args.ray_count)
+  {
+    return;
+  }
+
   // Importance sample direction
   float3 sample_direction = g_RandDirections[sample_idx];
 
@@ -221,8 +309,6 @@ void CS_RtDiffuseGiTraceRays(
   query.TraceRayInline(g_AccelerationStructure, RAY_FLAG_NONE, 0xFF, ray);
   query.Proceed();
 
-  // TODO(bshihabi): This needs to be dynamic since each probe might have different amounts allocated to it.
-  uint dst_idx = probe_idx * kProbeMaxRays + group_thread_id;
   if (query.CommittedStatus() == COMMITTED_TRIANGLE_HIT)
   {
     VertexUncompressed vert      = get_traced_vertex(query);
@@ -316,11 +402,12 @@ void CS_RtDiffuseGiTraceRays(
 ConstantBuffer<RtDiffuseGiProbeBlendSrt> g_ProbeBlendSrt : register(b0);
 
 [RootSignature(BINDLESS_ROOT_SIGNATURE)]
-[numthreads(kProbeMaxRays, 1, 1)]
+[numthreads(64, 1, 1)]
 void CS_RtDiffuseGiProbeBlend(uint thread_id : SV_DispatchThreadID, uint group_id : SV_GroupID)
 {
-  StructuredBuffer<GiRayLuminance>    ray_buffer   = DEREF(g_ProbeBlendSrt.ray_buffer);
-  RWStructuredBuffer<DiffuseGiProbe>  probe_buffer = DEREF(g_ProbeBlendSrt.probe_buffer);
+  StructuredBuffer<GiRayLuminance>    ray_buffer     = DEREF(g_ProbeBlendSrt.ray_buffer);
+  RWStructuredBuffer<DiffuseGiProbe>  probe_buffer   = DEREF(g_ProbeBlendSrt.probe_buffer);
+  StructuredBuffer<GiRayAlloc>        ray_alloc_args = DEREF(g_ProbeBlendSrt.ray_alloc_args);
 
   uint           probe_idx = thread_id;
   if (probe_idx >= kProbeMaxActiveCount)
@@ -328,12 +415,17 @@ void CS_RtDiffuseGiProbeBlend(uint thread_id : SV_DispatchThreadID, uint group_i
     return;
   }
 
+  GiRayAlloc args    = ray_alloc_args[probe_idx];
+  u32        src_idx = args.ray_idx;
 
-  // TODO(bshihabi): Add dynamic ray allocation
-  uint           src_idx        = probe_idx * kProbeMaxRays;
+  if (args.ray_count == 0)
+  {
+    return;
+  }
+
   uint           backface_count = 0;
   SH::L1_F16_RGB luminance      = SH::L1_F16_RGB::Zero();
-  for (u32 isample = 0; isample < kProbeMaxRays; isample++)
+  for (u32 isample = 0; isample < args.ray_count; isample++)
   {
     GiRayLuminance sample = ray_buffer[src_idx + isample];
     if (all(sample.luminance.m_Value < 0))
@@ -347,7 +439,7 @@ void CS_RtDiffuseGiProbeBlend(uint thread_id : SV_DispatchThreadID, uint group_i
     }
   }
 
-  luminance = luminance * (1.0f / kProbeMaxRays);
+  luminance = luminance * (1.0h / (f16)args.ray_count);
 
   DiffuseGiProbe probe = probe_buffer[probe_idx];
 
@@ -410,5 +502,9 @@ void CS_RtDiffuseGiProbeBlend(uint thread_id : SV_DispatchThreadID, uint group_i
     probe.luminance    = err;
   }
 
+  if (probe.sample_count < 0xFFFFFFFE)
+  {
+    probe.sample_count   += args.ray_count;
+  }
   probe_buffer[probe_idx] = probe;
 }

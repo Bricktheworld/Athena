@@ -108,7 +108,7 @@ struct RenderSettings
 
   Vec2  mouse_pos                = Vec2(0.0f, 0.0f);
   s32   forced_model_lod         = -1;
-  u32   __pad2__;
+  u32   diffuse_gi_ray_budget    = 32896;
 
   Vec3  diffuse_gi_probe_spacing = Vec3(1.0f, 1.8f, 1.0f);
 
@@ -149,6 +149,7 @@ inline RenderSettingsGpu to_gpu_render_settings(const RenderSettings& settings)
   ret.enabled_debug_draw        = settings.enabled_debug_draw;
   ret.freeze_gi_probe_rotation  = settings.freeze_probe_rotation;
   ret.mouse_pos                 = settings.mouse_pos;
+  ret.diffuse_gi_ray_budget     = settings.diffuse_gi_ray_budget;
   ret.disable_frustum_culling   = settings.disable_frustum_culling;
   ret.disable_occlusion_culling = settings.disable_occlusion_culling;
   ret.freeze_occlusion_culling  = settings.freeze_occlusion_culling;
@@ -497,6 +498,8 @@ struct RenderBuffers
   TemporalResource<Texture2DArray<u32>> probe_page_table;
   StructuredBuffer<DiffuseGiProbe> probe_buffer;
   StructuredBuffer<GiRayLuminance> ray_luminance;
+  StructuredBuffer<GiRayAlloc> ray_allocs;
+  StructuredBuffer<u32> probe_atomic_counters;
 
   // Due to issues with render target aliasing, blits must be done at different times
   // but they all end up in this buffer

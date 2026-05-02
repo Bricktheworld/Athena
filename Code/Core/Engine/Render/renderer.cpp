@@ -456,9 +456,11 @@ init_render_buffers(
   alloc_render_target                 (&ret.tonemapped_buffer,        "Tone Mapping Buffer",                w,                       h, kGpuFormatRGBA16Float,   kRenderLayerPost,        kRenderLayerSubmit);
 
   // DDGI
-  alloc_temporal_scratch_texture_array(&ret.probe_page_table, "RT Diffuse GI - Probe Page Table", kProbeCountPerClipmap.x, kProbeCountPerClipmap.z, kProbeCountPerClipmap.y * kProbeClipmapCount);
-  alloc_structured_buffer             (&ret.probe_buffer,     "RT Diffuse GI - Luminance Probe Buffer",     sizeof(DiffuseGiProbe) * kProbeMaxActiveCount);
-  alloc_structured_buffer             (&ret.ray_luminance,    "RT Diffuse GI - Ray Luminance Data",         sizeof(GiRayLuminance) * kProbeMaxRayCount,          kRenderLayerRtDiffuseGi, kRenderLayerRtDiffuseGi);
+  alloc_temporal_scratch_texture_array(&ret.probe_page_table,         "RT Diffuse GI - Probe Page Table", kProbeCountPerClipmap.x, kProbeCountPerClipmap.z, kProbeCountPerClipmap.y * kProbeClipmapCount);
+  alloc_structured_buffer             (&ret.probe_buffer,             "RT Diffuse GI - Luminance Probe Buffer", sizeof(DiffuseGiProbe) * kProbeMaxActiveCount);
+  alloc_structured_buffer             (&ret.ray_luminance,            "RT Diffuse GI - Ray Luminance Data",     sizeof(GiRayLuminance) * kProbeMaxRayCount,      kRenderLayerRtDiffuseGi, kRenderLayerRtDiffuseGi);
+  alloc_structured_buffer             (&ret.ray_allocs,               "RT Diffuse GI - Ray Alloc Arguments",    sizeof(GiRayAlloc)     * kProbeMaxActiveCount,   kRenderLayerInit,        kRenderLayerRtDiffuseGi);
+  alloc_structured_buffer             (&ret.probe_atomic_counters,    "RT Diffuse GI - Total Inconsistency",    sizeof(u32) * 2,                                 kRenderLayerInit,        kRenderLayerRtDiffuseGi);
 
   // Debug only (must be alive the entire frame)
   alloc_render_target                 (&ret.debug_buffer,             "Debug Buffer",                       w,                       h, kGpuFormatRGBA16Float);
@@ -805,6 +807,7 @@ init_engine_psos(EnginePSOLibrary* library, const SwapChain* swap_chain)
   REGISTER_COMPUTE_PSO(library, CS_RtDiffuseGiPageTableReproject);
   REGISTER_COMPUTE_PSO(library, CS_RtDiffuseGiTraceRays);
   REGISTER_COMPUTE_PSO(library, CS_RtDiffuseGiProbeBlend);
+  REGISTER_COMPUTE_PSO(library, CS_RtDiffuseGiAllocRays);
   REGISTER_COMPUTE_PSO(library, CS_DebugDrawInitMultiDrawIndirectArgs);
   REGISTER_COMPUTE_PSO(library, CS_DoFCoC);
   REGISTER_COMPUTE_PSO(library, CS_DoFBokehBlur);

@@ -281,7 +281,7 @@ struct RenderSettingsGpu
   u32    __pad0__;
 
   Vec2   mouse_pos;
-  u32    __pad1__;
+  u32    diffuse_gi_ray_budget;
   u32    __pad2__;
 
   Vec3   diffuse_gi_probe_spacing;

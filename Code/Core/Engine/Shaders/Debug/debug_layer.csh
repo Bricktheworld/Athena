@@ -72,10 +72,9 @@ void CS_DebugGiVariance(uint2 global_thread_id : SV_DispatchThreadID)
     return;
   }
 
-  float  depth     = gbuffer_depth[global_thread_id];
-  float4 scene_lit = lighting[global_thread_id];
-  float3 ws_pos    = screen_to_world(float3(float2(global_thread_id) + 0.5f, depth), screen_size).xyz;
-  float3 normal    = gbuffer_normal_roughness[global_thread_id].xyz;
+  float  depth   = gbuffer_depth[global_thread_id];
+  float3 ws_pos  = screen_to_world(float3(float2(global_thread_id) + 0.5f, depth), screen_size).xyz;
+  float3 normal  = gbuffer_normal_roughness[global_thread_id].xyz;
 
   float  vbbr = get_indirect_vbbr(ws_pos, normal, diffuse_gi_page_table, diffuse_gi_probes);
 

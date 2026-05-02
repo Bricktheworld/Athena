@@ -149,6 +149,7 @@ render_handler_debug_ui(const RenderEntry*, u32)
 
   ImGui::Checkbox("Disable TAA", &g_Renderer.settings.disable_taa);
   ImGui::Checkbox("Disable Diffuse GI", &g_Renderer.settings.disable_diffuse_gi);
+  ImGui::DragInt("Diffuse GI Ray Budget", (s32*)&g_Renderer.settings.diffuse_gi_ray_budget, 128, kProbeMaxActiveCount, kProbeMaxRayCount);
   ImGui::Checkbox("Disable HDR", &g_Renderer.settings.disable_hdr);
   ImGui::Checkbox("Disable DoF", &g_Renderer.settings.disable_dof);
   ImGui::Checkbox("Disable Frustum Culling", &g_Renderer.settings.disable_frustum_culling);
